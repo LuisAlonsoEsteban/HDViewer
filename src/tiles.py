@@ -1,4 +1,5 @@
 
+import numpy as np
 from PIL import Image
 
 from flask import Flask, send_file, abort
@@ -8,6 +9,11 @@ from tqdm import tqdm
 import math
 
 import threading
+import pickle
+
+from tqdm import tqdm
+import geopandas as gpd
+from shapely import Polygon
 
 class ImageTiles:
     
@@ -15,13 +21,16 @@ class ImageTiles:
     Class to handle image tiles.
     """
 
-    tiles_path = './'
+    tiles_path = './tiles'
     filename_pattern = 'z{zoom}_x{x}_y{y}.png'
 
-    def __init__(self, image, tiles_path, tile_size=256):
-        self.image = image
+    segmentation_path = './StarDist'
+
+    def __init__(self, image, tiles_path, segm_path, tile_size=256):
+        self.image = np.flipud(image)
         self.tiles_path = tiles_path
         self.tile_size = tile_size
+        self.segm_path = segm_path
 
     @property
     def max_zoom(self):
@@ -31,6 +40,18 @@ class ImageTiles:
         base_width, base_height = self.image.shape[:2]
         max_dim = max(base_width, base_height)
         return max(0, math.floor(math.log(max_dim / self.tile_size, 2)))
+    
+    @property
+    def scale_xfactor(self):
+        base_width, base_height = self.image.shape[:2]
+        max_dim = max(base_width, base_height)
+        return max_dim / base_height
+    
+    @property
+    def scale_yfactor(self):
+        base_width, base_height = self.image.shape[:2]
+        max_dim = max(base_width, base_height)
+        return max_dim / base_width
 
     def clean_tiles(self):
         """
@@ -111,3 +132,35 @@ class ImageTiles:
 
         # Run the Flask app in a separate thread
         threading.Thread(target=run_app).start()
+
+    def segment_image(self, axes='YXC', block_size=4096, prob_thresh=0.01,nms_thresh=0.001, min_overlap=128, context=128, normalizer=None, n_tiles=(4,4,1)):
+        labels_path = os.path.join(self.segm_path, 'labels.pickle')
+        polys_path = os.path.join(self.segm_path, 'polys.pickle')
+
+        if os.path.exists(labels_path) and os.path.exists(polys_path):
+            # Load the labels and polys from files
+            with open(labels_path, 'rb') as f:
+                labels = pickle.load(f)
+            with open(polys_path, 'rb') as f:
+                polys = pickle.load(f)
+            print("Loaded labels and polys from disk.")
+        else:           
+            from stardist.models import StarDist2D 
+            model = StarDist2D.from_pretrained('2D_versatile_he')
+            labels, polys = model.predict_instances_big(self.image, axes=axes, block_size=block_size, prob_thresh=prob_thresh, nms_thresh=nms_thresh, min_overlap=min_overlap, context=context, normalizer=normalizer, n_tiles=n_tiles)
+            
+            with open(labels_path, 'wb') as f:
+                pickle.dump(labels, f, protocol=pickle.HIGHEST_PROTOCOL)
+            with open(polys_path, 'wb') as f:
+                pickle.dump(polys, f, protocol=pickle.HIGHEST_PROTOCOL)
+            print("Computed labels and polys and saved to disk.")
+
+        return labels, polys
+
+    def get_cells_gdf(self, polys):
+        geometries = []
+        for nuclei in tqdm(range(len(polys['coord']))):
+            coords = [(y * self.scale_xfactor, x * self.scale_yfactor) for x, y in zip(polys['coord'][nuclei][0], polys['coord'][nuclei][1])]
+            geometries.append(Polygon(coords))
+
+        return gpd.GeoDataFrame(geometry=geometries)

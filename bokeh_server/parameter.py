@@ -39,18 +39,21 @@ class StaticParameter(Parameter):
 
 class DynamicParameter(Parameter):
 
-    def __init__(self, colname, attr='color', static_not_sequenced=True, not_sequenced_val="#f5f5f5"):
+    def __init__(self, colname, attr='color', min_counts=0.0, max_counts=None, static_not_sequenced=True, not_sequenced_val="#f5f5f5"):
         super().__init__(is_static=False)
 
         self.colname = colname
         self.attr = attr
+
+        self.min_counts = min_counts
+        self.max_counts = max_counts
 
         self.static_not_sequenced = static_not_sequenced
         self.not_sequenced_val = not_sequenced_val
 
     def handle_nans(self, series):
         not_sequenced = series.isna()
-        series[not_sequenced] = self.not_sequenced_val
+        series.loc[not_sequenced] = self.not_sequenced_val
         return series, ~not_sequenced
     
     def apply_filter(self, series, sequenced):
@@ -88,10 +91,8 @@ class Scaler(DynamicParameter):
         self.maxv = maxv
 
     def scale_values(self, values):
-        min_val = min(values)
-        max_val = max(values)
-        range_val = max_val - min_val if max_val != min_val else 1
-        scaled_values = [self.minv + (value - min_val) * (self.maxv - self.minv) / range_val for value in values]
+        range_val = self.max_counts - self.min_counts if self.max_counts != self.min_counts else 1
+        scaled_values = [self.minv + (value - self.min_counts) * (self.maxv - self.minv) / range_val for value in values]
         return scaled_values
 
     def apply_filter(self, series, sequenced):
@@ -110,9 +111,9 @@ class Scaler(DynamicParameter):
         else:
             return self.scale_values(series)
     
-    def update(self, series, new_min=None, new_max=None):
-        if new_min is not None:
-            self.minv = new_min
-        if new_max is not None:
-            self.maxv = new_max
+    def update(self, series, new_minv=None, new_maxv=None):
+        if new_minv is not None:
+            self.minv = new_minv
+        if new_maxv is not None:
+            self.maxv = new_maxv
         return self.get_values(series)

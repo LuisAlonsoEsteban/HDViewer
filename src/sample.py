@@ -6,15 +6,30 @@ class Sample:
 
     _max_y = None
 
-    def __init__(self, gdf, adata=None, on='id'):
+    def __init__(
+            self, 
+            gdf, 
+            adata=None, 
+            pixels_per_bin=None, 
+            on='id'):
+        
         self.gdf = gdf
         self.adata = adata
 
+        self.pixels_per_bin = pixels_per_bin
+
         self.on = on
-        assert self.on in self.gdf.columns, "On parameter is incorrect. It must be a column of both 'gdf' and 'adata.obs'"
+        if self.adata is not None:
+            assert self.on in self.gdf.columns, "On parameter is incorrect. It must be a column of both 'gdf' and 'adata.obs'"
                 
     def has_adata(self):
         return self.adata is not None
+    
+    def get_range(self, colname):
+        if colname in self.adata.var_names:
+            return self.adata[:, colname].X.min(), self.adata[:, colname].X.max()
+        elif colname in self.adata.obs.columns:
+            return self.adata.obs[colname].min(), self.adata.obs[colname].max()
     
     def crop_geom(self, left, right, top, bottom):
         return self.gdf.cx[left:right, bottom:top].copy()
@@ -55,31 +70,32 @@ class Sample:
             value_df = self.get_adata_vector(adata, colname)
             value_df[self.on] = value_df.index.astype(gdf[self.on].dtype)
             
-            merged_gdf = gdf.merge(value_df, on=self.on, how='left').copy()
+            merged_gdf = gdf.reset_index().merge(value_df, on=self.on, how='left').set_index('index')
 
             return merged_gdf[colname]
-
         else:
             raise ValueError(f"'{colname}' not found in geometries, and AnnData not available")
 
     
     def fetch_data(self, bbox=None, colnames=None, return_coords=True) -> pd.DataFrame:
         if bbox is not None:
-            cropped_gdf, cropped_adata = self.crop(*bbox, crop_adata=True)
+            if self.has_adata():
+                cropped_gdf, cropped_adata = self.crop(*bbox, crop_adata=True)
+            else:
+                cropped_gdf = self.crop(*bbox, crop_adata=False)
         else:
             cropped_gdf, cropped_adata = self.gdf, self.adata
 
         if return_coords:
             data = self.get_coordinates(cropped_gdf)
         else:
-            data = dict()
+            data = pd.DataFrame()
 
         if colnames is not None:
             if isinstance(colnames, str):
                 colnames = [colnames]
             for colname in colnames:
                 data[colname] = self.get_value(cropped_adata, cropped_gdf, colname)
-
         return data
 
         
@@ -112,3 +128,12 @@ class Spots(Sample):
     
     def get_y(self, geom):
         return geom.centroid.y
+
+class Cells(Sample):
+    def __init__(self, *args, **kwargs):
+        super().__init__(*args, **kwargs)
+
+    def get_coordinates(self, gdf) -> pd.DataFrame:
+        gdf['x'] = gdf.geometry.apply(lambda geom: list(zip(*geom.exterior.coords))[0])
+        gdf['y'] = gdf.geometry.apply(lambda geom: list(zip(*geom.exterior.coords))[1])
+        return gdf[['x', 'y']]

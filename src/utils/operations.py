@@ -47,3 +47,6 @@ def join_and_pool(adata, gdf1, gdf2, keep_cols=["array_row", "array_col"], predi
     join_adata.obsm = {'spatial': join_adata.obs[['array_row', 'array_col']].values}
 
     return join_adata
+
+def join_an_pool_cells(adata, gdf):
+    pass

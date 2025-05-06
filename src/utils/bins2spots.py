@@ -16,7 +16,15 @@ from .geom import create_square
 
 class Bins2Spots:
 
-    def __init__(self, adata, tissue_positions, bins_size=None, pixels_per_bin:float=None):
+    def __init__(self, 
+                 adata, 
+                 tissue_positions, 
+                 bins_size=None, 
+                 pixels_per_bin:float=None,
+                 tile_scale_xfactor=1.0, 
+                 tile_scale_yfactor=1.0
+                 ):
+        
         self.adata_hd = adata
         self.df_tissue_positions = tissue_positions
 
@@ -26,6 +34,9 @@ class Bins2Spots:
         self._bin_points = None
         self._spot_polygons = None
         self.adata_v2 = None
+
+        self.tile_scale_xfactor = tile_scale_xfactor
+        self.tile_scale_yfactor = tile_scale_yfactor
 
 
     @property
@@ -45,7 +56,7 @@ class Bins2Spots:
 
     
     def create_bin_points(self, subset=False):
-        geometry = [create_square(Point(y,x), self.converter.visiumHD.pixels_per_bin) 
+        geometry = [create_square(Point(y * self.tile_scale_xfactor, x * self.tile_scale_yfactor), self.converter.visiumHD.pixels_per_bin) 
                     for (x,y) in tqdm(zip(self.df_tissue_positions['pxl_row_in_fullres'], self.df_tissue_positions['pxl_col_in_fullres']))]
         self._bin_points = gpd.GeoDataFrame(self.df_tissue_positions, geometry=geometry)
         return self._bin_points[self._bin_points["in_tissue"]] if subset else self._bin_points
@@ -72,8 +83,8 @@ class Bins2Spots:
                 scaled_x = self.converter.spots2pixels(x, axis=0, shift=self.converter.visiumV2.SPOT_DIAMETER / 2)
                 scaled_y = self.converter.spots2pixels(y, axis=1, shift=self.converter.visiumV2.SPOT_DIAMETER / 2)
                 # metadata['pxl_row_in_fullres'].append(scaled_x)
-                metadata['pxl_row_in_fullres'].append(max_scaled_x - scaled_x) # # Note that the direction of 'array_row' and 'pxl_row_in_fullres' are switched: as one increases, the other decreases and viceversa
-                metadata['pxl_col_in_fullres'].append(scaled_y)
+                metadata['pxl_row_in_fullres'].append(self.tile_scale_xfactor * (max_scaled_x - scaled_x)) # # Note that the direction of 'array_row' and 'pxl_row_in_fullres' are switched: as one increases, the other decreases and viceversa
+                metadata['pxl_col_in_fullres'].append(self.tile_scale_yfactor * scaled_y)
 
                 spots.append(Point(scaled_y, scaled_x).buffer(scaled_radius))
 
@@ -109,9 +120,9 @@ class Bins2Spots:
         polygon_id = []
         coords = {'array_row': [], 'array_col': [], 'pxl_row_in_fullres': [], 'pxl_col_in_fullres': []}
 
-        for row, ((polygons, arr_row, arr_col, pxl_row, pxl_col), idx_) in enumerate(groupby_object.indices.items()):
+        for row, ((id, arr_row, arr_col, pxl_row, pxl_col), idx_) in enumerate(groupby_object.indices.items()):
             summed_counts[row] = counts[idx_].sum(0)
-            polygon_id.append(polygons)
+            polygon_id.append(id)
             coords['array_row'].append(arr_row)
             coords['array_col'].append(arr_col)
             coords['pxl_row_in_fullres'].append(pxl_row)

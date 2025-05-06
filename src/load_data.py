@@ -6,7 +6,6 @@ from tifffile import imread
 import pandas as pd
 import scanpy as sc
 
-
 class DataSet:
 
     img = None
@@ -23,11 +22,11 @@ class DataSet:
             bins_size:str = None
             ):
         
-        
-        self.img_path = img_path or os.path.join(dir_base, img_file)
+        self.dir_base = dir_base
+        self.img_path = img_path or os.path.join(self.dir_base, img_file)
 
-        self.adata_path = adata_path or os.path.join(dir_base, f"binned_outputs/square_{bins_size:03}um/filtered_feature_bc_matrix.h5")
-        self.positions_path = positions_path or os.path.join(dir_base, f"binned_outputs/square_{bins_size:03}um/spatial/tissue_positions.parquet")
+        self.adata_path = adata_path or self.get_default_path(bins_size, data='adata')
+        self.positions_path = positions_path or self.get_default_path(bins_size, data='positions')
 
         if bins_size:
             self.bins_size = bins_size
@@ -44,6 +43,28 @@ class DataSet:
             raise ValueError(f"Path {path} has no parent directory on which bins size can be retrieved.")
         except AttributeError:
             raise ValueError(f"Path {path} has no bins size in it. You must provide it.")
+        
+    def get_available_sizes(self):
+        if self.dir_base and os.path.exists(self.dir_base):
+            base_path = os.path.join(self.dir_base, "binned_outputs")
+            pattern = re.compile(r'square_(\d{3})um')
+            available_sizes = []
+            for entry in os.scandir(base_path):
+                if entry.is_dir() and pattern.search(entry.name):
+                    size = pattern.search(entry.name).group(1)
+                    available_sizes.append(int(size))
+            return available_sizes
+        else:
+            raise ValueError
+
+    def get_default_path(self, bins_size:str, data='adata'):
+        base_path = os.path.join(self.dir_base, f"binned_outputs/square_{bins_size:03}um")
+        if data == 'adata':
+            return os.path.join(base_path, "filtered_feature_bc_matrix.h5")
+        elif data == 'positions':
+            return os.path.join(base_path, "spatial", "tissue_positions.parquet")
+        elif data == 'both':
+            return self.get_default_path(bins_size, data='adata'), self.get_default_path(bins_size, data='positions')
         
     def read_img(self):
         self.img = imread(self.img_path)
@@ -80,7 +101,7 @@ class DataSet:
 
     def is_data_loaded(self):
         return self._adata is not None and self._df_tissue_positions is not None
-    
+
     def merge_data(self):
         self._adata.obs =  pd.merge(self._adata.obs, self._df_tissue_positions, left_index=True, right_index=True)
 
@@ -92,5 +113,26 @@ class DataSet:
         self.read_adata()
         self.read_positions()
         return self.img, self.adata, self.df_tissue_positions
+    
+    def get_available_resolutions(self):
+        results = {}
+        if self.dir_base is None:
+            return results
 
+        for bs in self.get_available_sizes():
+            adata_path, positions_path = self.get_default_path(bs, data='both')
+            dataset = DataSet(
+                img_path=self.img_path,
+                adata_path=adata_path,
+                positions_path=positions_path,
+                bins_size=bs
+            )
+            dataset.read_adata()
+            dataset.read_positions()
+            results[bs] = (
+                dataset.adata,
+                dataset.df_tissue_positions
+            )
+            print(f"Data with bin size {bs} loaded")
 
+        return results
