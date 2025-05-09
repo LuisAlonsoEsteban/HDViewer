@@ -39,7 +39,17 @@ class StaticParameter(Parameter):
 
 class DynamicParameter(Parameter):
 
-    def __init__(self, colname, attr='color', min_counts=0.0, max_counts=None, static_not_sequenced=True, not_sequenced_val="#f5f5f5"):
+    def __init__(
+            self, 
+            colname, 
+            attr='color', 
+            min_counts=0.0, 
+            max_counts=None, 
+            static_not_sequenced=True, 
+            not_sequenced_val="#f5f5f5",
+            colname_hovered=False
+            ):
+        
         super().__init__(is_static=False)
 
         self.colname = colname
@@ -50,6 +60,8 @@ class DynamicParameter(Parameter):
 
         self.static_not_sequenced = static_not_sequenced
         self.not_sequenced_val = not_sequenced_val
+
+        self.colname_hovered = colname_hovered
 
     def handle_nans(self, series):
         not_sequenced = series.isna()
@@ -69,18 +81,18 @@ class Color(DynamicParameter):
 
     def __init__(self, c1, c2, *args, **kwargs):
         super().__init__(*args, **kwargs)
-        self.cmap = Color.get_cmap(c1, c2)
+    #     self.cmap = Color.get_cmap(c1, c2)
 
-    @staticmethod
-    def get_cmap(color1, color2, name='custom_diverging'):
-        return mcolors.LinearSegmentedColormap.from_list(
-                name, 
-                [color1, color2]
-            )
+    # @staticmethod
+    # def get_cmap(color1, color2, name='custom_diverging'):
+    #     return mcolors.LinearSegmentedColormap.from_list(
+    #             name, 
+    #             [color1, color2]
+    #         )
     
-    def apply_filter(self, values):
-        norm = mcolors.Normalize(vmin=min(values), vmax=max(values))
-        return self.cmap(norm(values))
+    # def apply_filter(self, values):
+    #     norm = mcolors.Normalize(vmin=min(values), vmax=max(values))
+    #     return self.cmap(norm(values))
 
 
 class Scaler(DynamicParameter):
@@ -113,7 +125,7 @@ class Scaler(DynamicParameter):
     
     def update(self, series, new_minv=None, new_maxv=None):
         if new_minv is not None:
-            self.minv = new_minv
+            self.minv = new_minv if new_minv < self.maxv else self.maxv
         if new_maxv is not None:
-            self.maxv = new_maxv
+            self.maxv = new_maxv if new_maxv > self.minv else self.minv
         return self.get_values(series)

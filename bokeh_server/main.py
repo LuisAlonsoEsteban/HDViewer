@@ -5,7 +5,6 @@ from bokeh.plotting import figure, curdoc
 
 import os
 
-
 from .manager import SourceManager, DynamicSourceManager
 
 import sys
@@ -14,6 +13,7 @@ from src.load_data import DataSet
 from src.tiles import ImageTiles
 from src.utils.bins2spots import Bins2Spots
 from src.sample import Bins, Spots, Cells
+from src.utils.operations import CellsPooler
 
 # Constants
 INITIAL_COLOR = '#6baed6'
@@ -89,10 +89,6 @@ b2s = Bins2Spots(
 
 INITIAL_GENE = adata.var_names.tolist()[2]
 
-## Gene input
-gene_pool = adata.var_names.tolist() + adata.obs.columns.tolist()
-gene_input = AutocompleteInput(title="Gene/Metadata", value=INITIAL_GENE, completions=gene_pool, min_characters=2, case_sensitive=False, restrict=True)
-
 # Spots
 from .parameter import Scaler, StaticParameter
 
@@ -165,17 +161,20 @@ def on_checkbox_change(attr, old, new):
 
 checkbox.on_change('active', on_checkbox_change)
 
+# Gene input
+spots_gene_pool = spots.adata.var_names.tolist() + spots.adata.obs.columns.tolist()
+spots_gene_input = AutocompleteInput(title="Gene/Metadata", value=INITIAL_GENE, completions=spots_gene_pool, min_characters=2, case_sensitive=False, restrict=True)
 
-def on_input_change(attr, old, new):
-    print("Changing gene")
+def on_spots_input_change(attr, old, new):
+    print("Changing spots gene")
     def update_gene():
         spots_manager.update_colname(old, new)
         spots_manager.fetch_data()
     doc.add_next_tick_callback(update_gene)
 
-gene_input.on_change('value', on_input_change)
+spots_gene_input.on_change('value', on_spots_input_change)
 
-# layout = row(p, column(img_alpha_slider, checkbox, spots_alpha_slider, spots_color_picker, gene_input))
+# layout = row(p, column(img_alpha_slider, checkbox, spots_alpha_slider, spots_color_picker, gene_input, spots_gene_input))
 
 ## Bins
 from .loader import Loader
@@ -187,12 +186,13 @@ samples = dict()
 #         b2s = Bins2Spots(adata, df_tissue_positions, bins_size=bins_size)
 #         samples[bins_size] = Bins(b2s.bin_points, b2s.adata_hd, on='index', pixels_per_bin=b2s.converter.visiumHD.pixels_per_bin)
 
-samples[dataset.bins_size] = Bins(
-    b2s.bin_points, 
+bins = Bins(
+    b2s.bin_squares, 
     b2s.adata_hd, 
     on='index', 
     pixels_per_bin=b2s.converter.visiumHD.pixels_per_bin
 )
+samples[dataset.bins_size] = bins
 
 loader = Loader(samples)
 
@@ -293,27 +293,39 @@ def update_spots_color(attr, old, new):
 
 bins_color_picker.on_change('color', update_spots_color)
 
-def on_input_change(attr, old, new):
-    print("Changing gene")
+# Gene input
+bins_gene_pool = bins.adata.var_names.tolist() + bins.adata.obs.columns.tolist()
+bins_gene_input = AutocompleteInput(title="Gene/Metadata", value=INITIAL_GENE, completions=bins_gene_pool, min_characters=2, case_sensitive=False, restrict=True)
+
+def on_bins_input_change(attr, old, new):
+    print("Changing bins gene")
     def update_gene():
         loader.manager.update_colname(old, new)
         loader.manager.add_data(bbox=[10000,13000,10000,13000])
     doc.add_next_tick_callback(update_gene)
 
-gene_input.on_change('value', on_input_change)
+bins_gene_input.on_change('value', on_bins_input_change)
 
-# layout = row(p, column(gene_input, bins_color_picker, bins_checkbox))
+# layout = row(p, column(gene_input, bins_color_picker, bins_checkbox, bins_gene_input))
 
 
 ## Cells
 cells_gdf = image_tiles.get_cells_gdf(image_tiles.segment_image()[1])
-# cells_adata = f
-cells = Cells(cells_gdf)
+cells_pooler = CellsPooler(b2s.bin_squares, adata, cells_gdf, keep_cols=[])
+
+cells_adata = cells_pooler.run(predicate='intersects')
+
+cells = Cells(cells_gdf, cells_adata)
 cells_manager = DynamicSourceManager(cells)
 
-cells_manager.add_parameter(StaticParameter(1.0, attr='alpha'))
+cells_manager.add_parameter(Scaler(0, 1, 
+                                   INITIAL_GENE, 
+                                   attr='alpha', 
+                                   static_not_sequenced=True,
+                                   not_sequenced_val=0.3
+                                ))
 cells_manager.add_parameter(StaticParameter(INITIAL_COLOR, attr='color'))
-cells_manager.add_parameter(StaticParameter(0, attr='line_width'))
+cells_manager.add_parameter(StaticParameter(0.7, attr='line_width', not_sequenced_val=0))
 cells_manager.add_data(bbox=[10000,13000,10000,13000])
 
 angle = b2s.get_rotation(rad=True)
@@ -331,9 +343,9 @@ patch_glyph = p.patches(
 cells_alpha_slider = Slider(start=0.0, end=1.0, value=1.0, step=0.05, title="Cells alpha")
 
 def update_cells_alpha(attr, old, new):
-    print("Changing alpha")
+    print("Changing cells alpha")
     def weight_alpha():
-        cells_manager.update_param('alpha', new_val=new)
+        cells_manager.update_param('alpha', new_maxv=new)
     doc.add_next_tick_callback(weight_alpha)
 
 cells_alpha_slider.on_change('value', update_cells_alpha)
@@ -350,19 +362,34 @@ cells_checkbox.on_change('active', on_checkbox_change)
 # Color picker
 cells_color_picker = ColorPicker(title="Select Cells Color", color=INITIAL_COLOR)
 def update_cells_color(attr, old, new):
-    print("Changing color")
+    print("Changing cells color")
     def update_color():
         cells_manager.update_param('color', new_val=new)
     doc.add_next_tick_callback(update_color)
 
 cells_color_picker.on_change('color', update_cells_color)
 
+# Gene input
+cells_gene_pool = cells.adata.var_names.tolist() + cells.adata.obs.columns.tolist()
+cells_gene_input = AutocompleteInput(title="Gene/Metadata", value=INITIAL_GENE, completions=cells_gene_pool, min_characters=2, case_sensitive=False, restrict=True)
+
+def on_cells_input_change(attr, old, new):
+    print("Changing cells gene")
+    def update_gene():
+        cells_manager.update_colname(old, new)
+        cells_manager.add_data(bbox=[10000,13000,10000,13000])
+    doc.add_next_tick_callback(update_gene)
+
+cells_gene_input.on_change('value', on_cells_input_change)
+
+# layout = row(p, column(cells_checkbox, cells_alpha_slider, cells_color_picker, cells_gene_input))
+
 
 layout = row(
             column(p, img_alpha_slider),
-            column(checkbox, spots_alpha_slider, spots_color_picker, gene_input), 
-            column(bins_checkbox, bins_alpha_slider, bins_color_picker), 
-            column(cells_checkbox, cells_alpha_slider)
+            column(checkbox, spots_alpha_slider, spots_color_picker, spots_gene_input), 
+            column(bins_checkbox, bins_alpha_slider, bins_color_picker, bins_gene_input), 
+            column(cells_checkbox, cells_alpha_slider, cells_color_picker, cells_gene_input)
         )
 
 doc.add_root(layout)

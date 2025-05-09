@@ -5,8 +5,6 @@ from bokeh.models import ColumnDataSource
 
 class SourceManager:
 
-    source = ColumnDataSource(data={'x': [], 'y': []})
-    cache = pd.DataFrame()
 
     def __init__(self, sample):
         self.sample = sample
@@ -14,6 +12,9 @@ class SourceManager:
         self.is_empty = True
 
         self.is_sequenced = []
+
+        self.source = ColumnDataSource(data={'x': [], 'y': []})
+        self.cache = pd.DataFrame()
 
     def reset(self):
         self.source = ColumnDataSource(data={'x': [], 'y': []})
@@ -93,7 +94,6 @@ class SourceManager:
             self.source.data[param.attr] = param.update(*args, **kwargs)
         else:
             self.source.data[param.attr] = param.update(self.cache[param.colname].copy(), *args, **kwargs)
-
 
 
 import math

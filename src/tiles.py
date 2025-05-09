@@ -163,4 +163,8 @@ class ImageTiles:
             coords = [(y * self.scale_xfactor, x * self.scale_yfactor) for x, y in zip(polys['coord'][nuclei][0], polys['coord'][nuclei][1])]
             geometries.append(Polygon(coords))
 
-        return gpd.GeoDataFrame(geometry=geometries)
+        gdf = gpd.GeoDataFrame(geometry=geometries)
+        gdf['index'] = [f"ID_{i+1}" for i, _ in enumerate(gdf.index)]
+        gdf.index = gdf['index']
+        gdf.index.name = None
+        return gdf

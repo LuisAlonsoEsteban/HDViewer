@@ -11,7 +11,7 @@ class Sample:
             gdf, 
             adata=None, 
             pixels_per_bin=None, 
-            on='id'):
+            on='index'):
         
         self.gdf = gdf
         self.adata = adata
@@ -20,7 +20,7 @@ class Sample:
 
         self.on = on
         if self.adata is not None:
-            assert self.on in self.gdf.columns, "On parameter is incorrect. It must be a column of both 'gdf' and 'adata.obs'"
+            assert self.on in self.gdf.columns, "On parameter is incorrect. It must be a column of 'gdf'"
                 
     def has_adata(self):
         return self.adata is not None
@@ -38,7 +38,7 @@ class Sample:
         cropped_gdf =  self.crop_geom(left, right, top, bottom)
         if crop_adata:
             cropped_mask = self.adata.obs_names.isin(cropped_gdf.index)
-            cropped_adata = self.adata[cropped_mask, :].copy()
+            cropped_adata = self.adata[cropped_mask, :]
             return cropped_gdf, cropped_adata
         else:
             return cropped_gdf
@@ -62,7 +62,7 @@ class Sample:
         else:
             raise ValueError(f"'{colname}' not found in adata")
          
-    def get_value(self, adata, gdf, colname=None) -> list:
+    def get_value(self, adata, gdf, colname=None):
         if colname in gdf.columns:
             return gdf[colname].values.tolist()
 
@@ -96,7 +96,11 @@ class Sample:
                 colnames = [colnames]
             for colname in colnames:
                 data[colname] = self.get_value(cropped_adata, cropped_gdf, colname)
+
         return data
+    
+    def get_colnames(self):
+        return self.adata.var_names.tolist() + self.adata.obs.columns.tolist()
 
         
 class Bins(Sample):
@@ -137,3 +141,17 @@ class Cells(Sample):
         gdf['x'] = gdf.geometry.apply(lambda geom: list(zip(*geom.exterior.coords))[0])
         gdf['y'] = gdf.geometry.apply(lambda geom: list(zip(*geom.exterior.coords))[1])
         return gdf[['x', 'y']]
+    
+    # def get_value(self, adata, gdf, colname=None) -> list:
+    #     if colname in gdf.columns:
+    #         return gdf[colname].values.tolist()
+
+    #     elif self.has_adata():
+    #         value_df = self.get_adata_vector(adata, colname)
+    #         value_df[self.on] = value_df.index.astype(gdf[self.on].dtype)
+            
+    #         merged_gdf = gdf.merge(value_df, on=self.on, how='left')
+            
+    #         return merged_gdf[colname]
+    #     else:
+    #         raise ValueError(f"'{colname}' not found in geometries, and AnnData not available")

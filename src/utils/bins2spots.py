@@ -12,6 +12,7 @@ from tqdm import tqdm
 
 from .converter import Converter
 from .geom import create_square
+from .operations import Pooler
 
 
 class Bins2Spots:
@@ -31,7 +32,7 @@ class Bins2Spots:
         self.bins_size = bins_size
         self.converter = Converter(pixels_per_bin=pixels_per_bin, df_tissue_positions=tissue_positions, bins_size=bins_size)
 
-        self._bin_points = None
+        self._bin_squares = None
         self._spot_polygons = None
         self.adata_v2 = None
 
@@ -40,10 +41,10 @@ class Bins2Spots:
 
 
     @property
-    def bin_points(self):
-        if self._bin_points is None:
-            self.create_bin_points()
-        return self._bin_points
+    def bin_squares(self):
+        if self._bin_squares is None:
+            self.create_bin_squares()
+        return self._bin_squares
     
     @property
     def spot_polygons(self):
@@ -54,18 +55,17 @@ class Bins2Spots:
     def get_rotation(self, rad=False):
         return self.converter.visiumHD.get_rotation(self.df_tissue_positions, rad=rad)
 
-    
-    def create_bin_points(self, subset=False):
+    def create_bin_squares(self, subset=False):
         geometry = [create_square(Point(y * self.tile_scale_xfactor, x * self.tile_scale_yfactor), self.converter.visiumHD.pixels_per_bin) 
                     for (x,y) in tqdm(zip(self.df_tissue_positions['pxl_row_in_fullres'], self.df_tissue_positions['pxl_col_in_fullres']))]
-        self._bin_points = gpd.GeoDataFrame(self.df_tissue_positions, geometry=geometry)
-        return self._bin_points[self._bin_points["in_tissue"]] if subset else self._bin_points
+        self._bin_squares = gpd.GeoDataFrame(self.df_tissue_positions, geometry=geometry)
+        return self._bin_squares[self._bin_squares["in_tissue"]] if subset else self._bin_squares
 
     def create_spot_polygons(self):
         spots = []
-        metadata = {'id': [], 'array_row': [], 'array_col': [], 'pxl_row_in_fullres': [], 'pxl_col_in_fullres': []}
+        metadata = {'index': [], 'array_row': [], 'array_col': [], 'pxl_row_in_fullres': [], 'pxl_col_in_fullres': []}
         
-        nbins_rows, nbins_cols = pd.unique(self.bin_points["array_row"]).shape[0], pd.unique(self.bin_points["array_col"]).shape[0] 
+        nbins_rows, nbins_cols = pd.unique(self.bin_squares["array_row"]).shape[0], pd.unique(self.bin_squares["array_col"]).shape[0] 
         nspots_rows = int(self.converter.bins2spots(nbins_rows, axis=0))
         nspots_cols = int(self.converter.bins2spots(nbins_cols, axis=1))
 
@@ -74,7 +74,7 @@ class Bins2Spots:
         max_scaled_x = self.converter.spots2pixels(nspots_rows)
         for i, x in enumerate(tqdm(range(nspots_rows))):
             for y in range(i % 2, nspots_cols, 2):
-                metadata['id'].append(id)
+                metadata['index'].append(id)
                 id += 1
 
                 metadata['array_row'].append(x)
@@ -91,52 +91,18 @@ class Bins2Spots:
         self._spot_polygons = gpd.GeoDataFrame(metadata, geometry=spots)
 
         return self._spot_polygons
-
-    def join(self):
-        points = self.bin_points
-        polygons = self.spot_polygons
-        
-        result_spatial_join = gpd.sjoin(points, polygons, how='right', predicate='within')
-        result_spatial_join.index = result_spatial_join['index']
-        result_spatial_join[["array_row", "array_col"]] = result_spatial_join[["array_row_right", "array_col_right"]]
-        result_spatial_join[["pxl_row_in_fullres", "pxl_col_in_fullres"]] = result_spatial_join[["pxl_row_in_fullres_right", "pxl_col_in_fullres_right"]]
-
-        filtered_obs_mask = self.adata_hd.obs_names.isin(result_spatial_join['index'])
-        filtered_adata = self.adata_hd[filtered_obs_mask, :]
-        filtered_adata.obs.drop(['array_row', 'array_col', 'pxl_row_in_fullres','pxl_col_in_fullres'], axis=1, inplace=True)
-
-        # Add the results of the point spatial join to the Anndata object
-        filtered_adata.obs = pd.merge(filtered_adata.obs, result_spatial_join[['id', 'array_row', 'array_col', 'pxl_row_in_fullres','pxl_col_in_fullres', 'geometry']], left_index=True, right_index=True)
-
-        return filtered_adata
-
-    def pool_spots(self, filtered_adata):
-        # Group the data by unique spot IDs
-        groupby_object = filtered_adata.obs.groupby(['id', 'array_row', 'array_col', 'pxl_row_in_fullres','pxl_col_in_fullres'], observed=True)
-        counts = filtered_adata.X if 'counts' not in filtered_adata.layers.keys() else filtered_adata.layers['counts']
-
-        # Initialize a sparse matrix to store the summed gene counts for each spot
-        summed_counts = sparse.lil_matrix((groupby_object.ngroups, counts.shape[1]))
-        polygon_id = []
-        coords = {'array_row': [], 'array_col': [], 'pxl_row_in_fullres': [], 'pxl_col_in_fullres': []}
-
-        for row, ((id, arr_row, arr_col, pxl_row, pxl_col), idx_) in enumerate(groupby_object.indices.items()):
-            summed_counts[row] = counts[idx_].sum(0)
-            polygon_id.append(id)
-            coords['array_row'].append(arr_row)
-            coords['array_col'].append(arr_col)
-            coords['pxl_row_in_fullres'].append(pxl_row)
-            coords['pxl_col_in_fullres'].append(pxl_col)
-
-        summed_counts = summed_counts.tocsr()
-        self.adata_v2 = sc.AnnData(X=summed_counts, obs=pd.DataFrame(coords, index=polygon_id), var=filtered_adata.var)
-        self.adata_v2.obsm = {'spatial': self.adata_v2.obs[['pxl_row_in_fullres', 'pxl_col_in_fullres']].values}
-
-        return self.adata_v2
     
     def convert(self, normalize=True):
-        self.pool_spots(self.join())
+        pooler = Pooler(
+            self.bin_squares, 
+            self.adata_hd, 
+            self.spot_polygons,
+            keep_cols=['array_row', 'array_col', 'pxl_row_in_fullres','pxl_col_in_fullres']
+        )
+        self.adata_v2 = pooler.run(predicate='intersects')
+
         if normalize:
             sc.pp.normalize_total(self.adata_hd, target_sum=1e4)
             sc.pp.normalize_total(self.adata_v2, target_sum=1e4)
+        
         return self.adata_v2 
