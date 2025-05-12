@@ -1,30 +1,28 @@
 
-import math
 from time import sleep
 
-from manager import DynamicSourceManager
+class LazyLoader:
 
-class Loader:
+    STATIC_RANGE = 0.5
+    OFFSET = 0.5
 
-    OPTIMAL_BINS_AT_WINDOW = 50
+    assert STATIC_RANGE <= OFFSET, "Offset must be larger than the static range for efficient loading"
 
-    def __init__(self, samples:dict):
-        self.samples = samples
-        self.optimal_resolution_sample = self.samples[max(self.samples.keys())]
-        self.manager = DynamicSourceManager(self.optimal_resolution_sample) 
+    def __init__(self, dynamic_source_manager, p):
+        self.manager = dynamic_source_manager
 
-        self.x_range = None
-        self.y_range = None
+        self.x_range = p.x_range
+        self.y_range = p.y_range
 
-        self.is_visible = False 
-
-    @property
-    def pixels_per_bin(self):
-        return self.optimal_resolution_sample.pixels_per_bin
+        self.fixed_static_bbox = None
 
     @property
     def window_size(self):
         return self.x_range.end - self.x_range.start, self.y_range.end - self.y_range.start
+    
+    @property
+    def npixels(self):
+        return self.window_size[0] * self.window_size[1]
     
     @property
     def x(self):
@@ -35,111 +33,53 @@ class Loader:
         return (self.y_range.start + self.y_range.end) / 2
     
     @property
-    def static_window(self):
-        return self.window_size[0] * self.STATIC_RANGE, self.window_size[1] * self.STATIC_RANGE
+    def static_bbox(self):
+        return [
+            self.x - self.window_size[0] * self.STATIC_RANGE / 2,
+            self.x + self.window_size[0] * self.STATIC_RANGE / 2,
+            self.y - self.window_size[1] * self.STATIC_RANGE / 2,
+            self.y + self.window_size[1] * self.STATIC_RANGE / 2,
+        ]
+    
+    @property
+    def compute_bbox(self):
+        return [
+            self.x - self.window_size[0] * (1 + self.OFFSET) / 2,
+            self.x + self.window_size[0] * (1 + self.OFFSET) / 2,
+            self.y - self.window_size[1] * (1 + self.OFFSET) / 2,
+            self.y + self.window_size[1] * (1 + self.OFFSET) / 2,
+        ]
+    
+    @staticmethod
+    def is_inside(x, y, bbox):
+        return x > bbox[0] and x < bbox[1] and y > bbox[2] and y < bbox[3]
 
-    def set_optimal_sample(self):
-        visible_bins = {}
-        for bins_size, sample in self.samples.items():
-            visible_bins[bins_size] = self.window_size / sample.pixels_per_bin
-        distances = {bins_size: abs(vb - self.OPTIMAL_BINS_AT_WINDOW) for bins_size, vb in visible_bins.items()}
-        if self.optimal_resolution_sample.pixels_per_bin != self.samples[min(distances.keys())].pixels_per_bin:
-            print("Resolution switched")
-            self.optimal_resolution_sample = self.samples[min(distances, key=distances.get)]
-            self.manager.reset()
-
-    def add_data(self):
-        self.manager.add_data(bbox=[
-            self.x_range.start, 
-            self.x_range.end,
-            self.y_range.start, 
-            self.y_range.end
-            ])
+    def add_range_callback(self, glyph, doc):
         
-    def on_change_ranges(self):
-        self.set_optimal_sample()
-        self.add_data()
-    
+        def callback(attr, old, new):
 
+            def update_bbox():
+                if self.npixels < 1e6:
+                    if self.manager.bbox is None:
+                        self.manager.bbox = self.compute_bbox
+                        self.fixed_static_bbox = self.static_bbox
+                        self.manager.fetch_data()
+                    else:
+                        x, y = self.x, self.y
+                        if not LazyLoader.is_inside(x, y, self.fixed_static_bbox):
+                            self.fixed_static_bbox = self.static_bbox
+                            self.manager.bbox = self.compute_bbox
+                            self.manager.fetch_data()
+                            self.manager.remove_further_data(x, y, distance=1000)
+                        
+                    glyph.visible = True 
 
-# class Loader:
+                else:
+                    glyph.visible = False
 
-#     STATIC_RANGE = 0.6
-#     OFFSET = 0.5
+            doc.add_next_tick_callback(update_bbox)
 
-#     OPTIMAL_BINS_AT_WINDOW = 50
-
-#     def __init__(self, samples:dict):
-#         self.samples = samples
-#         self.optimal_resolution_sample = self.samples[max(self.samples.keys())]
-#         self.manager = DynamicSourceManager(self.optimal_resolution_sample) 
-
-#         self.x_range = None
-#         self.y_range = None
-
-#         self.is_visible = False 
-
-#     @property
-#     def window_size(self):
-#         return self.x_range.end - self.x_range.start, self.y_range.end - self.y_range.start
-    
-#     @property
-#     def x(self):
-#         return (self.x_range.start + self.x_range.end) / 2
-    
-#     @property
-#     def y(self):
-#         return (self.y_range.start + self.y_range.end) / 2
-    
-#     @property
-#     def static_window(self):
-#         return self.window_size[0] * self.STATIC_RANGE, self.window_size[1] * self.STATIC_RANGE
-
-#     def set_optimal_sample(self):
-#         visible_bins = []
-#         for sample in self.samples:
-#             visible_bins.append(self.window_size / sample.pixels_per_bin)
-#         distances = [abs(vb - self.OPTIMAL_BINS_AT_WINDOW) for vb in visible_bins]
-#         self.optimal_resolution_sample = self.samples[distances.index(min(distances))]
-#         self.manager.reset()
-    
-
-#     def get_bbox(self, x, y):
-#         return [
-#             x - (self.window_size / 2),
-#             x + (self.window_size / 2),
-#             y - (self.window_size / 2),
-#             y + (self.window_size / 2)
-#         ]
-    
-#     def offset_bbox(self, bbox, offset=0.0):
-#         return [
-#             bbox[0] - offset,
-#             bbox[1] + offset,
-#             bbox[2] - offset,
-#             bbox[3] + offset
-#         ]
-    
-#     def get_offset_bbox(self, x, y):
-#         return self.offset_bbox(self.get_bbox(x, y), offset=self.window_size*self.OFFSET)
-
-#     def fetch_data(self, x, y):
-#         self.manager.add_data(bbox=self.get_offset_bbox(x, y))
-#         return self.manager.source
-    
-#     def on_change_centre(self, x, y):
-#         if (x - self.x) > self.static_window[0] and (y - self.y) > self.static_window[1]:
-#             new_data = self.fetch_data(x, y)
-#             self.x, self.y = x, y
-#         # sleep(0.2)
-#         return new_data
-
-#     def on_change_zoom(self, rx, ry):
-#         self.window_size = (rx[1] - rx[0], ry[1] - ry[0])
-#         if self.window_size[0] < self.VISIBLE_MAX_SIZE and \
-#            self.window_size[1] < self.VISIBLE_MAX_SIZE:
-#             self.is_visible = True
-            
-#     def on_fetch_data(self):
-#         return
-#         self.manager.remove_further_data(self.x, self.y, distance=self.VISIBLE_MAX_SIZE*10)
+        self.x_range.on_change('start', callback)
+        self.x_range.on_change('end', callback)
+        self.y_range.on_change('start', callback)
+        self.y_range.on_change('end', callback)

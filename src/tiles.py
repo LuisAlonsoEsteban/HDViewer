@@ -33,25 +33,23 @@ class ImageTiles:
         self.segm_path = segm_path
 
     @property
+    def max_dim(self):
+        return max(self.image.shape[:2])
+
+    @property
     def max_zoom(self):
         """
         Set the maximum zoom level based on the image dimensions.
         """
-        base_width, base_height = self.image.shape[:2]
-        max_dim = max(base_width, base_height)
-        return max(0, math.floor(math.log(max_dim / self.tile_size, 2)))
+        return max(0, math.floor(math.log(self.max_dim / self.tile_size, 2)))
     
     @property
     def scale_xfactor(self):
-        base_width, base_height = self.image.shape[:2]
-        max_dim = max(base_width, base_height)
-        return max_dim / base_height
+        return self.max_dim / self.image.shape[1]
     
     @property
     def scale_yfactor(self):
-        base_width, base_height = self.image.shape[:2]
-        max_dim = max(base_width, base_height)
-        return max_dim / base_width
+        return self.max_dim / self.image.shape[0]
 
     def clean_tiles(self):
         """

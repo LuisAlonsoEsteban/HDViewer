@@ -1,14 +1,17 @@
 
-from bokeh.plotting import column
 from bokeh.models import (
     HoverTool, 
+    CheckboxGroup,
     AutocompleteInput,
     Slider,
     ColorPicker
 )
 
-from .manager import SourceManager, DynamicSourceManager
-from .parameter import StaticParameter, Scaler
+from ..manager import SourceManager, DynamicSourceManager
+from ..parameter import StaticParameter, Scaler
+
+from ..loader import LazyLoader
+
 
 class Component:
 
@@ -18,27 +21,28 @@ class Component:
             lazy_loading=False,
             hover_color=None,
             alias='Spot',
-            visible=True
             ):
         
         self.sample = sample
         self.lazy_loading = lazy_loading
 
         self.set_manager()
-        self.parameters = []
 
         self.hover_color = hover_color
         self.alias = alias
 
         self.glyph = None
-        self.visible = visible
 
     def set_manager(self):
         if self.lazy_loading:
             self.manager = DynamicSourceManager(self.sample)
         else:
             self.manager = SourceManager(self.sample)
-        self.parameters = self.manager.parameters
+
+    def attach_loader(self, p, doc):
+        if self.lazy_loading and self.glyph is not None:
+            loader = LazyLoader(self.manager, p)
+            loader.add_range_callback(self.glyph, doc)
 
     def add_parameter(
             self, 
@@ -48,14 +52,15 @@ class Component:
             min_val=0.0,
             max_val=1.0,
             colname=None,
-            static_not_sequenced=None,
-            not_sequenced_val=0.0
+            static_not_sequenced=True,
+            not_sequenced_val=0.0,
+            colname_hovered=False
             ):
         
         assert attr in ['color', 'alpha', 'fill_alpha', 'line_width', 'line_alpha'], "Incorrect attribute"
         
         if static:
-            self.manager.parameters.append(
+            self.manager.add_parameter(
                 StaticParameter(
                     val, 
                     attr=attr, 
@@ -63,14 +68,15 @@ class Component:
                     )
             )
         else:
-            self.manager.parameters.append(
+            self.manager.add_parameter(
                 Scaler(
                     min_val,
                     max_val,
                     colname,
                     attr=attr,
                     static_not_sequenced=static_not_sequenced,
-                    not_sequenced_val=not_sequenced_val
+                    not_sequenced_val=not_sequenced_val,
+                    colname_hovered=colname_hovered
                     )
             )
 
@@ -80,9 +86,9 @@ class Component:
 
     def get_hover_tooltips(self):
         items = []
-        for param in self.parameters:
+        for param in self.manager.parameters:
             if not param.is_static and param.colname_hovered:
-                items.append(f"{param.colname}: {param.colname}")
+                items.append(f"{param.colname}: @{param.colname}") # TODO: Add column data to source
 
         if len(items) > 0:
             return ", ".join(items)
@@ -93,6 +99,20 @@ class Component:
         if self.hover_color is not None:
             hover = HoverTool(tooltips=[(self.alias, self.get_hover_tooltips())], renderers=[self.glyph])
             p.add_tools(hover)
+
+    def get_visible_checkbox(self):
+        checkbox = CheckboxGroup(labels=[f"Show {self.alias}s"], active=[0])
+
+        def on_checkbox_change(attr, old, new):
+            visible = 0 in new
+            self.glyph.visible = visible
+            for widget in self.widgets:
+                if widget is not checkbox:
+                    widget.disabled = not visible
+
+        checkbox.on_change('active', on_checkbox_change)
+
+        return checkbox
 
     def get_colnames(self):
         return self.sample.get_colnames()
@@ -110,10 +130,6 @@ class Component:
         def on_input_change(_, old, new):
             def update_colname():
                 self.manager.update_colname(old, new)
-                if self.lazy_loading:
-                    pass
-                else:
-                    self.manager.fetch_data()
 
             doc.add_next_tick_callback(update_colname)
 
@@ -122,8 +138,8 @@ class Component:
         return autocomplete_input
     
     def get_widgets(self, doc):
-        widgets = [self.get_autocomplete_input(doc)]
-        for param in self.parameters:
+        self.widgets = [self.get_visible_checkbox(), self.get_autocomplete_input(doc)]
+        for param in self.manager.parameters:
 
             if param.attr == 'alpha' and not param.is_static:
                 widget = Slider(start=0.0, end=1.0, value=1.0, step=0.05, title=f"{self.alias}s alpha")
@@ -145,12 +161,11 @@ class Component:
 
                 widget.on_change('color', update_color)
 
-            widgets.append(widget)
+            self.widgets.append(widget)
 
-        return widgets
+        return self.widgets
+    
 
-        
-        
 class Circles(Component):
 
     def __init__(self, radius, *args, **kwargs):
@@ -163,8 +178,8 @@ class Circles(Component):
                         y='y', 
                         radius=self.radius, 
                         hover_color=self.hover_color,
-                        **{param.attr: param.attr for param in self.parameters},
-                        source=self.source,
+                        **{param.attr: param.attr for param in self.manager.parameters},
+                        source=self.manager.source,
                     )
         
 class Squares(Component):
@@ -183,8 +198,8 @@ class Squares(Component):
                         height=self.height,
                         angle=self.angle,
                         hover_color=self.hover_color,
-                        **{param.attr: param.attr for param in self.parameters},
-                        source=self.source,
+                        **{param.attr: param.attr for param in self.manager.parameters},
+                        source=self.manager.source,
                     )
         
 class Patches(Component):
@@ -194,11 +209,11 @@ class Patches(Component):
 
     def add_glyph(self, p):
         self.glyph = p.patches(
-                        x='x', 
-                        y='y', 
+                        xs='x', 
+                        ys='y', 
                         hover_color=self.hover_color,
-                        **{param.attr: param.attr for param in self.parameters},
-                        source=self.source,
+                        **{param.attr: param.attr for param in self.manager.parameters},
+                        source=self.manager.source,
                     )
 
 

@@ -84,7 +84,7 @@ class SourceManager:
             else:
                 fetched_data[param.attr] = param.get_values()
 
-        fetched_data.drop(self.get_colnames(), axis=1, inplace=True)
+        fetched_data.drop([param.colname for param in self.parameters if not param.is_static and not param.colname_hovered], axis=1, inplace=True)
         self.source.data = fetched_data.to_dict(orient='list')
         self.is_empty = False
 
@@ -104,6 +104,7 @@ class DynamicSourceManager(SourceManager):
     def __init__(self, *args, **kwargs):
         super().__init__(*args, **kwargs)
         self.indexes = []
+        self.bbox = None
 
     def clear_sources(self):
         self.indexes.clear()
@@ -121,11 +122,8 @@ class DynamicSourceManager(SourceManager):
         for param in self.get_params_by_colname(old_colname):
             param.colname = new_colname
             param.min_counts, param.max_counts = self.sample.get_range(param.colname)
-            # if param.colname not in self.colnames_data.columns:
-            #     colname_data = self.sample.fetch_data(colnames=param.colname, bbox=self.bbox, return_coords=False)
-            #     self.colnames_data[param.colname] = colname_data[self.indexes]
-            # self.source.data[param.attr] = param.get_values(self.colnames_data[param.colname])
         self.clear_sources()
+        self.fetch_data()
 
     def add_parameter(self, param):
         if self.get_param(param.attr) is None:
@@ -137,7 +135,7 @@ class DynamicSourceManager(SourceManager):
                 param.min_counts, param.max_counts = self.sample.get_range(param.colname)
 
             if not param.is_static or self.is_empty:
-                self.reset()
+                self.clear_sources()
             else:
                 self.source.data[param.attr] = param.get_values()
         else:
@@ -149,18 +147,26 @@ class DynamicSourceManager(SourceManager):
 
         self.indexes += new_data.index.tolist()
         if len(self.get_colnames()) > 0:
-            self.is_sequenced += (~new_data[self.get_colnames()[0]].isna()).values.tolist()
+            new_is_sequenced = (~new_data[self.get_colnames()[0]].isna()).values.tolist()
+            self.is_sequenced += new_is_sequenced
 
         for param in self.parameters:
             if not param.is_static:
-                if param.colname not in self.cache.columns:
+
+                if param.colname in self.cache.columns:
+                    self.cache[param.colname] = pd.concat((self.cache[param.colname], new_data[param.colname]), axis=0)
+                else:
                     self.cache[param.colname] = new_data[param.colname]
+
                 new_data[param.attr] = param.get_values(new_data[param.colname].copy())
             else:
-                new_data[param.attr] = param.get_values()
+                new_data[param.attr] = param.get_values(is_sequenced_values=new_is_sequenced)
 
         new_data = new_data.drop(self.get_colnames(), axis=1, inplace=False)
         self.source.stream(new_data.to_dict(orient='list'))
+
+    def fetch_data(self):
+        self.add_data(bbox=self.bbox)
 
     def remove_indcs(self, rem_indcs):
         for key in self.source.data.keys():
@@ -174,10 +180,13 @@ class DynamicSourceManager(SourceManager):
 
     @staticmethod
     def distance(p1, p2):
+        print(p1)
+        print(p2)
         return math.sqrt((p1[0] - p2[0])**2 + (p1[1] - p2[1])**2)
 
     def remove_further_data(self, x, y, distance=1000):
         distances = [DynamicSourceManager.distance((x,y), (_x,_y)) for _x, _y in zip(self.source.data['x'], self.source.data['y'])]
         removed_indexes = [i for d, i in zip(distances, self.indexes) if d > distance]
+        print(f"Removing {len(removed_indexes)} bins")
         self.remove_indcs(removed_indexes)
 

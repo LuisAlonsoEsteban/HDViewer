@@ -20,11 +20,17 @@ class StaticParameter(Parameter):
     def set_is_sequenced(self, is_sequenced):
         self.is_sequenced = is_sequenced
 
-    def get_values(self):
-        if self.is_sequenced is not None and len(self.is_sequenced) > 0:
+    def get_values(self, is_sequenced_values:list=None):
+        if is_sequenced_values:
+            return [self.value if is_sequenced
+                    else self.not_sequenced_val
+                    for is_sequenced in is_sequenced_values]
+        
+        elif self.is_sequenced is not None and len(self.is_sequenced) > 0:
             return [self.value if is_sequenced
                     else self.not_sequenced_val
                     for is_sequenced in self.is_sequenced]
+        
         else:
             return self.value
     
