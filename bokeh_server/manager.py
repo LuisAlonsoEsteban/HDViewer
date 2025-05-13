@@ -5,7 +5,6 @@ from bokeh.models import ColumnDataSource
 
 class SourceManager:
 
-
     def __init__(self, sample):
         self.sample = sample
         self.parameters = []
@@ -61,10 +60,15 @@ class SourceManager:
         for param in self.get_params_by_colname(old_colname):
             param.colname = new_colname
             param.min_counts, param.max_counts = self.sample.get_range(param.colname)
+
             if param.colname not in self.cache.columns:
                 colname_data = self.sample.fetch_data(colnames=param.colname, return_coords=False)
                 self.cache[param.colname] = colname_data[param.colname]
+
             self.source.data[param.attr] = param.get_values(self.cache[param.colname].copy())
+            self.source.data[param.colname] = self.cache[param.colname]
+
+        del self.source.data[old_colname]
         
     def get_colnames(self):
         return list(set([param.colname for param in self.parameters if not param.is_static]))

@@ -80,11 +80,11 @@ class ImageComponent:
     def add_lowres_image(self, thumb_p):
         thumb_p.image_url(url=[f"http://localhost:{self.port}/0/0/0"], x=0, y=self.image_tiles.max_dim, w=self.image_tiles.max_dim, h=self.image_tiles.max_dim)
     
-    def add_viewport(self, thumb_p, fill_color='red'):
-        self.viewport = BoxAnnotation(left=0, right=0, top=0, bottom=0, fill_alpha=0.1, fill_color=fill_color)
+    def add_viewport(self, thumb_p, fill_color='black', line_color='black'):
+        self.viewport = BoxAnnotation(left=0, right=0, top=0, bottom=0, fill_alpha=0.1, fill_color=fill_color, line_width=2, line_color=line_color)
         thumb_p.add_layout(self.viewport)
 
-    def add_callback(self, p):
+    def add_viewport_callback(self, p):
         def update_viewport(attr, old, new):
             self.viewport.left = p.x_range.start
             self.viewport.right = p.x_range.end

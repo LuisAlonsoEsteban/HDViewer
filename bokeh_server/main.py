@@ -42,7 +42,7 @@ img_alpha_slider = image_component.get_alpha_slider()
 thumb_p = image_component.generate_thumbnail()
 image_component.add_lowres_image(thumb_p)
 image_component.add_viewport(thumb_p)
-image_component.add_callback(p)
+image_component.add_viewport_callback(p)
 
 
 # Bins2Spots
@@ -85,45 +85,45 @@ spots_component.add_hover(p)
 
 spots_component.manager.fetch_data()
 
-# ## Bins
-# from .components.glyphs import Squares
+## Bins
+from .components.glyphs import Squares
 
-# bins = Bins(
-#     b2s.bin_squares, 
-#     b2s.adata_hd, 
-#     on='index', 
-#     pixels_per_bin=b2s.converter.visiumHD.pixels_per_bin
-# )
+bins = Bins(
+    b2s.bin_squares, 
+    b2s.adata_hd, 
+    on='index', 
+    pixels_per_bin=b2s.converter.visiumHD.pixels_per_bin
+)
 
-# width = bins.pixels_per_bin * b2s.tile_scale_xfactor
-# height = bins.pixels_per_bin * b2s.tile_scale_yfactor
-# angle = b2s.get_rotation(rad=True)
+width = bins.pixels_per_bin * b2s.tile_scale_xfactor
+height = bins.pixels_per_bin * b2s.tile_scale_yfactor
+angle = b2s.get_rotation(rad=True)
 
-# bins_component = Squares(width, height, angle, bins, lazy_loading=True, alias='Bin')
+bins_component = Squares(width, height, angle, bins, lazy_loading=True, alias='Bin', hover_color='green')
 
-# bins_component.add_parameter(
-#     attr='alpha',
-#     static=False,
-#     min_val=0.0,
-#     max_val=1.0,
-#     colname=bins_component.get_colnames()[0],
-#     static_not_sequenced=True,
-#     not_sequenced_val=0.5,
-#     colname_hovered=True
-# )
-# bins_component.add_parameter(
-#     attr='color',
-#     static=True,
-#     val=INITIAL_COLOR,
-#     not_sequenced_val='#b8b8b8'
-# )
+bins_component.add_parameter(
+    attr='alpha',
+    static=False,
+    min_val=0.0,
+    max_val=1.0,
+    colname=bins_component.get_colnames()[0],
+    static_not_sequenced=True,
+    not_sequenced_val=0.5,
+    colname_hovered=True
+)
+bins_component.add_parameter(
+    attr='color',
+    static=True,
+    val=INITIAL_COLOR,
+    not_sequenced_val='#b8b8b8'
+)
 
-# bins_component.add_glyph(p)
-# bins_component.add_hover(p)
+bins_component.add_glyph(p)
+bins_component.add_hover(p)
 
-# bins_component.attach_loader(p, doc)
+bins_component.attach_loader(p, doc)
 
-# ## Cells
+## Cells
 # from .components.glyphs import Patches
 
 # cells_gdf = image_tiles.get_cells_gdf(image_tiles.segment_image()[1])
@@ -161,7 +161,7 @@ layout = row(
     column(p, img_alpha_slider), 
     thumb_p,
     column(*spots_component.get_widgets(doc)),
-    # column(*bins_component.get_widgets(doc)),
+    column(*bins_component.get_widgets(doc)),
     # column(*cells_component.get_widgets(doc))
     )
 

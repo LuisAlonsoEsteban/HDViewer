@@ -3,8 +3,8 @@ from time import sleep
 
 class LazyLoader:
 
-    STATIC_RANGE = 0.5
-    OFFSET = 0.5
+    STATIC_RANGE = 0.6
+    OFFSET = 0.7
 
     assert STATIC_RANGE <= OFFSET, "Offset must be larger than the static range for efficient loading"
 
@@ -54,7 +54,7 @@ class LazyLoader:
     def is_inside(x, y, bbox):
         return x > bbox[0] and x < bbox[1] and y > bbox[2] and y < bbox[3]
 
-    def add_range_callback(self, glyph, doc):
+    def add_range_callback(self, component, doc):
         
         def callback(attr, old, new):
 
@@ -72,10 +72,11 @@ class LazyLoader:
                             self.manager.fetch_data()
                             self.manager.remove_further_data(x, y, distance=1000)
                         
-                    glyph.visible = True 
+                    if 0 in component.checkbox.active:
+                        component.set_visibility(True, disable_checkbox=True)
 
                 else:
-                    glyph.visible = False
+                    component.set_visibility(False, disable_checkbox=True)
 
             doc.add_next_tick_callback(update_bbox)
 

@@ -42,7 +42,7 @@ class Component:
     def attach_loader(self, p, doc):
         if self.lazy_loading and self.glyph is not None:
             loader = LazyLoader(self.manager, p)
-            loader.add_range_callback(self.glyph, doc)
+            loader.add_range_callback(self, doc)
 
     def add_parameter(
             self, 
@@ -85,7 +85,7 @@ class Component:
         pass
 
     def get_hover_tooltips(self):
-        items = []
+        items = ["x: @x", "y: @y"]
         for param in self.manager.parameters:
             if not param.is_static and param.colname_hovered:
                 items.append(f"{param.colname}: @{param.colname}") # TODO: Add column data to source
@@ -94,25 +94,32 @@ class Component:
             return ", ".join(items)
         else:
             return ""
+        
+    def update_hover_tooltips(self):
+        if hasattr(self, 'hover'):
+            self.hover.tooltips = self.get_hover_tooltips()
 
     def add_hover(self, p):
         if self.hover_color is not None:
-            hover = HoverTool(tooltips=[(self.alias, self.get_hover_tooltips())], renderers=[self.glyph])
-            p.add_tools(hover)
+            self.hover = HoverTool(tooltips=[(self.alias, self.get_hover_tooltips())], renderers=[self.glyph])
+            p.add_tools(self.hover)
+
+    def set_visibility(self, visible:bool, disable_checkbox=False):
+        self.glyph.visible = visible
+        for widget in self.widgets:
+            if widget is not self.checkbox or disable_checkbox:
+                widget.disabled = not visible
 
     def get_visible_checkbox(self):
-        checkbox = CheckboxGroup(labels=[f"Show {self.alias}s"], active=[0])
+        self.checkbox = CheckboxGroup(labels=[f"Show {self.alias}s"], active=[0])
 
         def on_checkbox_change(attr, old, new):
             visible = 0 in new
-            self.glyph.visible = visible
-            for widget in self.widgets:
-                if widget is not checkbox:
-                    widget.disabled = not visible
+            self.set_visibility(visible)
 
-        checkbox.on_change('active', on_checkbox_change)
+        self.checkbox.on_change('active', on_checkbox_change)
 
-        return checkbox
+        return self.checkbox
 
     def get_colnames(self):
         return self.sample.get_colnames()
@@ -130,6 +137,7 @@ class Component:
         def on_input_change(_, old, new):
             def update_colname():
                 self.manager.update_colname(old, new)
+                self.update_hover_tooltips()
 
             doc.add_next_tick_callback(update_colname)
 
