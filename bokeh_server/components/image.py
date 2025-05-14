@@ -54,8 +54,8 @@ class ImageComponent:
                     color=p.background_fill_color, 
                     alpha='alpha')
     
-    def get_alpha_slider(self):
-        self.alpha_slider = Slider(start=0.0, end=1.0, value=1.0, step=0.01, title="Image alpha")
+    def get_alpha_slider(self, width=300, margin=(10,50,10,50)):
+        self.alpha_slider = Slider(start=0.0, end=1.0, value=1.0, step=0.01, title="Image alpha", width=width, margin=margin)
         self.update_img_alpha = CustomJS(args=dict(source=self.source), code="""
                                         const data = source.data;
                                         const alpha = cb_obj.value;

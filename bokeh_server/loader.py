@@ -74,6 +74,8 @@ class LazyLoader:
                         
                     if 0 in component.checkbox.active:
                         component.set_visibility(True, disable_checkbox=True)
+                    else:
+                        component.checkbox.disabled = True
 
                 else:
                     component.set_visibility(False, disable_checkbox=True)

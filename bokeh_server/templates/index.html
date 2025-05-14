@@ -1,0 +1,133 @@
+{% extends base %}
+
+{% block preamble %}
+  <!-- Bootstrap -->
+  <link rel="stylesheet" href="https://maxcdn.bootstrapcdn.com/bootstrap/3.3.7/css/bootstrap.min.css">
+  <!-- Font Awesome -->
+  <link href="https://fonts.googleapis.com/css2?family=Source+Serif+Pro:wght@400;600&display=swap" rel="stylesheet">
+  <link rel="stylesheet" href="https://cdnjs.cloudflare.com/ajax/libs/font-awesome/4.7.0/css/font-awesome.min.css">
+
+  <!-- Split.js -->
+  <script src="https://cdn.jsdelivr.net/npm/split.js/dist/split.min.js"></script>
+
+  <style>
+    body {
+        font-family: 'Noto Sans', sans-serif;
+        -webkit-font-smoothing: antialiased;
+        text-rendering: optimizeLegibility;
+        color: #fff;
+        background: #2F2F2F;
+    }
+    #layout {
+        display: flex;
+        height: 100vh;
+    }
+    #left, #right {
+        width: 20%;
+        overflow: auto;
+        background: #404040; /* Slightly different background for contrast */
+        border-right: 2px solid #555; /* Add borders */
+    }
+    #left {
+        display: flex;
+        flex-direction: column;
+    }
+    #center {
+        flex-grow: 1;
+        overflow: auto;
+        background: #333;
+        border-right: 2px solid #555; /* Add borders */
+    }
+    .gutter {
+        cursor: col-resize;
+    }
+    .widget-section {
+        margin-bottom: 0; /* Removed bottom margin */
+    }
+    .widget-title {
+        background-color: #575757; /* Indigo shade */
+        color: white;
+        padding: 10px 15px;
+        width: 100%;
+        text-align: left;
+        display: flex;
+        align-items: center;
+        justify-content: space-between;
+        cursor: pointer;
+        border: none;
+        outline: none;
+        border-bottom: 1px solid #6c6c6c;
+        transition: background-color 0.3s ease;
+    }
+    .widget-title:hover {
+        background-color: #6c6c6c; /* Lighter indigo on hover */
+    }
+    .widget-title .fa { /* Styling for font-awesome icon */
+        font-size: 0.8em;
+        transition: transform 0.3s ease;
+    }
+    .widget-content {
+        padding: 10px;
+        background: #fff;
+        display: none; /* Initially hidden */
+        color: #333;
+        border-top: none;
+    }
+    .widget-content.visible {
+        display: block;
+    }
+    
+  </style>
+{% endblock %}
+
+{% block contents %}
+<div id="layout">
+    <div id="left">
+        <!-- Spots Widgets Section -->
+        <div class="widget-section">
+            <div class="widget-title">Spots <span class="fa fa-chevron-down"></span></div>
+            <div class="widget-content" style="display: none;">
+                {{ embed(roots.spots_widgets) }}
+            </div>
+        </div>
+        <!-- Bins Widgets Section -->
+        <div class="widget-section">
+            <div class="widget-title">Bins <span class="fa fa-chevron-down"></span></div>
+            <div class="widget-content" style="display: none;">
+                {{ embed(roots.bins_widgets) }}
+            </div>
+        </div>
+    </div>
+    <div id="center">{{ embed(roots.plot_column) }}</div>
+    <div id="right">{{ embed(roots.thumbnail_plot) }}</div>
+</div>
+
+<script>
+  Split(['#left', '#center', '#right'], {
+    sizes: [20, 60, 20],
+    minSize: 100,
+    gutterSize: 5,
+    gutterClass: 'custom-gutter',  // Custom class for styling gutters
+    cursor: 'col-resize'
+  });
+</script>
+
+<script>
+    document.addEventListener('DOMContentLoaded', function() {
+        const titles = document.querySelectorAll('.widget-title');
+        titles.forEach(title => {
+            title.addEventListener('click', function() {
+                const icon = this.querySelector('.fa');
+                const content = this.nextElementSibling;
+                content.style.display = content.style.display === 'none' ? 'block' : 'none';
+                // Rotate icon
+                if (content.style.display === 'block') {
+                    icon.style.transform = "rotate(180deg)";
+                } else {
+                    icon.style.transform = "rotate(0deg)";
+                }
+            });
+        });
+    });
+</script>
+{% endblock %}

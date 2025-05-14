@@ -25,10 +25,18 @@ print("Data loaded succesfully")
 image_tiles = ImageTiles(img, os.path.join(dir_base, "./tiles/"), segm_path=os.path.join(dir_base, "./StarDist/"))
 
 # Figure
-p = figure(width=400, height=400, x_range=(0, image_tiles.max_dim), y_range=(0, image_tiles.max_dim))
+p = figure(
+    sizing_mode='stretch_width', 
+    aspect_ratio=1, 
+    x_range=(0, image_tiles.max_dim), 
+    y_range=(0, image_tiles.max_dim),
+    background_fill_color='#7e7e7e',
+    tools='pan,wheel_zoom,save,reset')
 p.grid.visible = False
 p.xaxis.visible = False
 p.yaxis.visible = False
+p.toolbar.logo = None
+p.toolbar.autohide = True
 
 doc = curdoc()
 
@@ -157,12 +165,24 @@ bins_component.attach_loader(p, doc)
 
 
 ## Layout
-layout = row(
-    column(p, img_alpha_slider), 
-    thumb_p,
-    column(*spots_component.get_widgets(doc)),
-    column(*bins_component.get_widgets(doc)),
-    # column(*cells_component.get_widgets(doc))
+spots_widgets = column(*spots_component.get_widgets(doc), name='spots_widgets')
+bins_widgets = column(*bins_component.get_widgets(doc), name='bins_widgets')
+# cells_widgets = column(*cells_component.get_widgets(doc), name='cells_widgets')
+
+plot_column = column(
+    p, img_alpha_slider,
+    sizing_mode='stretch_width',
+    name='plot_column',
     )
 
-doc.add_root(layout)
+thumbnail_column = column(
+    thumb_p,
+    name='thumbnail_plot'
+)
+
+doc.add_root(spots_widgets)
+doc.add_root(bins_widgets)
+# doc.add_root(cells_widgets)
+doc.add_root(plot_column)
+doc.add_root(thumbnail_column)
+

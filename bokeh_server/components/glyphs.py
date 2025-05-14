@@ -4,7 +4,8 @@ from bokeh.models import (
     CheckboxGroup,
     AutocompleteInput,
     Slider,
-    ColorPicker
+    ColorPicker,
+    Button
 )
 
 from ..manager import SourceManager, DynamicSourceManager
@@ -14,6 +15,8 @@ from ..loader import LazyLoader
 
 
 class Component:
+
+    AVAILABLE_ATTRS = ['color', 'alpha', 'fill_alpha', 'line_width', 'line_alpha']
 
     def __init__(
             self,
@@ -57,7 +60,7 @@ class Component:
             colname_hovered=False
             ):
         
-        assert attr in ['color', 'alpha', 'fill_alpha', 'line_width', 'line_alpha'], "Incorrect attribute"
+        assert attr in self.AVAILABLE_ATTRS, "Incorrect attribute"
         
         if static:
             self.manager.add_parameter(
@@ -107,7 +110,7 @@ class Component:
     def set_visibility(self, visible:bool, disable_checkbox=False):
         self.glyph.visible = visible
         for widget in self.widgets:
-            if widget is not self.checkbox or disable_checkbox:
+            if (widget is not self.checkbox and widget is not self.add_param_button) or disable_checkbox:
                 widget.disabled = not visible
 
     def get_visible_checkbox(self):
@@ -145,8 +148,31 @@ class Component:
 
         return autocomplete_input
     
+    def get_available_attrs(self):
+        avail_attrs = []
+        for param in self.AVAILABLE_ATTRS:
+            if param not in [p.attr for p in self.manager.parameters]:
+                avail_attrs.append((param.capitalize().replace("_", " "), param))
+        return avail_attrs
+    
+    def get_add_param_button(self, doc):
+        self.add_param_button = Button(label='Add parameter')
+
+        def handler():
+            def do():
+                self.add_param_button.visible = False
+                # self.widgets += self.get_add_param_form(doc)
+            doc.add_next_tick_callback(do)
+    
+        self.add_param_button.on_click(handler)
+
+        return self.add_param_button
+    
     def get_widgets(self, doc):
-        self.widgets = [self.get_visible_checkbox(), self.get_autocomplete_input(doc)]
+        self.widgets = [self.get_visible_checkbox()]
+        if any([not param.is_static for param in self.manager.parameters]):
+            self.widgets.append(self.get_autocomplete_input(doc))
+
         for param in self.manager.parameters:
 
             if param.attr == 'alpha' and not param.is_static:
@@ -170,6 +196,9 @@ class Component:
                 widget.on_change('color', update_color)
 
             self.widgets.append(widget)
+
+        if len(self.get_available_menu()) > 0:
+            self.widgets.append(self.get_add_param_button(doc))
 
         return self.widgets
     
