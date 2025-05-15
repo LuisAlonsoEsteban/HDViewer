@@ -21,6 +21,15 @@ class Sample:
         self.on = on
         if self.adata is not None:
             assert self.on in self.gdf.columns, "On parameter is incorrect. It must be a column of 'gdf'"
+
+    @property
+    def n_geometries(self):
+        return self.gdf.shape[0]
+    
+    @property
+    def n_not_sequenced(self):
+        colname = self.adata.var_names.tolist()[0]
+        return int(self.get_value(self.adata, self.gdf, colname=colname).isna().sum())
                 
     def has_adata(self):
         return self.adata is not None
@@ -137,21 +146,9 @@ class Cells(Sample):
     def __init__(self, *args, **kwargs):
         super().__init__(*args, **kwargs)
 
-    def get_coordinates(self, gdf) -> pd.DataFrame:
-        gdf['x'] = gdf.geometry.apply(lambda geom: list(zip(*geom.exterior.coords))[0])
-        gdf['y'] = gdf.geometry.apply(lambda geom: list(zip(*geom.exterior.coords))[1])
-        return gdf[['x', 'y']]
+    def get_x(self, geom):
+        return list(zip(*geom.exterior.coords))[0]
     
-    # def get_value(self, adata, gdf, colname=None) -> list:
-    #     if colname in gdf.columns:
-    #         return gdf[colname].values.tolist()
+    def get_y(self, geom):
+        return list(zip(*geom.exterior.coords))[1]
 
-    #     elif self.has_adata():
-    #         value_df = self.get_adata_vector(adata, colname)
-    #         value_df[self.on] = value_df.index.astype(gdf[self.on].dtype)
-            
-    #         merged_gdf = gdf.merge(value_df, on=self.on, how='left')
-            
-    #         return merged_gdf[colname]
-    #     else:
-    #         raise ValueError(f"'{colname}' not found in geometries, and AnnData not available")

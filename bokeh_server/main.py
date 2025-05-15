@@ -1,6 +1,7 @@
 
 from bokeh.layouts import row, column
 from bokeh.plotting import figure, curdoc
+from bokeh.models import Div
 
 import os
 
@@ -129,60 +130,101 @@ bins_component.add_parameter(
 bins_component.add_glyph(p)
 bins_component.add_hover(p)
 
-bins_component.attach_loader(p, doc)
+# bins_component.attach_loader(p, doc)
 
 ## Cells
-# from .components.glyphs import Patches
+from .components.glyphs import Patches
 
-# cells_gdf = image_tiles.get_cells_gdf(image_tiles.segment_image()[1])
-# cells_pooler = CellsPooler(b2s.bin_squares, b2s.adata_hd, cells_gdf, keep_cols=[])
+cells_gdf = image_tiles.get_cells_gdf(image_tiles.segment_image()[1])
+cells_pooler = CellsPooler(b2s.bin_squares, b2s.adata_hd, cells_gdf, keep_cols=[])
 
-# cells_adata = cells_pooler.run(predicate='intersects')
-# cells = Cells(cells_gdf, cells_adata)
-# cells_component = Patches(cells, lazy_loading=True, alias='Cell')
+cells_adata = cells_pooler.run(predicate='intersects')
+cells = Cells(cells_gdf, cells_adata)
+cells_component = Patches(cells, lazy_loading=True, alias='Cell', hover_color='blue')
 
-# cells_component.add_parameter(
-#     attr='alpha',
-#     static=False,
-#     min_val=0.0,
-#     max_val=1.0,
-#     colname=cells_component.get_colnames()[0],
-#     static_not_sequenced=True,
-#     not_sequenced_val=0.5,
-#     colname_hovered=True
-# )
-# cells_component.add_parameter(
-#     attr='color',
-#     static=True,
-#     val=INITIAL_COLOR,
-#     not_sequenced_val='#b8b8b8'
-# )
+cells_component.add_parameter(
+    attr='alpha',
+    static=False,
+    min_val=0.0,
+    max_val=1.0,
+    colname=cells_component.get_colnames()[0],
+    static_not_sequenced=True,
+    not_sequenced_val=0.5,
+    colname_hovered=True
+)
+cells_component.add_parameter(
+    attr='color',
+    static=True,
+    val=INITIAL_COLOR,
+    not_sequenced_val='#b8b8b8'
+)
+cells_component.add_parameter(
+    attr='line_width',
+    static=True,
+    val=1,
+    not_sequenced_val=0
+)
 
-# cells_component.add_glyph(p)
-# cells_component.add_hover(p)
+cells_component.add_glyph(p)
+cells_component.add_hover(p)
 
-# cells_component.attach_loader(p, doc)
+cells_component.attach_loader(p, doc)
 
 
 ## Layout
+metadata = Div(text=f"""
+<div>
+    <h3>Metadata</h3>
+    <div>
+        <p><strong>Spots:</strong><br>
+           Total Spots: {spots.n_geometries}<br>
+           Not Sequenced: {spots.n_not_sequenced}</p>
+    </div>
+    <div>
+        <p><strong>Bins:</strong><br>
+           Total Bins: {bins.n_geometries}<br>
+           Not Sequenced: {bins.n_not_sequenced}</p>
+    </div>
+    <div>
+        <p><strong>Cells:</strong><br>
+           Total Cells: {cells.n_geometries}<br>
+           Not Sequenced: {cells.n_not_sequenced}</p>
+    </div>
+</div>
+""",
+name='metadata')
+
 spots_widgets = column(*spots_component.get_widgets(doc), name='spots_widgets')
 bins_widgets = column(*bins_component.get_widgets(doc), name='bins_widgets')
-# cells_widgets = column(*cells_component.get_widgets(doc), name='cells_widgets')
+cells_widgets = column(*cells_component.get_widgets(doc), name='cells_widgets')
+
+spots_params = spots_component.get_params_table(name='spots_params')
+bins_params = bins_component.get_params_table(name='bins_params')
+cells_params = cells_component.get_params_table(name='cells_params')
 
 plot_column = column(
     p, img_alpha_slider,
-    sizing_mode='stretch_width',
     name='plot_column',
     )
+plot_column.sizing_mode='stretch_width' # Set separately to avoid assign to children 
 
 thumbnail_column = column(
     thumb_p,
-    name='thumbnail_plot'
+    name='thumbnail_plot',
+    sizing_mode='stretch_both'
 )
+
+doc.add_root(metadata)
 
 doc.add_root(spots_widgets)
 doc.add_root(bins_widgets)
-# doc.add_root(cells_widgets)
+doc.add_root(cells_widgets)
+
 doc.add_root(plot_column)
+
 doc.add_root(thumbnail_column)
+
+doc.add_root(spots_params)
+doc.add_root(bins_params)
+doc.add_root(cells_params)
 

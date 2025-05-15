@@ -157,10 +157,10 @@ class DynamicSourceManager(SourceManager):
         for param in self.parameters:
             if not param.is_static:
 
-                if param.colname in self.cache.columns:
-                    self.cache[param.colname] = pd.concat((self.cache[param.colname], new_data[param.colname]), axis=0)
-                else:
-                    self.cache[param.colname] = new_data[param.colname]
+                # if param.colname in self.cache.columns:
+                #     self.cache[param.colname] = pd.concat((self.cache[param.colname], new_data[param.colname]), axis=0) # ValueError: cannot reindex on an axis with duplicate labels
+                # else:
+                #     self.cache[param.colname] = new_data[param.colname]
 
                 new_data[param.attr] = param.get_values(new_data[param.colname].copy())
             else:
@@ -184,8 +184,12 @@ class DynamicSourceManager(SourceManager):
 
     @staticmethod
     def distance(p1, p2):
-        print(p1)
-        print(p2)
+        if isinstance(p2[0], tuple) or isinstance(p2[1], tuple):
+            p2 = (
+                sum(p2[0]) / len(p2[0]),
+                sum(p2[1]) / len(p2[1])
+            )
+            
         return math.sqrt((p1[0] - p2[0])**2 + (p1[1] - p2[1])**2)
 
     def remove_further_data(self, x, y, distance=1000):

@@ -22,8 +22,13 @@
         display: flex;
         height: 100vh;
     }
+    .metadata-container {
+        padding: 10px;
+        color: #fff;
+        overflow: auto;
+    }
     #left, #right {
-        width: 20%;
+        width: 25%;
         overflow: auto;
         background: #404040; /* Slightly different background for contrast */
         border-right: 2px solid #555; /* Add borders */
@@ -76,6 +81,9 @@
     .widget-content.visible {
         display: block;
     }
+    #bottom-right {
+        overflow: auto; /* Ensures content is scrollable if it exceeds div height */
+    }
     
   </style>
 {% endblock %}
@@ -83,33 +91,88 @@
 {% block contents %}
 <div id="layout">
     <div id="left">
-        <!-- Spots Widgets Section -->
-        <div class="widget-section">
-            <div class="widget-title">Spots <span class="fa fa-chevron-down"></span></div>
-            <div class="widget-content" style="display: none;">
-                {{ embed(roots.spots_widgets) }}
-            </div>
+        <div id="metadata-container" style="height: 50%;">
+            {{ embed(roots.metadata) }}
         </div>
-        <!-- Bins Widgets Section -->
-        <div class="widget-section">
-            <div class="widget-title">Bins <span class="fa fa-chevron-down"></span></div>
-            <div class="widget-content" style="display: none;">
-                {{ embed(roots.bins_widgets) }}
+        <div id="widgets-container" style="height: 50%;">
+            <!-- Spots Widgets Section -->
+            <div class="widget-section">
+                <div class="widget-title">Spots <span class="fa fa-chevron-down"></span></div>
+                <div class="widget-content" style="display: none;">
+                    {{ embed(roots.spots_widgets) }}
+                </div>
+            </div>
+            <!-- Bins Widgets Section -->
+            <div class="widget-section">
+                <div class="widget-title">Bins <span class="fa fa-chevron-down"></span></div>
+                <div class="widget-content" style="display: none;">
+                    {{ embed(roots.bins_widgets) }}
+                </div>
+            </div>
+            <!-- Cells Widgets Section -->
+            <div class="widget-section">
+                <div class="widget-title">Cells <span class="fa fa-chevron-down"></span></div>
+                <div class="widget-content" style="display: none;">
+                    {{ embed(roots.cells_widgets) }}
+                </div>
             </div>
         </div>
     </div>
     <div id="center">{{ embed(roots.plot_column) }}</div>
-    <div id="right">{{ embed(roots.thumbnail_plot) }}</div>
+    <div id="right">
+        <div id="top-right" style="height: 50%;">{{ embed(roots.thumbnail_plot) }}</div>
+        <div id="bottom-right" style="height: 50%;">
+            <!-- Spots Params Table -->
+            <div class="widget-section">
+                <div class="widget-title">Spot Parameters <span class="fa fa-chevron-down"></span></div>
+                <div class="widget-content" style="display: none;">
+                    {{ embed(roots.spots_params) }}
+                </div>
+            </div>
+            <!-- Bins Params Table -->
+            <div class="widget-section">
+                <div class="widget-title">Bin Parameters <span class="fa fa-chevron-down"></span></div>
+                <div class="widget-content" style="display: none;">
+                    {{ embed(roots.bins_params) }}
+                </div>
+            </div>
+            <!-- Cells Params Table -->
+            <div class="widget-section">
+                <div class="widget-title">Cell Parameters <span class="fa fa-chevron-down"></span></div>
+                <div class="widget-content" style="display: none;">
+                    {{ embed(roots.cells_params) }}
+                </div>
+            </div>
+        </div>
+    </div>
 </div>
 
 <script>
-  Split(['#left', '#center', '#right'], {
-    sizes: [20, 60, 20],
-    minSize: 100,
-    gutterSize: 5,
-    gutterClass: 'custom-gutter',  // Custom class for styling gutters
-    cursor: 'col-resize'
-  });
+    Split(['#left', '#center', '#right'], {
+        sizes: [25, 50, 25],
+        minSize: 100,
+        gutterSize: 5,
+        gutterClass: 'custom-gutter',
+        cursor: 'col-resize'
+    });
+    
+    Split(['#metadata-container', '#widgets-container'], {
+        direction: 'vertical',
+        sizes: [50, 50],
+        minSize: 100,
+        gutterSize: 5,
+        gutterClass: 'custom-gutter',
+        cursor: 'row-resize'
+    });
+    
+    Split(['#top-right', '#bottom-right'], {
+        direction: 'vertical',
+        sizes: [50, 50],
+        minSize: 100,
+        gutterSize: 5,
+        gutterClass: 'custom-gutter',
+        cursor: 'row-resize'
+    });
 </script>
 
 <script>
@@ -120,7 +183,6 @@
                 const icon = this.querySelector('.fa');
                 const content = this.nextElementSibling;
                 content.style.display = content.style.display === 'none' ? 'block' : 'none';
-                // Rotate icon
                 if (content.style.display === 'block') {
                     icon.style.transform = "rotate(180deg)";
                 } else {

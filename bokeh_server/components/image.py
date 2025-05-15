@@ -66,7 +66,17 @@ class ImageComponent:
         return self.alpha_slider
     
     def generate_thumbnail(self):
-        thumb_p = figure(width=200, height=200, tooltips="Thumbnail overview", x_range=(0, self.image_tiles.max_dim), y_range=(0, self.image_tiles.max_dim))
+        thumb_p = figure(
+            sizing_mode='stretch_width',
+            tooltips="Thumbnail overview", 
+            x_range=(0, self.image_tiles.max_dim), 
+            y_range=(0, self.image_tiles.max_dim),
+            match_aspect=True
+        )
+
+        thumb_p.toolbar.active_drag = None
+        thumb_p.toolbar.active_scroll = None
+        thumb_p.toolbar.active_tap = None
         
         thumb_p.grid.visible = False
         thumb_p.xaxis.visible = False

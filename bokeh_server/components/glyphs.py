@@ -5,7 +5,10 @@ from bokeh.models import (
     AutocompleteInput,
     Slider,
     ColorPicker,
-    Button
+    Button,
+    ColumnDataSource, 
+    DataTable, 
+    TableColumn
 )
 
 from ..manager import SourceManager, DynamicSourceManager
@@ -88,10 +91,10 @@ class Component:
         pass
 
     def get_hover_tooltips(self):
-        items = ["x: @x", "y: @y"]
+        items = []
         for param in self.manager.parameters:
             if not param.is_static and param.colname_hovered:
-                items.append(f"{param.colname}: @{param.colname}") # TODO: Add column data to source
+                items.append(f"{param.colname}: @{param.colname}")
 
         if len(items) > 0:
             return ", ".join(items)
@@ -107,10 +110,10 @@ class Component:
             self.hover = HoverTool(tooltips=[(self.alias, self.get_hover_tooltips())], renderers=[self.glyph])
             p.add_tools(self.hover)
 
-    def set_visibility(self, visible:bool, disable_checkbox=False):
+    def set_visibility(self, visible:bool, apply_checkbox=False):
         self.glyph.visible = visible
         for widget in self.widgets:
-            if (widget is not self.checkbox and widget is not self.add_param_button) or disable_checkbox:
+            if (widget is not self.checkbox and widget is not self.add_param_button) or apply_checkbox:
                 widget.disabled = not visible
 
     def get_visible_checkbox(self):
@@ -161,7 +164,7 @@ class Component:
         def handler():
             def do():
                 self.add_param_button.visible = False
-                # self.widgets += self.get_add_param_form(doc)
+                
             doc.add_next_tick_callback(do)
     
         self.add_param_button.on_click(handler)
@@ -186,7 +189,7 @@ class Component:
                 widget.on_change('value', update_alpha)
 
             elif param.attr == 'color':
-                widget = ColorPicker(title="Select Spots Color", color='#6baed6')
+                widget = ColorPicker(title=f"Select {self.alias}s Color", color='#6baed6')
 
                 def update_color(attr, old, new):
                     def set_new_color():
@@ -197,10 +200,25 @@ class Component:
 
             self.widgets.append(widget)
 
-        if len(self.get_available_menu()) > 0:
+        if len(self.get_available_attrs()) > 0:
             self.widgets.append(self.get_add_param_button(doc))
 
         return self.widgets
+    
+    def get_params_table(self, name='spots_params'):
+        param_attrs = ['attr', 'is_static', 'colname', 'value', 'minv', 'maxv', 'not_sequenced_val']
+
+        source_dict = {
+            column: [getattr(param, column, None) for param in self.manager.parameters]
+            for column in param_attrs
+        }
+
+        columns = [TableColumn(field=column, title=column) for column in param_attrs]
+
+        source = ColumnDataSource(data=source_dict)
+        data_table = DataTable(source=source, columns=columns, width=400, height=300, name=name)
+        return data_table
+
     
 
 class Circles(Component):

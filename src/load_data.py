@@ -114,7 +114,7 @@ class DataSet:
         self.read_positions()
         return self.img, self.adata, self.df_tissue_positions
     
-    def get_available_resolutions(self):
+    def get_available_resolutions_data(self):
         results = {}
         if self.dir_base is None:
             return results

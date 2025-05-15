@@ -73,12 +73,12 @@ class LazyLoader:
                             self.manager.remove_further_data(x, y, distance=1000)
                         
                     if 0 in component.checkbox.active:
-                        component.set_visibility(True, disable_checkbox=True)
+                        component.set_visibility(True, apply_checkbox=True)
                     else:
-                        component.checkbox.disabled = True
+                        component.checkbox.disabled = False
 
                 else:
-                    component.set_visibility(False, disable_checkbox=True)
+                    component.set_visibility(False, apply_checkbox=True)
 
             doc.add_next_tick_callback(update_bbox)
 
