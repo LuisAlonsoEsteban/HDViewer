@@ -71,7 +71,7 @@ spots = Spots(
     b2s.convert(normalize=False))
 radius = b2s.converter.get_pixels(b2s.converter.VisiumV2.SPOT_DIAMETER) / 2
 
-spots_component = Circles(radius, spots, hover_color='green')
+spots_component = Circles(radius, p, spots, hover_color='green')
 spots_component.add_parameter(
     attr='alpha',
     static=False,
@@ -89,9 +89,6 @@ spots_component.add_parameter(
     not_sequenced_val='#b8b8b8'
 )
 
-spots_component.add_glyph(p)
-spots_component.add_hover(p)
-
 spots_component.manager.fetch_data()
 
 ## Bins
@@ -108,7 +105,7 @@ width = bins.pixels_per_bin * b2s.tile_scale_xfactor
 height = bins.pixels_per_bin * b2s.tile_scale_yfactor
 angle = b2s.get_rotation(rad=True)
 
-bins_component = Squares(width, height, angle, bins, lazy_loading=True, alias='Bin', hover_color='green')
+bins_component = Squares(width, height, angle, p, bins, lazy_loading=True, alias='Bin', hover_color='green')
 
 bins_component.add_parameter(
     attr='alpha',
@@ -127,10 +124,7 @@ bins_component.add_parameter(
     not_sequenced_val='#b8b8b8'
 )
 
-bins_component.add_glyph(p)
-bins_component.add_hover(p)
-
-# bins_component.attach_loader(p, doc)
+bins_component.attach_loader(doc)
 
 ## Cells
 from .components.glyphs import Patches
@@ -140,7 +134,7 @@ cells_pooler = CellsPooler(b2s.bin_squares, b2s.adata_hd, cells_gdf, keep_cols=[
 
 cells_adata = cells_pooler.run(predicate='intersects')
 cells = Cells(cells_gdf, cells_adata)
-cells_component = Patches(cells, lazy_loading=True, alias='Cell', hover_color='blue')
+cells_component = Patches(p, cells, lazy_loading=True, alias='Cell', hover_color='blue')
 
 cells_component.add_parameter(
     attr='alpha',
@@ -158,17 +152,8 @@ cells_component.add_parameter(
     val=INITIAL_COLOR,
     not_sequenced_val='#b8b8b8'
 )
-cells_component.add_parameter(
-    attr='line_width',
-    static=True,
-    val=1,
-    not_sequenced_val=0
-)
 
-cells_component.add_glyph(p)
-cells_component.add_hover(p)
-
-cells_component.attach_loader(p, doc)
+cells_component.attach_loader(doc)
 
 
 ## Layout
@@ -194,13 +179,13 @@ metadata = Div(text=f"""
 """,
 name='metadata')
 
-spots_widgets = column(*spots_component.get_widgets(doc), name='spots_widgets')
-bins_widgets = column(*bins_component.get_widgets(doc), name='bins_widgets')
-cells_widgets = column(*cells_component.get_widgets(doc), name='cells_widgets')
+spots_widgets = spots_component.get_widgets_layout(doc)
+bins_widgets = bins_component.get_widgets_layout(doc)
+cells_widgets = cells_component.get_widgets_layout(doc)
 
-spots_params = spots_component.get_params_table(name='spots_params')
-bins_params = bins_component.get_params_table(name='bins_params')
-cells_params = cells_component.get_params_table(name='cells_params')
+spots_params = spots_component.get_table_layout()
+bins_params = bins_component.get_table_layout()
+cells_params = cells_component.get_table_layout()
 
 plot_column = column(
     p, img_alpha_slider,

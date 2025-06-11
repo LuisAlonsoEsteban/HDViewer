@@ -10,25 +10,32 @@ from bokeh.models import (
     DataTable, 
     TableColumn
 )
+from bokeh.layouts import column
 
 from ..manager import SourceManager, DynamicSourceManager
 from ..parameter import StaticParameter, Scaler
 
 from ..loader import LazyLoader
 
+from .utils.param_form import ParamForm
+
 
 class Component:
 
-    AVAILABLE_ATTRS = ['color', 'alpha', 'fill_alpha', 'line_width', 'line_alpha']
+    AVAILABLE_ATTRS = ['color', 'alpha', 'fill_alpha', 'line_width', 'line_color', 'line_alpha']
+    TABLE_ATTRS = ['attr', 'is_static', 'colname', 'value', 'minv', 'maxv', 'not_sequenced_val']
 
     def __init__(
             self,
+            figure,
             sample,
             lazy_loading=False,
             hover_color=None,
             alias='Spot',
             ):
         
+        self.figure = figure
+
         self.sample = sample
         self.lazy_loading = lazy_loading
 
@@ -37,7 +44,16 @@ class Component:
         self.hover_color = hover_color
         self.alias = alias
 
-        self.glyph = None
+        self.glyph_renderer = None
+        self.hover = None
+
+    @property
+    def widgets_name(self):
+        return f"{self.alias.lower()}s_widgets"
+    
+    @property
+    def param_table_name(self):
+        return f"{self.alias.lower()}s_params"
 
     def set_manager(self):
         if self.lazy_loading:
@@ -45,10 +61,47 @@ class Component:
         else:
             self.manager = SourceManager(self.sample)
 
-    def attach_loader(self, p, doc):
-        if self.lazy_loading and self.glyph is not None:
-            loader = LazyLoader(self.manager, p)
+    def attach_loader(self, doc):
+        if self.lazy_loading and self.glyph_renderer is not None:
+            loader = LazyLoader(self.manager, self.figure)
             loader.add_range_callback(self, doc)
+
+    def refresh_widgets_layout(self, doc):
+        widgets_layout = doc.get_model_by_name(self.widgets_name)
+        widgets_layout.children = self.get_widgets(doc)
+
+    def refresh_params_layout(self, doc):
+        params_layout = doc.get_model_by_name(self.param_table_name)
+        params_layout.children = [self.get_params_table()]
+
+    def refresh_layout(self, doc):
+        self.refresh_widgets_layout(doc)
+        self.refresh_params_layout(doc)
+
+    def remove_existing_glyph(self):
+        if self.glyph_renderer:
+            self.figure.renderers.remove(self.glyph_renderer)
+            self.glyph_renderer = None
+
+    def refresh_glyph(self):
+        self.remove_existing_glyph()
+        self.add_glyph()
+
+    def remove_existing_hover(self):
+        if self.hover:
+            self.figure.tools.remove(self.hover)
+            self.hover = None
+
+    def refresh_hover(self):
+        self.remove_existing_hover()
+        self.add_hover()
+
+    def refresh_figure(self):
+        self.refresh_glyph()
+        self.refresh_hover()
+
+    def add_glyph(self):
+        pass
 
     def add_parameter(
             self, 
@@ -85,10 +138,7 @@ class Component:
                     colname_hovered=colname_hovered
                     )
             )
-
-
-    def add_glyph(self, p):
-        pass
+        self.refresh_figure()
 
     def get_hover_tooltips(self):
         items = []
@@ -102,16 +152,16 @@ class Component:
             return ""
         
     def update_hover_tooltips(self):
-        if hasattr(self, 'hover'):
+        if self.hover:
             self.hover.tooltips = self.get_hover_tooltips()
 
-    def add_hover(self, p):
-        if self.hover_color is not None:
-            self.hover = HoverTool(tooltips=[(self.alias, self.get_hover_tooltips())], renderers=[self.glyph])
-            p.add_tools(self.hover)
+    def add_hover(self):
+        if self.hover_color:
+            self.hover = HoverTool(tooltips=[(self.alias, self.get_hover_tooltips())], renderers=[self.glyph_renderer])
+            self.figure.add_tools(self.hover)
 
     def set_visibility(self, visible:bool, apply_checkbox=False):
-        self.glyph.visible = visible
+        self.glyph_renderer.visible = visible
         for widget in self.widgets:
             if (widget is not self.checkbox and widget is not self.add_param_button) or apply_checkbox:
                 widget.disabled = not visible
@@ -133,7 +183,7 @@ class Component:
     def get_autocomplete_input(self, doc):
         autocomplete_input = AutocompleteInput(
                                     title="Gene/Metadata", 
-                                    value=self.get_colnames()[0], 
+                                    value=self.get_colnames()[0], # TODO
                                     completions=self.get_colnames(), 
                                     min_characters=2, 
                                     case_sensitive=False, 
@@ -144,6 +194,7 @@ class Component:
             def update_colname():
                 self.manager.update_colname(old, new)
                 self.update_hover_tooltips()
+                self.refresh_params_layout(doc)
 
             doc.add_next_tick_callback(update_colname)
 
@@ -155,20 +206,26 @@ class Component:
         avail_attrs = []
         for param in self.AVAILABLE_ATTRS:
             if param not in [p.attr for p in self.manager.parameters]:
-                avail_attrs.append((param.capitalize().replace("_", " "), param))
+                avail_attrs.append(param)
+
         return avail_attrs
     
     def get_add_param_button(self, doc):
         self.add_param_button = Button(label='Add parameter')
 
         def handler():
-            def do():
+            if not hasattr(self, 'add_param_form'):
+                self.add_param_form = ParamForm(self)
+            form_layout = self.add_param_form.get_layout(doc)
+            parent_layout = doc.get_model_by_name('spots_widgets')
+            
+            def append_form():
                 self.add_param_button.visible = False
+                parent_layout.children.append(form_layout)
                 
-            doc.add_next_tick_callback(do)
+            doc.add_next_tick_callback(append_form)
     
         self.add_param_button.on_click(handler)
-
         return self.add_param_button
     
     def get_widgets(self, doc):
@@ -178,22 +235,24 @@ class Component:
 
         for param in self.manager.parameters:
 
-            if param.attr == 'alpha' and not param.is_static:
+            if 'alpha' in param.attr and not param.is_static:
                 widget = Slider(start=0.0, end=1.0, value=1.0, step=0.05, title=f"{self.alias}s alpha")
 
                 def update_alpha(attr, old, new):
                     def set_new_max_alpha():
-                        self.manager.update_param('alpha', new_maxv=new)
+                        self.manager.update_param(param.attr, new_maxv=new)
                     doc.add_next_tick_callback(set_new_max_alpha)
 
                 widget.on_change('value', update_alpha)
 
-            elif param.attr == 'color':
+            elif 'color' in param.attr:
                 widget = ColorPicker(title=f"Select {self.alias}s Color", color='#6baed6')
 
                 def update_color(attr, old, new):
                     def set_new_color():
                         self.manager.update_param('color', new_val=new)
+                        self.refresh_params_layout(doc)
+
                     doc.add_next_tick_callback(set_new_color)
 
                 widget.on_change('color', update_color)
@@ -205,19 +264,31 @@ class Component:
 
         return self.widgets
     
-    def get_params_table(self, name='spots_params'):
-        param_attrs = ['attr', 'is_static', 'colname', 'value', 'minv', 'maxv', 'not_sequenced_val']
+    def get_widgets_layout(self, doc):
+        return column(*self.get_widgets(doc), name=self.widgets_name)
+    
 
+    @property
+    def params_source(self):
         source_dict = {
             column: [getattr(param, column, None) for param in self.manager.parameters]
-            for column in param_attrs
+            for column in self.TABLE_ATTRS
         }
 
-        columns = [TableColumn(field=column, title=column) for column in param_attrs]
+        if hasattr(self, '_params_source'):
+            self._params_source.data = source_dict
+        else:
+            self._params_source = ColumnDataSource(data=source_dict)
 
-        source = ColumnDataSource(data=source_dict)
-        data_table = DataTable(source=source, columns=columns, width=400, height=300, name=name)
+        return self._params_source
+
+    def get_params_table(self):
+        columns = [TableColumn(field=column, title=column) for column in self.TABLE_ATTRS]
+        data_table = DataTable(source=self.params_source, columns=columns, width=400, height=300)
         return data_table
+    
+    def get_table_layout(self):
+        return column(self.get_params_table(), name=self.param_table_name)
 
     
 
@@ -227,15 +298,15 @@ class Circles(Component):
         super().__init__(*args, **kwargs)
         self.radius = radius
 
-    def add_glyph(self, p):
-        self.glyph = p.circle(
-                        x='x', 
-                        y='y', 
-                        radius=self.radius, 
-                        hover_color=self.hover_color,
-                        **{param.attr: param.attr for param in self.manager.parameters},
-                        source=self.manager.source,
-                    )
+    def add_glyph(self):
+        self.glyph_renderer = self.figure.circle(
+                                    x='x', 
+                                    y='y', 
+                                    radius=self.radius, 
+                                    hover_color=self.hover_color,
+                                    **{param.attr: param.attr for param in self.manager.parameters},
+                                    source=self.manager.source,
+                                )
         
 class Squares(Component):
 
@@ -245,31 +316,31 @@ class Squares(Component):
         self.height = height
         self.angle=angle
 
-    def add_glyph(self, p):
-        self.glyph = p.rect(
-                        x='x', 
-                        y='y', 
-                        width=self.width, 
-                        height=self.height,
-                        angle=self.angle,
-                        hover_color=self.hover_color,
-                        **{param.attr: param.attr for param in self.manager.parameters},
-                        source=self.manager.source,
-                    )
+    def add_glyph(self):
+        self.glyph_renderer = self.figure.rect(
+                                x='x', 
+                                y='y', 
+                                width=self.width, 
+                                height=self.height,
+                                angle=self.angle,
+                                hover_color=self.hover_color,
+                                **{param.attr: param.attr for param in self.manager.parameters},
+                                source=self.manager.source,
+                            )
         
 class Patches(Component):
 
     def __init__(self, *args, **kwargs):
         super().__init__(*args, **kwargs)
 
-    def add_glyph(self, p):
-        self.glyph = p.patches(
-                        xs='x', 
-                        ys='y', 
-                        hover_color=self.hover_color,
-                        **{param.attr: param.attr for param in self.manager.parameters},
-                        source=self.manager.source,
-                    )
+    def add_glyph(self):
+        self.glyph_renderer = self.figure.patches(
+                                    xs='x', 
+                                    ys='y', 
+                                    hover_color=self.hover_color,
+                                    **{param.attr: param.attr for param in self.manager.parameters},
+                                    source=self.manager.source,
+                                )
 
 
 

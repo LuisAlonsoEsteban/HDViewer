@@ -50,6 +50,8 @@ class SourceManager:
                     self.source.data[param.attr] = param.get_values()
                 elif param.colname in self.cache.columns:
                     self.source.data[param.attr] = param.get_values(self.cache[param.colname].copy())
+                else:
+                    pass # TODO
             else:
                 self.reset()
 
