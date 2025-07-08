@@ -15,7 +15,7 @@ from bokeh.layouts import column
 from ..manager import SourceManager, DynamicSourceManager
 from ..parameter import StaticParameter, Scaler
 
-from ..loader import LazyLoader
+from ..lazy_loader import LazyLoader
 
 from .utils.param_form import ParamForm
 

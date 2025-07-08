@@ -33,6 +33,10 @@ class ImageTiles:
         self.segm_path = segm_path
 
     @property
+    def mem(self):
+        return self.image.size * self.image.itemsize / 1e9 # GB
+
+    @property
     def max_dim(self):
         return max(self.image.shape[:2])
 

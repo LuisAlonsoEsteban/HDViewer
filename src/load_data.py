@@ -19,7 +19,7 @@ class DataSet:
             img_path:str = None,
             adata_path:str = None,
             positions_path:str = None,
-            bins_size:str = None
+            bins_size:int = None
             ):
         
         self.dir_base = dir_base
