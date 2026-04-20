@@ -101,76 +101,100 @@
 {% endblock %}
 
 {% block contents %}
-<div id="layout">
-    <div id="left">
-        <div id="metadata-container" style="height: 50%;">
-            {{ embed(roots.metadata) }}
-        </div>
-        <div id="widgets-container" style="height: 50%;">
-            <!-- Spots Widgets Section -->
-            <div class="widget-section">
-                <div class="widget-title">Spots<span class="fa fa-chevron-down"></span></div>
-                <div class="widget-content">
-                    <div class="scroll-container">
-                        {{ embed(roots.spots_widgets) }}
-                    </div>
-                </div>
-            </div>
-            <!-- Bins Widgets Section -->
-            <div class="widget-section">
-                <div class="widget-title">Bins<span class="fa fa-chevron-down"></span></div>
-                <div class="widget-content">
-                    <div class="scroll-container">
-                        {{ embed(roots.bins_widgets) }}
-                    </div>
-                </div>
-            </div>
-            <!-- Cells Widgets Section -->
-            <div class="widget-section">
-                <div class="widget-title">Cells<span class="fa fa-chevron-down"></span></div>
-                <div class="widget-content">
-                    <div class="scroll-container">
-                        {{ embed(roots.cells_widgets) }}
-                    </div>
-                </div>
-            </div>
-        </div>
-    </div>
-    <div id="center">{{ embed(roots.plot_column) }}</div>
-    <div id="right">
-        <div id="top-right" style="height: 50%;">{{ embed(roots.thumbnail_plot) }}</div>
-        <div id="bottom-right" style="height: 50%;">
-            <!-- Spots Params Table -->
-            <div class="widget-section">
-                <div class="widget-title">Spot Parameters<span class="fa fa-chevron-down"></span></div>
-                <div class="widget-content">
-                    <div class="scroll-container">
-                        {{ embed(roots.spots_params) }}
-                    </div>
-                </div>
-            </div>
-            <!-- Bins Params Table -->
-            <div class="widget-section">
-                <div class="widget-title">Bin Parameters<span class="fa fa-chevron-down"></span></div>
-                <div class="widget-content">
-                    <div class="scroll-container">
-                        {{ embed(roots.bins_params) }}
-                    </div>
-                </div>
-            </div>
-            <!-- Cells Params Table -->
-            <div class="widget-section">
-                <div class="widget-title">Cells Parameters<span class="fa fa-chevron-down"></span></div>
-                <div class="widget-content">
-                    <div class="scroll-container">
-                        {{ embed(roots.cells_params) }}
-                    </div>
-                </div>
-            </div>
-        </div>
-    </div>
-</div>
+<div id="app-root">
 
+    <!-- Startup screen -->
+    <div id="startup-container">
+        {{ embed(roots.startup) }}
+    </div>
+
+    <!-- Main app -->
+    <div id="main-container" style="display:none;">
+        <div id="layout">
+            <div id="left">
+                <div id="metadata-container" style="height: 50%;">
+                    {{ embed(roots.metadata) }}
+                </div>
+                <div id="widgets-container" style="height: 50%;">
+                    
+                    <div class="widget-section">
+                        <div class="widget-title">Spots<span class="fa fa-chevron-down"></span></div>
+                        <div class="widget-content">
+                            <div class="scroll-container">
+                                {{ embed(roots.spots_widgets) }}
+                            </div>
+                        </div>
+                    </div>
+
+                    <div class="widget-section">
+                        <div class="widget-title">Bins<span class="fa fa-chevron-down"></span></div>
+                        <div class="widget-content">
+                            <div class="scroll-container">
+                                {{ embed(roots.bins_widgets) }}
+                            </div>
+                        </div>
+                    </div>
+
+                    <div class="widget-section">
+                        <div class="widget-title">Cells<span class="fa fa-chevron-down"></span></div>
+                        <div class="widget-content">
+                            <div class="scroll-container">
+                                {{ embed(roots.cells_widgets) }}
+                            </div>
+                        </div>
+                    </div>
+
+                </div>
+            </div>
+
+            <div id="center">{{ embed(roots.plot_column) }}</div>
+
+            <div id="right">
+                <div id="top-right" style="height: 50%;">
+                    {{ embed(roots.thumbnail_plot) }}
+                </div>
+
+                <div id="bottom-right" style="height: 50%;">
+
+                    <div class="widget-section">
+                        <div class="widget-title">Spot Parameters<span class="fa fa-chevron-down"></span></div>
+                        <div class="widget-content">
+                            <div class="scroll-container">
+                                {{ embed(roots.spots_params) }}
+                            </div>
+                        </div>
+                    </div>
+
+                    <div class="widget-section">
+                        <div class="widget-title">Bin Parameters<span class="fa fa-chevron-down"></span></div>
+                        <div class="widget-content">
+                            <div class="scroll-container">
+                                {{ embed(roots.bins_params) }}
+                            </div>
+                        </div>
+                    </div>
+
+                    <div class="widget-section">
+                        <div class="widget-title">Cells Parameters<span class="fa fa-chevron-down"></span></div>
+                        <div class="widget-content">
+                            <div class="scroll-container">
+                                {{ embed(roots.cells_params) }}
+                            </div>
+                        </div>
+                    </div>
+
+                </div>
+            </div>
+        </div>
+    </div>
+
+</div>
+<script>
+    function showMainApp() {
+        document.getElementById('startup-container').style.display = 'none';
+        document.getElementById('main-container').style.display = 'block';
+    }
+</script>
 <script>
     Split(['#left', '#center', '#right'], {
         sizes: [25, 50, 25],

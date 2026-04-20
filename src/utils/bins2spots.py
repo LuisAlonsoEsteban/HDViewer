@@ -23,7 +23,8 @@ class Bins2Spots:
                  bins_size=None, 
                  pixels_per_bin:float=None,
                  tile_scale_xfactor=1.0, 
-                 tile_scale_yfactor=1.0
+                 tile_scale_yfactor=1.0,
+                 progress_callback=None,
                  ):
         
         self.adata_hd = adata
@@ -38,6 +39,8 @@ class Bins2Spots:
 
         self.tile_scale_xfactor = tile_scale_xfactor
         self.tile_scale_yfactor = tile_scale_yfactor
+
+        self.progress_callback = progress_callback
 
 
     @property
@@ -56,8 +59,19 @@ class Bins2Spots:
         return self.converter.visiumHD.get_rotation(self.df_tissue_positions, rad=rad)
 
     def create_bin_squares(self, subset=False):
-        geometry = [create_square(Point(y * self.tile_scale_xfactor, x * self.tile_scale_yfactor), self.converter.visiumHD.pixels_per_bin) 
-                    for (x,y) in tqdm(zip(self.df_tissue_positions['pxl_row_in_fullres'], self.df_tissue_positions['pxl_col_in_fullres']))]
+        geometry = []
+        total_steps = self.df_tissue_positions.shape[0]
+        for i, (x,y) in tqdm(enumerate(zip(self.df_tissue_positions['pxl_row_in_fullres'], self.df_tissue_positions['pxl_col_in_fullres']))):
+            geometry.append(
+                create_square(
+                    Point(y * self.tile_scale_xfactor, x * self.tile_scale_yfactor), 
+                    self.converter.visiumHD.pixels_per_bin
+                )
+            )
+
+            if self.progress_callback is not None:
+                self.progress_callback(0, i, total_steps)
+
         self._bin_squares = gpd.GeoDataFrame(self.df_tissue_positions, geometry=geometry)
         return self._bin_squares[self._bin_squares["in_tissue"]] if subset else self._bin_squares
 
@@ -72,7 +86,8 @@ class Bins2Spots:
         id = 0
         scaled_radius = self.converter.get_pixels(self.converter.visiumV2.SPOT_DIAMETER / 2)
         max_scaled_x = self.converter.spots2pixels(nspots_rows)
-        for i, x in enumerate(tqdm(range(nspots_rows))):
+
+        for i, x in tqdm(enumerate(range(nspots_rows))):
             for y in range(i % 2, nspots_cols, 2):
                 metadata['index'].append(id)
                 id += 1
@@ -87,6 +102,9 @@ class Bins2Spots:
                 metadata['pxl_col_in_fullres'].append(self.tile_scale_yfactor * scaled_y)
 
                 spots.append(Point(scaled_y, scaled_x).buffer(scaled_radius))
+
+                if self.progress_callback is not None:
+                    self.progress_callback(1, i, nspots_rows)
 
         self._spot_polygons = gpd.GeoDataFrame(metadata, geometry=spots)
 

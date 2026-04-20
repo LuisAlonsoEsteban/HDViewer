@@ -116,8 +116,6 @@ class Component:
             colname_hovered=False
             ):
         
-        assert attr in self.AVAILABLE_ATTRS, "Incorrect attribute"
-        
         if static:
             self.manager.add_parameter(
                 StaticParameter(
@@ -127,6 +125,8 @@ class Component:
                     )
             )
         else:
+            assert attr in self.AVAILABLE_ATTRS, "Incorrect attribute"
+            
             self.manager.add_parameter(
                 Scaler(
                     min_val,

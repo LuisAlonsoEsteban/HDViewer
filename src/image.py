@@ -15,7 +15,7 @@ from tqdm import tqdm
 import geopandas as gpd
 from shapely import Polygon
 
-class ImageTiles:
+class ImageProcessor:
     
     """
     Class to handle image tiles.
@@ -51,7 +51,7 @@ class ImageTiles:
     def scale_yfactor(self):
         return self.max_dim / self.image.shape[0]
 
-    def clean_tiles(self):
+    def clean_tiles(self, rm_dir=True):
         """
         Clean the tiles directory by removing all files.
         """
@@ -60,52 +60,65 @@ class ImageTiles:
                 file_path = os.path.join(self.tiles_path, file_name)
                 if os.path.isfile(file_path):
                     os.remove(file_path)
-            os.rmdir(self.tiles_path)
+            if rm_dir:
+                os.rmdir(self.tiles_path)
 
-    def create_tiles(self):
+    def create_tiles(self, progress_callback=None):
         image = Image.fromarray(self.image)
         base_width, base_height = image.size
 
         if not os.path.exists(self.tiles_path):
             os.makedirs(self.tiles_path)
         else:
-            self.clean_tiles()
+            self.clean_tiles(rm_dir=False)
+
+        total_steps = 0
+        zoom_tile_counts = []
+
+        for zoom in range(self.max_zoom + 1):
+            factor = 2 ** zoom
+            scaled_width = self.tile_size * factor
+            scaled_height = self.tile_size * factor
+            x_tiles = math.ceil(scaled_width / self.tile_size)
+            y_tiles = math.ceil(scaled_height / self.tile_size)
+            count = x_tiles * y_tiles
+            zoom_tile_counts.append((zoom, x_tiles, y_tiles, scaled_width, scaled_height))
+            total_steps += count
+
+        done = 0
 
         try:
-            for zoom in range(self.max_zoom + 1):
-                factor = 2 ** zoom
-                scaled_width = self.tile_size * factor
-                scaled_height = self.tile_size * factor
-
+            for zoom, x_tiles, y_tiles, scaled_width, scaled_height in zoom_tile_counts:
                 if zoom == self.max_zoom:
                     resized_image = image
                 else:
                     resized_image = image.resize((scaled_width, scaled_height), Image.LANCZOS)
-                
-                # Determine the number of tiles at this zoom level
-                x_tiles = math.ceil(scaled_width / self.tile_size)
-                y_tiles = math.ceil(scaled_height / self.tile_size)
 
-                for x in tqdm(range(x_tiles), desc=f"Processing zoom level {zoom}, out of {self.max_zoom} zoom levels"):
+                for x in range(x_tiles):
                     for y in range(y_tiles):
                         left = x * self.tile_size
                         top = y * self.tile_size
                         right = min(left + self.tile_size, base_width)
                         bottom = min(top + self.tile_size, base_height)
 
-                        # Crop directly from the base image
                         tile = resized_image.crop((left, top, right, bottom))
-                        
-                        # Resize only if necessary (for zoom levels > 0)
+
                         if zoom > 0:
                             tile = tile.resize((self.tile_size, self.tile_size), Image.LANCZOS)
-                        
-                        # Save the tile
-                        tile_path = os.path.join(self.tiles_path, self.filename_pattern.format(zoom=zoom, x=x, y=y))
+
+                        tile_path = os.path.join(
+                            self.tiles_path,
+                            self.filename_pattern.format(zoom=zoom, x=x, y=y)
+                        )
                         tile.save(tile_path)
-        except:
+
+                        done += 1
+                        if progress_callback is not None:
+                            progress_callback(done, total_steps)
+        
+        except Exception:
             self.clean_tiles()
-            raise KeyError
+            raise
 
 
     def deploy_server(self, host='0.0.0.0', port=5001, overwrite=False):
@@ -155,11 +168,15 @@ class ImageTiles:
 
         return labels, polys
 
-    def get_cells_gdf(self, polys):
+    def get_cells_gdf(self, polys, progress_callback=None):
         geometries = []
-        for nuclei in tqdm(range(len(polys['coord']))):
+        n_cells = len(polys['coord'])
+        for i, nuclei in tqdm(enumerate(range(n_cells))):
             coords = [(y * self.scale_xfactor, x * self.scale_yfactor) for x, y in zip(polys['coord'][nuclei][0], polys['coord'][nuclei][1])]
             geometries.append(Polygon(coords))
+
+            if progress_callback is not None:
+                progress_callback(i, n_cells)
 
         gdf = gpd.GeoDataFrame(geometry=geometries)
         gdf['index'] = [f"ID_{i+1}" for i, _ in enumerate(gdf.index)]
