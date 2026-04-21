@@ -1,7 +1,6 @@
 from bokeh.models import (
     FileInput, Button, Div, Select,
     Checkbox, CustomJS,
-    ColumnDataSource
 )
 from bokeh.layouts import row, column
 
@@ -24,6 +23,7 @@ from src.load_data import DataSet
 class StartupController:
 
     UPLOAD_DIR = Path("./tmp")
+    loaded_data = None
 
     def __init__(self, doc):
         self.doc = doc
@@ -43,6 +43,13 @@ class StartupController:
 
         self.pending_tasks = 0
         self.lock = threading.Lock()
+
+    def restart(self):
+        self.loaded_data = {
+            "bins": True,
+            "pseudospots": False,
+            "cells": False
+        }
 
     def _build_widgets(self):
         self.data_source = Select(
@@ -85,11 +92,11 @@ class StartupController:
 
         self.pseudospots_checkbox = Checkbox(
             label="Generate Visium v2 pseudospots",
-            active=False
+            active=True
         )
         self.cells_checkbox = Checkbox(
             label="Segment cells",
-            active=False
+            active=True
         )
 
         self.example_select = Select(
@@ -155,10 +162,11 @@ class StartupController:
 
         self.data_source.on_change("value", _update_source_mode)
 
-        # JS trigger model
-        self.js_trigger = ColumnDataSource(data=dict(done=[0]))
-        self.js_trigger.js_on_change("data", CustomJS(code="""
-            showMainApp();
+        self.status_text.js_on_change("text", CustomJS(code="""
+            console.log("JS triggered:", cb_obj.text);
+            if (cb_obj.text === "Done") {
+                showMainApp();
+            }
         """))
 
     def add_to_document(self):
@@ -202,10 +210,14 @@ class StartupController:
         if done:
             self.doc.add_next_tick_callback(self._all_tasks_finished)
     
-    def run_in_thread(self, func):
+    def run_in_thread(self, func, data_mod=None):
         def wrapper():
             try:
                 func()
+                if data_mod and data_mod in self.loaded_data.keys():
+                    self.loaded_data[data_mod] = True
+            except:
+                pass
             finally:
                 self._task_done()
 
@@ -267,7 +279,7 @@ class StartupController:
         def worker():
             self.b2s.convert(normalize=False)
 
-        self.run_in_thread(worker)
+        self.run_in_thread(worker, data_mod="pseudospots")
 
     def generate_cells(self):
         from src.utils.operations import CellsPooler
@@ -297,9 +309,11 @@ class StartupController:
 
             self.cells_adata = cells_pooler.run(predicate="intersects")
 
-        self.run_in_thread(worker)
+        self.run_in_thread(worker, data_mod="cells")
 
     def load_data_callback(self):
+        self.restart()
+
         if self.data_source.value == "upload":
             if not self._validate_inputs():
                 return
@@ -333,7 +347,7 @@ class StartupController:
         if self.pseudospots_checkbox.active:
             sleep(1) # Ensure the Bins2Spots has been created
             self.generate_pseudospots()
-
+            
         if self.cells_checkbox.active:
             sleep(5) # Ensure the ImageProcessor has been created
             self.generate_cells()
@@ -341,13 +355,14 @@ class StartupController:
     def _all_tasks_finished(self):
         build_main_app(
             self.doc, 
+            self.loaded_data,
             self.image_processor,
             self.b2s,
             self.cells_adata,
             self.cells_gdf
         )
-
-        self.js_trigger.data = dict(done=[self.js_trigger.data["done"][0] + 1])
+        
+        self.status_text.text = "Done"
 
 
 def create_startup(doc):

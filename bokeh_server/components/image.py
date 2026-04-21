@@ -10,12 +10,17 @@ from bokeh.plotting import figure
 
 class ImageComponent:
 
+    TILE_MEM_THRESHOLD = 0.3 # GB
+
     def __init__(self, image_tiles, port=4000):
         self.image_tiles = image_tiles
         self.port = port
 
+        self.server_deployed = False
+
     def deploy_server(self):
         self.image_tiles.deploy_server(port=self.port)
+        self.server_deployed = True
 
     def get_tile_source(self):
         self.deploy_server()
@@ -33,6 +38,12 @@ class ImageComponent:
     
     def add_tile_source(self, p):
         p.add_tile(self.get_tile_source())
+
+    def attach_image(self, p):
+        if self.image_tiles.mem > self.TILE_MEM_THRESHOLD:
+            self.add_tile_source(p)
+        # else:
+        #     self.
 
     def get_overlay_source(self):
         self.source = ColumnDataSource({
@@ -88,7 +99,10 @@ class ImageComponent:
         return thumb_p
     
     def add_lowres_image(self, thumb_p):
-        thumb_p.image_url(url=[f"http://localhost:{self.port}/0/0/0"], x=0, y=self.image_tiles.max_dim, w=self.image_tiles.max_dim, h=self.image_tiles.max_dim)
+        if self.server_deployed:
+            thumb_p.image_url(url=[f"http://localhost:{self.port}/0/0/0"], x=0, y=self.image_tiles.max_dim, w=self.image_tiles.max_dim, h=self.image_tiles.max_dim)
+        # else:
+        #     thumb_p.image
     
     def add_viewport(self, thumb_p, fill_color='black', line_color='black'):
         self.viewport = BoxAnnotation(left=0, right=0, top=0, bottom=0, fill_alpha=0.1, fill_color=fill_color, line_width=2, line_color=line_color)
