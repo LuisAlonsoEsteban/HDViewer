@@ -67,13 +67,15 @@ class ImageProcessor:
             if rm_dir:
                 os.rmdir(self.tiles_path)
 
-    def create_tiles(self, progress_callback=None):
+    def create_tiles(self, overwrite=True, progress_callback=None):
         image = Image.fromarray(self.image)
         base_width, base_height = image.size
 
         if not os.path.exists(self.tiles_path):
             os.makedirs(self.tiles_path)
         else:
+            if len(os.listdir(self.tiles_path)) > 0 and not overwrite:
+                return
             self.clean_tiles(rm_dir=False)
 
         total_steps = 0

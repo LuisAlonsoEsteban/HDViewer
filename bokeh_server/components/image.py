@@ -22,11 +22,11 @@ class ImageComponent:
         self.image_tiles.deploy_server(port=self.port)
         self.server_deployed = True
 
-    def get_tile_source(self):
+    def generate_tile_source(self):
         self.deploy_server()
         self.tile_source = WMTSTileSource(
                                 url= f"http://localhost:{self.port}" + "/{Z}/{X}/{Y}",  # Ensure port matches deployed tile server
-                                tile_size=256,
+                                tile_size=self.image_tiles.tile_size,
                                 max_zoom=self.image_tiles.max_zoom-1,
                                 min_zoom=0,
                                 wrap_around=False,
@@ -37,23 +37,24 @@ class ImageComponent:
         return self.tile_source
     
     def add_tile_source(self, p):
-        p.add_tile(self.get_tile_source())
+        p.add_tile(self.generate_tile_source())
 
     def attach_image(self, p):
         if self.image_tiles.mem > self.TILE_MEM_THRESHOLD:
             self.add_tile_source(p)
-        # else:
-        #     self.
+        else:
+            self.deploy_server()
+            self.add_lowres_image(p)
 
     def get_overlay_source(self):
-        self.source = ColumnDataSource({
+        self.overlay_source = ColumnDataSource({
                     'x': [self.image_tiles.max_dim / 2],
                     'y': [self.image_tiles.max_dim / 2],
                     'width': [self.image_tiles.max_dim],
                     'height': [self.image_tiles.max_dim],
                     'alpha': [0.0]  # Initial transparent state
                 })
-        return self.source
+        return self.overlay_source
     
     def add_img_overlay(self, p):
         return p.rect(
@@ -67,7 +68,7 @@ class ImageComponent:
     
     def get_alpha_slider(self, width=300, margin=(10,50,10,50)):
         self.alpha_slider = Slider(start=0.0, end=1.0, value=1.0, step=0.01, title="Image alpha", width=width, margin=margin)
-        self.update_img_alpha = CustomJS(args=dict(source=self.source), code="""
+        self.update_img_alpha = CustomJS(args=dict(source=self.overlay_source), code="""
                                         const data = source.data;
                                         const alpha = cb_obj.value;
                                         data['alpha'][0] = 1 - alpha;

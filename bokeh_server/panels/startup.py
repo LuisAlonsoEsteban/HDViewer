@@ -8,11 +8,11 @@ import base64
 import os
 import sys
 from pathlib import Path
+import traceback
 
 import threading
-from time import sleep
 
-from .app import build_main_app
+from .app.app import App
 from ..datasets import AVAILABLE_DATASETS
 
 sys.path.insert(0, os.path.abspath(os.path.join(os.path.dirname(__file__), "..")))
@@ -23,7 +23,6 @@ from src.load_data import DataSet
 class StartupController:
 
     UPLOAD_DIR = Path("./tmp")
-    loaded_data = None
 
     def __init__(self, doc):
         self.doc = doc
@@ -33,23 +32,20 @@ class StartupController:
         self.image_processor = None
         self.b2s = None
 
-        self.pseudospots_adata = None
-        self.cells_adata = None
-        self.cells_gdf = None
-
         self._build_widgets()
         self.add_callbacks()
         self._build_layout()
 
-        self.pending_tasks = 0
-        self.lock = threading.Lock()
-
-    def restart(self):
-        self.loaded_data = {
-            "bins": True,
-            "pseudospots": False,
+        self.tasks = {
+            "tiles": False,
+            "spots": False,
             "cells": False
         }
+
+        self.app = App(self.doc)
+
+    def restart(self):
+        self.app.reset_geometries()
 
     def _build_widgets(self):
         self.data_source = Select(
@@ -202,27 +198,23 @@ class StartupController:
 
         return True
     
-    def _task_done(self):
-        with self.lock:
-            self.pending_tasks -= 1
-            done = self.pending_tasks == 0
-
-        if done:
+    def _check_all_done(self):
+        if all(self.tasks.values()):
             self.doc.add_next_tick_callback(self._all_tasks_finished)
     
-    def run_in_thread(self, func, data_mod=None):
+    def run_in_thread(self, func, sample_type=None):
         def wrapper():
             try:
-                func()
-                if data_mod and data_mod in self.loaded_data.keys():
-                    self.loaded_data[data_mod] = True
-            except:
-                pass
+                output = func()
+                if sample_type:
+                    if output is not None:
+                        self.app.add_sample(*output, b2s=self.b2s, sample_type=sample_type)
+            except Exception:
+                print(traceback.format_exc())
             finally:
-                self._task_done()
-
-        with self.lock:
-            self.pending_tasks += 1
+                if sample_type in self.tasks.keys():
+                    self.tasks[sample_type] = True
+                self._check_all_done()
 
         threading.Thread(target=wrapper).start()
 
@@ -235,18 +227,20 @@ class StartupController:
 
             self.image_processor = ImageProcessor(
                 self.dataset.img,
-                base_dir / "new_tiles",
+                base_dir / "tiles",
                 base_dir / "StarDist"
             )
+        
+            self.app.add_image_component(self.image_processor)
 
             def worker():
                 def on_progress(done, total):
                     pct = int(100 * done / total) if total else 0
                     self.update_progress(self.tiles_progress_bar, pct)
 
-                self.image_processor.create_tiles(progress_callback=on_progress)
+                self.image_processor.create_tiles(overwrite=False, progress_callback=on_progress)
 
-            self.run_in_thread(worker)
+            self.run_in_thread(worker, sample_type="tiles")
 
         else:
             raise ValueError
@@ -267,9 +261,11 @@ class StartupController:
             progress_callback=on_progress
         )
 
+        self.app.add_sample(self.b2s.bin_squares, self.b2s.adata_hd, b2s=self.b2s, sample_type="bins")
+
     def ensure_b2s(self):
         if self.b2s is None:
-            if not self.dataset.adata or self.dataset.df_tissue_positions:
+            if not self.dataset.adata or self.dataset.df_tissue_positions is None:
                 self.dataset.load()
             self.build_b2s(self.dataset.adata, self.dataset.df_tissue_positions, self.dataset.bins_size)
 
@@ -277,9 +273,11 @@ class StartupController:
         self.ensure_b2s()
 
         def worker():
-            self.b2s.convert(normalize=False)
+            pseudospots_polygons = self.b2s.spot_polygons
+            pseudospots_adata = self.b2s.convert(normalize=False)
+            return pseudospots_polygons, pseudospots_adata
 
-        self.run_in_thread(worker, data_mod="pseudospots")
+        self.run_in_thread(worker, sample_type="spots")
 
     def generate_cells(self):
         from src.utils.operations import CellsPooler
@@ -294,25 +292,40 @@ class StartupController:
                 pct = int(100 * done / total) if total else 0
                 self.update_progress(self.cells_progress, pct)
 
-            self.cells_gdf = self.image_processor.get_cells_gdf(
+            cells_gdf = self.image_processor.get_cells_gdf(
                                     self.image_processor.segment_image()[1], 
                                     progress_callback=on_progress
                                 )
 
-
             cells_pooler = CellsPooler(
                 self.b2s.bin_squares,
                 self.b2s.adata_hd,
-                self.cells_gdf,
+                cells_gdf,
                 keep_cols=[]
             )
 
-            self.cells_adata = cells_pooler.run(predicate="intersects")
+            cells_adata = cells_pooler.run(predicate="intersects")
 
-        self.run_in_thread(worker, data_mod="cells")
+            return cells_gdf, cells_adata
+
+        self.run_in_thread(worker, sample_type="cells")
+
+    def set_tasks(self):
+        self.tasks["tiles"] = False
+        
+        if self.pseudospots_checkbox.active:
+            self.tasks["spots"] = False
+        else:
+            self.tasks["spots"] = True
+        
+        if self.cells_checkbox.active:
+            self.tasks["cells"] = False
+        else:
+            self.tasks["cells"] = True
 
     def load_data_callback(self):
         self.restart()
+        self.set_tasks()
 
         if self.data_source.value == "upload":
             if not self._validate_inputs():
@@ -343,25 +356,15 @@ class StartupController:
             self.UPLOAD_DIR if self.data_source.value == "upload"
             else Path(AVAILABLE_DATASETS[self.example_select.value]["image_path"]).resolve().parent
         )
-
+        
         if self.pseudospots_checkbox.active:
-            sleep(1) # Ensure the Bins2Spots has been created
             self.generate_pseudospots()
-            
+        
         if self.cells_checkbox.active:
-            sleep(5) # Ensure the ImageProcessor has been created
             self.generate_cells()
 
     def _all_tasks_finished(self):
-        build_main_app(
-            self.doc, 
-            self.loaded_data,
-            self.image_processor,
-            self.b2s,
-            self.cells_adata,
-            self.cells_gdf
-        )
-        
+        self.app.build()
         self.status_text.text = "Done"
 
 

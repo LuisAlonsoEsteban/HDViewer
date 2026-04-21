@@ -1,6 +1,6 @@
 
 from bokeh.plotting import curdoc
-from bokeh.models import Div
+from bokeh.layouts import column
 
 from .panels.startup import create_startup
 
@@ -9,15 +9,15 @@ doc = curdoc()
 create_startup(doc)
 
 placeholders = {
-    "metadata": Div(text=""),
-    "spots_widgets": Div(text=""),
-    "bins_widgets": Div(text=""),
-    "cells_widgets": Div(text=""),
-    "plot_column": Div(text=""),
-    "thumbnail_plot": Div(text=""),
-    "spots_params": Div(text=""),
-    "bins_params": Div(text=""),
-    "cells_params": Div(text=""),
+    "metadata": column(sizing_mode='stretch_both'),
+    "spots_widgets": column(sizing_mode='stretch_both'),
+    "bins_widgets": column(sizing_mode='stretch_both'),
+    "cells_widgets": column(sizing_mode='stretch_both'),
+    "plot_column": column(sizing_mode='stretch_both'),
+    "thumbnail_plot": column(sizing_mode='stretch_both'),
+    "spots_params": column(sizing_mode='stretch_both'),
+    "bins_params": column(sizing_mode='stretch_both'),
+    "cells_params": column(sizing_mode='stretch_both'),
 }
 
 # Add them to the document with names
