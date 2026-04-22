@@ -2,7 +2,6 @@
 import os
 import re
 
-from tifffile import imread
 import pandas as pd
 import scanpy as sc
 
@@ -35,14 +34,18 @@ class DataSet:
             self.bins_size = self.get_bins_size(adata_path)
 
     @staticmethod
-    def get_bins_size(path:str) -> int:
+    def get_bins_size(base_dir:str) -> int:
         try:
-            bins_size_comp = path.split(os.sep)[-2]
+            bins_size_comp = base_dir.split(os.sep)[-2]
             return int(re.search(r'\d{3}', bins_size_comp).group())
         except IndexError:
-            raise ValueError(f"Path {path} has no parent directory on which bins size can be retrieved.")
+            raise ValueError(f"Path {base_dir} has no parent directory on which bins size can be retrieved.")
         except AttributeError:
-            raise ValueError(f"Path {path} has no bins size in it. You must provide it.")
+            raise ValueError(f"Path {base_dir} has no bins size in it. You must provide it.")
+        
+    @staticmethod
+    def get_format(path:str) -> str:
+        return path.split(".")[-1]
         
     def get_available_sizes(self):
         if self.dir_base and os.path.exists(self.dir_base):
@@ -67,6 +70,14 @@ class DataSet:
             return self.get_default_path(bins_size, data='adata'), self.get_default_path(bins_size, data='positions')
         
     def read_img(self):
+        self.img_format = DataSet.get_format(self.img_path)
+        if self.img_format == "btf":
+            from tifffile import imread
+        elif self.img_format in ["png", "tiff"]:
+            from cv2 import imread
+        else:
+            raise ValueError("Image format not supported")
+        
         self.img = imread(self.img_path)
 
     def read_positions(self):

@@ -99,9 +99,9 @@ class ImageComponent:
 
         return thumb_p
     
-    def add_lowres_image(self, thumb_p):
+    def add_lowres_image(self, p):
         if self.server_deployed:
-            thumb_p.image_url(url=[f"http://localhost:{self.port}/0/0/0"], x=0, y=self.image_tiles.max_dim, w=self.image_tiles.max_dim, h=self.image_tiles.max_dim)
+            p.image_url(url=[f"http://localhost:{self.port}/0/0/0"], x=0, y=self.image_tiles.max_dim, w=self.image_tiles.max_dim, h=self.image_tiles.max_dim)
         # else:
         #     thumb_p.image
     

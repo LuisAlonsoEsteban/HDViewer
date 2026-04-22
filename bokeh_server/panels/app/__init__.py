@@ -11,9 +11,9 @@ class Panel:
             sizing_mode='stretch_both'):
         
         if orient == 'row':
-            self.layout = row(name=name, sizing_mode=sizing_mode)
+            self.layout = row(name=name)
         elif orient == 'col':
-            self.layout = column(name=name, sizing_mode=sizing_mode)
+            self.layout = column(name=name)
 
         self.set_placeholder()
 

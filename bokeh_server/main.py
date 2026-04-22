@@ -9,15 +9,15 @@ doc = curdoc()
 create_startup(doc)
 
 placeholders = {
-    "metadata": column(sizing_mode='stretch_both'),
-    "spots_widgets": column(sizing_mode='stretch_both'),
-    "bins_widgets": column(sizing_mode='stretch_both'),
-    "cells_widgets": column(sizing_mode='stretch_both'),
-    "plot_column": column(sizing_mode='stretch_both'),
+    "metadata": column(),
+    "spots_widgets": column(),
+    "bins_widgets": column(),
+    "cells_widgets": column(),
+    "plot_column": column(sizing_mode='stretch_width'),
     "thumbnail_plot": column(sizing_mode='stretch_both'),
-    "spots_params": column(sizing_mode='stretch_both'),
-    "bins_params": column(sizing_mode='stretch_both'),
-    "cells_params": column(sizing_mode='stretch_both'),
+    "spots_params": column(),
+    "bins_params": column(),
+    "cells_params": column(),
 }
 
 # Add them to the document with names

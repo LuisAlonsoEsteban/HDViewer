@@ -24,6 +24,8 @@ class StartupController:
 
     UPLOAD_DIR = Path("./tmp")
 
+    TILE_MEM_THRESHOLD = 0.3 # GB
+
     def __init__(self, doc):
         self.doc = doc
 
@@ -33,7 +35,7 @@ class StartupController:
         self.b2s = None
 
         self._build_widgets()
-        self.add_callbacks()
+        self._add_callbacks()
         self._build_layout()
 
         self.tasks = {
@@ -79,7 +81,7 @@ class StartupController:
             self.resolution_select
         )
 
-        self.image_input = FileInput(accept=".btf")
+        self.image_input = FileInput(accept=".btf, .png, .tiff")
         self.tiles_progress_bar = Div(text="", width=1000)
         self.image_input_widget = column(
             Div(text="<b>4. Tissue image (.btf)</b>"),
@@ -145,7 +147,7 @@ class StartupController:
             name="startup"
         )
 
-    def add_callbacks(self):
+    def _add_callbacks(self):
         def _update_source_mode(attr, old, new):
             is_upload = (new == "upload")
 
@@ -203,6 +205,7 @@ class StartupController:
             self.doc.add_next_tick_callback(self._all_tasks_finished)
     
     def run_in_thread(self, func, sample_type=None):
+        print(f"[Startup] Generating {sample_type}...")
         def wrapper():
             try:
                 output = func()
@@ -240,8 +243,14 @@ class StartupController:
 
                 self.image_processor.create_tiles(overwrite=False, progress_callback=on_progress)
 
-            self.run_in_thread(worker, sample_type="tiles")
-
+            if self.image_processor.mem > self.TILE_MEM_THRESHOLD:
+                self.run_in_thread(worker, sample_type="tiles")
+            else:
+                import shutil
+                shutil.copyfile(self.dataset.img_path, os.path.join(Path(self.dataset.img_path).resolve().parent, "z0_x0_y0.png"))
+                self.tasks["tiles"] = True
+                self._check_all_done()
+                
         else:
             raise ValueError
 
@@ -363,9 +372,11 @@ class StartupController:
         if self.cells_checkbox.active:
             self.generate_cells()
 
+        self.ensure_b2s() # If Bins2Spots has not been computed
+
     def _all_tasks_finished(self):
-        self.app.build()
         self.status_text.text = "Done"
+        self.app.build()
 
 
 def create_startup(doc):

@@ -56,7 +56,13 @@ class App:
             raise ValueError("The ImageComponent must be loaded first with the 'add_image_component' function.")
         
         if self.figure_panel.p is None:
-            self.figure_panel.populate(self.image_component)
+            self.figure_panel.create_figure(self.image_component.image_tiles.max_dim)
+
+        if not self.figure_panel.image_attached:
+            self.figure_panel.attach_image(self.image_component)
+
+        if not self.figure_panel.alpha_setup:
+            self.figure_panel.setup_image_alpha(self.image_component)
 
         if sample_type == "spots":
             sample = Spots(polygons, adata)
@@ -144,13 +150,12 @@ class App:
         self.geometries.append(geom)
 
     def add_root(self, layout):
-        # for a_root in self.doc.select(dict(name=layout.name)):
-        #     self.doc.remove_root(a_root)
-        # self.doc.add_rot(layout)
-
         placeholder = self.doc.select_one({"name": layout.name})
         if hasattr(placeholder, "children"):
-            placeholder.children = [layout]
+            if hasattr(layout, "children"):
+                placeholder.children = layout.children
+            else:
+                placeholder.children = [layout]
 
     def build(self):
         if self.image_component is None:
@@ -161,8 +166,6 @@ class App:
 
         self.figure_panel.populate(self.image_component)
         self.add_root(self.figure_panel.layout)
-
-        self.figure_panel.p.circle([0, 100], [0, 100], size=20, color="red")
 
         self.thumbnail_panel.populate(self.image_component, self.figure_panel.p)
         self.add_root(self.thumbnail_panel.layout)

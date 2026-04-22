@@ -9,6 +9,9 @@ class FigurePanel(Panel):
 
     def __init__(self):
         super().__init__(name="plot_column")
+
+        self.image_attached = False
+        self.alpha_setup = False
     
     def create_figure(self, max_dim):
         self.p = figure(
@@ -24,16 +27,29 @@ class FigurePanel(Panel):
         self.p.yaxis.visible = False
         self.p.toolbar.logo = None
         self.p.toolbar.autohide = True
+
+    def attach_image(self, image_component):
+        if self.p:
+            image_component.attach_image(self.p)
+            self.image_attached = True
+
+    def setup_image_alpha(self, image_component):
+        if self.p:
+            image_component.add_img_overlay(self.p)
+            self.img_alpha_slider = image_component.get_alpha_slider()
+            self.alpha_setup = True
     
     def populate(self, image_component=None):
         if image_component is not None:
-            self.create_figure(image_component.image_tiles.max_dim)
+            if self.p is None:
+                self.create_figure(image_component.image_tiles.max_dim)
             self.set_children([self.p])
 
-            image_component.attach_image(self.p)
-            image_component.add_img_overlay(self.p)
+            if not self.image_attached:
+                self.attach_image(image_component)
+            if not self.alpha_setup:
+                self.setup_image_alpha(image_component)
 
-            self.img_alpha_slider = image_component.get_alpha_slider()
             self.add_children(self.img_alpha_slider)
 
 
