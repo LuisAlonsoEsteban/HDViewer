@@ -211,6 +211,7 @@ class StartupController:
                 output = func()
                 if sample_type:
                     if output is not None:
+                        # TODO: Check if output is correct
                         self.app.add_sample(*output, b2s=self.b2s, sample_type=sample_type)
             except Exception:
                 print(traceback.format_exc())
@@ -246,8 +247,12 @@ class StartupController:
             if self.image_processor.mem > self.TILE_MEM_THRESHOLD:
                 self.run_in_thread(worker, sample_type="tiles")
             else:
-                import shutil
-                shutil.copyfile(self.dataset.img_path, os.path.join(Path(self.dataset.img_path).resolve().parent, "z0_x0_y0.png"))
+                from PIL import Image
+                import numpy as np
+
+                im = Image.fromarray(np.flipud(self.dataset.img))
+                im.save(os.path.join(Path(self.dataset.img_path).resolve().parent, self.image_processor.tiles_path, "z0_x0_y0.png"))
+                
                 self.tasks["tiles"] = True
                 self._check_all_done()
                 
@@ -265,6 +270,7 @@ class StartupController:
             adata,
             df_tissue_positions,
             bins_size=bins_size,
+            pixels_per_bin=self.dataset.pixels_per_bin,
             tile_scale_xfactor=self.image_processor.scale_xfactor,
             tile_scale_yfactor=self.image_processor.scale_yfactor,
             progress_callback=on_progress

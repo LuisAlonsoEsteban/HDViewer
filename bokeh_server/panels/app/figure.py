@@ -28,9 +28,9 @@ class FigurePanel(Panel):
         self.p.toolbar.logo = None
         self.p.toolbar.autohide = True
 
-    def attach_image(self, image_component):
+    def attach_image(self, image_component, w=None, h=None):
         if self.p:
-            image_component.attach_image(self.p)
+            image_component.attach_image(self.p, w=w, h=h)
             self.image_attached = True
 
     def setup_image_alpha(self, image_component):
@@ -39,14 +39,14 @@ class FigurePanel(Panel):
             self.img_alpha_slider = image_component.get_alpha_slider()
             self.alpha_setup = True
     
-    def populate(self, image_component=None):
+    def populate(self, image_component=None, w=None, h=None):
         if image_component is not None:
             if self.p is None:
                 self.create_figure(image_component.image_tiles.max_dim)
             self.set_children([self.p])
 
             if not self.image_attached:
-                self.attach_image(image_component)
+                self.attach_image(image_component, w=w, h=h)
             if not self.alpha_setup:
                 self.setup_image_alpha(image_component)
 

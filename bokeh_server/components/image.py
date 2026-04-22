@@ -18,6 +18,10 @@ class ImageComponent:
 
         self.server_deployed = False
 
+    @property
+    def are_tiles_needed(self):
+        return self.image_tiles.mem > self.TILE_MEM_THRESHOLD
+
     def deploy_server(self):
         self.image_tiles.deploy_server(port=self.port)
         self.server_deployed = True
@@ -39,12 +43,12 @@ class ImageComponent:
     def add_tile_source(self, p):
         p.add_tile(self.generate_tile_source())
 
-    def attach_image(self, p):
-        if self.image_tiles.mem > self.TILE_MEM_THRESHOLD:
+    def attach_image(self, p, w=None, h=None):
+        if self.are_tiles_needed:
             self.add_tile_source(p)
         else:
             self.deploy_server()
-            self.add_lowres_image(p)
+            self.add_lowres_image(p, w=w, h=h)
 
     def get_overlay_source(self):
         self.overlay_source = ColumnDataSource({
@@ -99,11 +103,16 @@ class ImageComponent:
 
         return thumb_p
     
-    def add_lowres_image(self, p):
+    def add_lowres_image(self, p, w=None, h=None):
         if self.server_deployed:
-            p.image_url(url=[f"http://localhost:{self.port}/0/0/0"], x=0, y=self.image_tiles.max_dim, w=self.image_tiles.max_dim, h=self.image_tiles.max_dim)
-        # else:
-        #     thumb_p.image
+            p.image_url(
+                url=[f"http://localhost:{self.port}/0/0/0"], 
+                x=0, 
+                y=h or self.image_tiles.max_dim, 
+                w=w or self.image_tiles.max_dim, 
+                h=h or self.image_tiles.max_dim)
+        else:
+            pass
     
     def add_viewport(self, thumb_p, fill_color='black', line_color='black'):
         self.viewport = BoxAnnotation(left=0, right=0, top=0, bottom=0, fill_alpha=0.1, fill_color=fill_color, line_width=2, line_color=line_color)

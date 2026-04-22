@@ -1,6 +1,8 @@
 
 import os
 
+from bokeh.models import Range1d
+
 # from .upload import UploadPanel
 from .thumbnail import ThumbnailPanel
 from .figure import FigurePanel
@@ -148,6 +150,24 @@ class App:
 
     def add_geometry(self, geom):
         self.geometries.append(geom)
+
+        # If the image is lowres, adjust the width and height to the max of geometries
+        if self.image_component:
+            if not self.image_component.are_tiles_needed:
+                for r in self.figure_panel.p.renderers:
+                    if hasattr(r, "glyph") and hasattr(r.glyph, "url"):
+                        x = min([geom.sample.gdf.total_bounds[0] for geom in self.geometries])
+                        y = min([geom.sample.gdf.total_bounds[1] for geom in self.geometries])
+                        w = max([geom.sample.gdf.total_bounds[2] - geom.sample.gdf.total_bounds[0] for geom in self.geometries])
+                        h = max([geom.sample.gdf.total_bounds[3] - geom.sample.gdf.total_bounds[1] for geom in self.geometries])
+
+                        r.glyph.x = x
+                        r.glyph.y = y
+                        r.glyph.w = w
+                        r.glyph.h = h
+
+                        self.figure_panel.p.x_range = Range1d(x, x+w)
+                        self.figure_panel.p.y_range = Range1d(y, y+h)
 
     def add_root(self, layout):
         placeholder = self.doc.select_one({"name": layout.name})

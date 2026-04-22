@@ -13,6 +13,7 @@ class Converter:
             self.pixels_per_bin = pixels_per_bin or self.get_pixels_per_bin(df_tissue_positions) if df_tissue_positions is not None else None
         
         def get_pixels_per_bin(self, df_tissue_positions:pd.DataFrame, max_iters=50):
+            # TODO: Fix function. Sometimes it is returning wrong values
             pix_row_dist, pix_col_dist = None, None
             i = 0
             while True:

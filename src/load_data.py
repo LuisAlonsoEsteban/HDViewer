@@ -5,6 +5,9 @@ import re
 import pandas as pd
 import scanpy as sc
 
+import json
+from pathlib import Path
+
 class DataSet:
 
     img = None
@@ -32,6 +35,30 @@ class DataSet:
         else:
             assert self.get_bins_size(adata_path) == self.get_bins_size(positions_path)
             self.bins_size = self.get_bins_size(adata_path)
+
+        self.pixels_per_bin = self.get_pixels_per_bin() 
+
+    def get_pixels_per_bin(self):
+        if self.dir_base and self.bins_size:
+            filename = os.path.join(
+                self.dir_base,
+                f"binned_outputs/square_{self.bins_size:03}um/spatial",
+                "scalefactors_json.json"
+            )
+        elif self.positions_path:
+            filename = os.path.join(
+                Path(self.positions_path).resolve().parent,
+                "scalefactors_json.json"
+            )
+        else:
+            return
+        
+        if os.path.exists(filename):
+            with open(filename, 'r') as f:
+                scalefactors = json.load(f)
+            return scalefactors["spot_diameter_fullres"]
+        else:
+            return
 
     @staticmethod
     def get_bins_size(base_dir:str) -> int:

@@ -97,6 +97,7 @@ class Bins2Spots:
 
                 scaled_x = self.converter.spots2pixels(x, axis=0, shift=self.converter.visiumV2.SPOT_DIAMETER / 2)
                 scaled_y = self.converter.spots2pixels(y, axis=1, shift=self.converter.visiumV2.SPOT_DIAMETER / 2)
+
                 # metadata['pxl_row_in_fullres'].append(scaled_x)
                 metadata['pxl_row_in_fullres'].append(self.tile_scale_xfactor * (max_scaled_x - scaled_x)) # # Note that the direction of 'array_row' and 'pxl_row_in_fullres' are switched: as one increases, the other decreases and viceversa
                 metadata['pxl_col_in_fullres'].append(self.tile_scale_yfactor * scaled_y)
@@ -117,6 +118,7 @@ class Bins2Spots:
             self.spot_polygons,
             keep_cols=['array_row', 'array_col', 'pxl_row_in_fullres','pxl_col_in_fullres']
         )
+        
         self.adata_v2 = pooler.run(predicate='intersects')
 
         if normalize:
