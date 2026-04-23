@@ -59,10 +59,10 @@ class ParamForm:
         return {
                 'attr': attr,
                 'static': 0 in self.static_checkbox.active,
-                'colname': self.colname_input.value,
                 'val': dtype(self.val_input.value),
                 'min_val': dtype(self.min_val_input.value),
                 'max_val': dtype(self.max_val_input.value),
+                'colname': self.colname_input.value,
                 'static_not_sequenced': 0 in self.sns_checkbox.active,
                 'not_sequenced_val': dtype(self.not_sequenced_val_input.value),
                 'colname_hovered': 0 in self.colname_hovered_checkbox.active

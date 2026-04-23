@@ -61,10 +61,10 @@ class Bins2Spots:
     def create_bin_squares(self, subset=False):
         geometry = []
         total_steps = self.df_tissue_positions.shape[0]
-        for i, (x,y) in tqdm(enumerate(zip(self.df_tissue_positions['pxl_row_in_fullres'], self.df_tissue_positions['pxl_col_in_fullres']))):
+        for i, (x,y) in tqdm(enumerate(zip(self.df_tissue_positions['pxl_col_in_fullres'], self.df_tissue_positions['pxl_row_in_fullres']))):
             geometry.append(
                 create_square(
-                    Point(y * self.tile_scale_xfactor, x * self.tile_scale_yfactor), 
+                    Point(x * self.tile_scale_xfactor, y * self.tile_scale_yfactor), 
                     self.converter.visiumHD.pixels_per_bin
                 )
             )
@@ -85,24 +85,24 @@ class Bins2Spots:
 
         id = 0
         scaled_radius = self.converter.get_pixels(self.converter.visiumV2.SPOT_DIAMETER / 2)
-        max_scaled_x = self.converter.spots2pixels(nspots_rows)
+        max_scaled_y = self.converter.spots2pixels(nspots_rows)
 
-        for i, x in tqdm(enumerate(range(nspots_rows))):
-            for y in range(i % 2, nspots_cols, 2):
+        for i, y in tqdm(enumerate(range(nspots_rows))):
+            scaled_y = self.converter.spots2pixels(y, axis=0, shift=self.converter.visiumV2.SPOT_DIAMETER / 2)
+            for x in range(i % 2, nspots_cols, 2):
                 metadata['index'].append(id)
                 id += 1
 
-                metadata['array_row'].append(x)
-                metadata['array_col'].append(y)
+                metadata['array_row'].append(y)
+                metadata['array_col'].append(x)
 
-                scaled_x = self.converter.spots2pixels(x, axis=0, shift=self.converter.visiumV2.SPOT_DIAMETER / 2)
-                scaled_y = self.converter.spots2pixels(y, axis=1, shift=self.converter.visiumV2.SPOT_DIAMETER / 2)
+                scaled_x = self.converter.spots2pixels(x, axis=1, shift=self.converter.visiumV2.SPOT_DIAMETER / 2)
 
                 # metadata['pxl_row_in_fullres'].append(scaled_x)
-                metadata['pxl_row_in_fullres'].append(self.tile_scale_xfactor * (max_scaled_x - scaled_x)) # # Note that the direction of 'array_row' and 'pxl_row_in_fullres' are switched: as one increases, the other decreases and viceversa
-                metadata['pxl_col_in_fullres'].append(self.tile_scale_yfactor * scaled_y)
+                metadata['pxl_row_in_fullres'].append(self.tile_scale_yfactor * (max_scaled_y - scaled_y)) # # Note that the direction of 'array_row' and 'pxl_row_in_fullres' are switched: as one increases, the other decreases and viceversa
+                metadata['pxl_col_in_fullres'].append(self.tile_scale_xfactor * scaled_x)
 
-                spots.append(Point(scaled_y, scaled_x).buffer(scaled_radius))
+                spots.append(Point(scaled_x, scaled_y).buffer(scaled_radius))
 
                 if self.progress_callback is not None:
                     self.progress_callback(1, i, nspots_rows)

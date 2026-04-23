@@ -1,4 +1,6 @@
 
+import os
+
 from bokeh.models import (
     HoverTool, 
     CheckboxGroup,
@@ -6,6 +8,7 @@ from bokeh.models import (
     Slider,
     ColorPicker,
     Button,
+    CustomJS,
     ColumnDataSource, 
     DataTable, 
     TableColumn
@@ -19,11 +22,19 @@ from ..loader import LazyLoader
 
 from .utils.param_form import ParamForm
 
+from pathlib import Path
+
+STATIC_PATH = Path("/bokeh_server/static/data")
+
+BASE_DIR = Path(__file__).resolve().parent  
+DOWNLOADABLE_DATA_PATH = (BASE_DIR.parent / "static" / "data").resolve()
 
 class Component:
 
     AVAILABLE_ATTRS = ['color', 'alpha', 'fill_alpha', 'line_width', 'line_color', 'line_alpha']
     TABLE_ATTRS = ['attr', 'is_static', 'colname', 'value', 'minv', 'maxv', 'not_sequenced_val']
+
+    adata_path = None
 
     def __init__(
             self,
@@ -46,6 +57,25 @@ class Component:
 
         self.glyph_renderer = None
         self.hover = None
+        
+        if not self.lazy_loading:
+            self.save_adata()
+
+    def save_adata(self):
+        if not self.lazy_loading:
+            i = 0
+            while(True):
+                adata_path = (DOWNLOADABLE_DATA_PATH / f"{i}.h5ad").resolve()
+                if not os.path.exists(adata_path):
+                    break
+                i += 1
+            self.adata_path = adata_path
+            self.sample.adata.write_h5ad(self.adata_path)
+
+    @property
+    def static_adata_path(self):
+        if self.adata_path:
+            return STATIC_PATH / self.adata_path.name
 
     @property
     def widgets_name(self):
@@ -176,6 +206,19 @@ class Component:
         self.checkbox.on_change('active', on_checkbox_change)
 
         return self.checkbox
+    
+    def get_download_button(self, host='0.0.0.0', port=5002):
+        self.download_button = Button(label="Download")
+        
+        self.download_button.js_on_click(
+            CustomJS(
+                    code=f"""
+                    window.open('{self.static_adata_path}');
+                    """,
+            )
+        )
+
+        return self.download_button
 
     def get_colnames(self):
         return self.sample.get_colnames()
@@ -230,6 +273,10 @@ class Component:
     
     def get_widgets(self, doc):
         self.widgets = [self.get_visible_checkbox()]
+
+        if not self.lazy_loading:
+            self.widgets.append(self.get_download_button())
+
         if any([not param.is_static for param in self.manager.parameters]):
             self.widgets.append(self.get_autocomplete_input(doc))
 
@@ -238,17 +285,17 @@ class Component:
             if 'alpha' in param.attr and not param.is_static:
                 widget = Slider(start=0.0, end=1.0, value=1.0, step=0.05, title=f"{self.alias}s alpha")
 
-                def update_alpha(attr, old, new):
+                def update_alpha(attr, old, new, _param=param):
                     def set_new_max_alpha():
-                        self.manager.update_param(param.attr, new_maxv=new)
+                        self.manager.update_param(_param.attr, new_maxv=new)
                     doc.add_next_tick_callback(set_new_max_alpha)
-
+                
                 widget.on_change('value', update_alpha)
 
             elif 'color' in param.attr:
                 widget = ColorPicker(title=f"Select {self.alias}s Color", color='#6baed6')
 
-                def update_color(attr, old, new):
+                def update_color(attr, old, new, _param=param):
                     def set_new_color():
                         self.manager.update_param('color', new_val=new)
                         self.refresh_params_layout(doc)
