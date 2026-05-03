@@ -99,7 +99,7 @@ class StartupController:
 
         self.example_select = Select(
             title="Choose example dataset",
-            options=[(key.replace(" ", "_"), key) for key in AVAILABLE_DATASETS.keys()],
+            options=[(key, key) for key in AVAILABLE_DATASETS.keys()],
             value=list(AVAILABLE_DATASETS.keys())[0]
         )
 
