@@ -9,6 +9,7 @@ from bokeh.models import (
     ColorPicker,
     Button,
     CustomJS,
+    Div,
     ColumnDataSource, 
     DataTable, 
     TableColumn
@@ -16,7 +17,7 @@ from bokeh.models import (
 from bokeh.layouts import column
 
 from ..manager import SourceManager, DynamicSourceManager
-from ..parameter import StaticParameter, Scaler
+from ..parameter import StaticParameter, Scaler, CategoricalColor
 
 from ..loader import LazyLoader
 
@@ -190,9 +191,22 @@ class Component:
             self.hover = HoverTool(tooltips=[(self.alias, self.get_hover_tooltips())], renderers=[self.glyph_renderer])
             self.figure.add_tools(self.hover)
 
+    #def set_visibility(self, visible:bool, apply_checkbox=False):
+    #    self.glyph_renderer.visible = visible
+    #    for widget in self.widgets:
+    #        if (widget is not self.checkbox and widget is not self.add_param_button) or apply_checkbox:
+    #            widget.disabled = not visible
+
     def set_visibility(self, visible:bool, apply_checkbox=False):
         self.glyph_renderer.visible = visible
         for widget in self.widgets:
+            is_clustering_widget = (
+                hasattr(self, 'resolution_slider') and widget is self.resolution_slider
+            ) or (
+                hasattr(widget, 'label') and widget.label in ["Run clustering", "Running..."]
+            )
+            if is_clustering_widget:
+                continue
             if (widget is not self.checkbox and widget is not self.add_param_button) or apply_checkbox:
                 widget.disabled = not visible
 
@@ -309,6 +323,45 @@ class Component:
         if len(self.get_available_attrs()) > 0:
             self.widgets.append(self.get_add_param_button(doc))
 
+        # Clustering
+        self.resolution_slider = Slider(
+            start=0.1, end=2.0, value=0.9, step=0.1, title="Clustering resolution"
+        )
+
+        clustering_button = Button(label="Run clustering", button_type="success")
+        clustering_button = Button(label="Run clustering", button_type="success")
+        clustering_info = Div(text="<p style='color:gray;font-size:12px'>Pulsa Run clustering para ver resultados</p>")
+
+        def run_clustering():
+            resolution = self.resolution_slider.value
+            def do_clustering():
+                clustering_button.label = "Running..."
+                clustering_button.disabled = True
+                try:
+                    self.sample.run_clustering(resolution=resolution)
+                    autocomplete = next(
+                        (w for w in self.widgets if isinstance(w, AutocompleteInput)), None
+                    )
+                    if autocomplete:
+                        autocomplete.completions = self.get_colnames()
+                        autocomplete.value = 'leiden'
+                    counts = self.sample.adata.obs['leiden'].value_counts().sort_index()
+                    info_html = "<b>Clusters encontrados:</b><br>"
+                    for cluster, count in counts.items():
+                        info_html += f"Cluster {cluster}: {count} spots<br>"
+                    clustering_info.text = info_html
+                    clustering_button.label = "Run clustering"
+                except Exception as e:
+                    clustering_button.label = f"Error: {str(e)[:30]}"
+                finally:
+                    clustering_button.disabled = False
+            doc.add_next_tick_callback(do_clustering)
+
+        clustering_button.on_click(run_clustering)
+
+        self.widgets.append(self.resolution_slider)
+        self.widgets.append(clustering_button)
+        self.widgets.append(clustering_info)
         return self.widgets
     
     def get_widgets_layout(self, doc):

@@ -61,7 +61,13 @@ class SourceManager:
     def update_colname(self, old_colname, new_colname):
         for param in self.get_params_by_colname(old_colname):
             param.colname = new_colname
-            param.min_counts, param.max_counts = self.sample.get_range(param.colname)
+            min_val, max_val = self.sample.get_range(param.colname)
+            if isinstance(min_val, str):
+                param.min_counts = 0
+                param.max_counts = 1
+            else:
+                param.min_counts = min_val
+                param.max_counts = max_val
 
             if param.colname not in self.cache.columns:
                 colname_data = self.sample.fetch_data(colnames=param.colname, return_coords=False)
@@ -127,7 +133,15 @@ class DynamicSourceManager(SourceManager):
     def update_colname(self, old_colname, new_colname):
         for param in self.get_params_by_colname(old_colname):
             param.colname = new_colname
-            param.min_counts, param.max_counts = self.sample.get_range(param.colname)
+            min_val, max_val = self.sample.get_range(param.colname)
+            # Si los valores son strings (categórico como leiden), 
+            # forzar min/max numéricos para que Scaler no falle
+            if isinstance(min_val, str):
+                param.min_counts = 0
+                param.max_counts = 1
+            else:
+                param.min_counts = min_val
+                param.max_counts = max_val
         self.clear_sources()
         self.fetch_data()
 
