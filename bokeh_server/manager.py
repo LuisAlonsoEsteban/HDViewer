@@ -126,9 +126,13 @@ class DynamicSourceManager(SourceManager):
 
         if len(self.parameters) > 0:
             attr_dict = {param.attr: [] for param in self.parameters}
+            hovered_dict = {param.colname: [] for param in self.parameters 
+                        if not param.is_static and param.colname_hovered}
         else:
-            attr_dict = dict()
-        self.source.data = {'x': [], 'y': [], **attr_dict}
+            attr_dict = {}
+            hovered_dict = {}
+        
+        self.source.data = {'x': [], 'y': [], **attr_dict, **hovered_dict}
 
     def update_colname(self, old_colname, new_colname):
         for param in self.get_params_by_colname(old_colname):
@@ -142,7 +146,17 @@ class DynamicSourceManager(SourceManager):
             else:
                 param.min_counts = min_val
                 param.max_counts = max_val
-        self.clear_sources()
+        #self.clear_sources()
+        #self.fetch_data()
+        # Reiniciar source completamente con las nuevas columnas
+        self.indexes.clear()
+        self.is_sequenced.clear()
+        self.cache = self.cache[0:0]
+        
+        attr_dict = {param.attr: [] for param in self.parameters}
+        colname_dict = {param.colname: [] for param in self.parameters if not param.is_static}
+        self.source.data = {'x': [], 'y': [], **attr_dict, **colname_dict}
+        
         self.fetch_data()
 
     def add_parameter(self, param):
@@ -182,7 +196,11 @@ class DynamicSourceManager(SourceManager):
             else:
                 new_data[param.attr] = param.get_values(is_sequenced_values=new_is_sequenced)
 
-        new_data = new_data.drop(self.get_colnames(), axis=1, inplace=False)
+        #new_data = new_data.drop(self.get_colnames(), axis=1, inplace=False)
+        cols_to_drop = [param.colname for param in self.parameters 
+                if not param.is_static and not param.colname_hovered]
+        new_data = new_data.drop(cols_to_drop, axis=1, inplace=False)
+        
         self.source.stream(new_data.to_dict(orient='list'))
 
     def fetch_data(self):

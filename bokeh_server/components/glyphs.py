@@ -349,6 +349,13 @@ class Component:
                     info_html = "<b>Clusters encontrados:</b><br>"
                     for cluster, count in counts.items():
                         info_html += f"Cluster {cluster}: {count} spots<br>"
+                    # Añadir genes marcadores al panel
+                    markers = self.sample.get_marker_genes(n_genes=5)
+                    if markers:
+                        info_html += "<br><b>Top genes por cluster:</b><br>"
+                        for cluster, genes in markers.items():
+                            gene_names = ", ".join([g[0] for g in genes])
+                            info_html += f"Cluster {cluster}: {gene_names}<br>"
                     clustering_info.text = info_html
                     clustering_button.label = "Run clustering"
                 except Exception as e:
