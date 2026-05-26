@@ -203,7 +203,7 @@ class Component:
             is_clustering_widget = (
                 hasattr(self, 'resolution_slider') and widget is self.resolution_slider
             ) or (
-                hasattr(widget, 'label') and widget.label in ["Run clustering", "Running..."]
+                hasattr(widget, 'label') and widget.label in ["Run clustering", "Running...", "Reset clustering"]
             )
             if is_clustering_widget:
                 continue
@@ -330,13 +330,14 @@ class Component:
 
         clustering_button = Button(label="Run clustering", button_type="success")
         clustering_button = Button(label="Run clustering", button_type="success")
-        clustering_info = Div(text="<p style='color:gray;font-size:12px'>Pulsa Run clustering para ver resultados</p>")
+        clustering_info = Div(text="<p style='color:gray;font-size:12px'>Run clustering to see results</p>")
 
         def run_clustering():
             resolution = self.resolution_slider.value
             def do_clustering():
                 clustering_button.label = "Running..."
                 clustering_button.disabled = True
+                reset_button.visible = True
                 try:
                     self.sample.run_clustering(resolution=resolution)
                     autocomplete = next(
@@ -346,13 +347,13 @@ class Component:
                         autocomplete.completions = self.get_colnames()
                         autocomplete.value = 'leiden'
                     counts = self.sample.adata.obs['leiden'].value_counts().sort_index()
-                    info_html = "<b>Clusters encontrados:</b><br>"
+                    info_html = "<b>Clusters found:</b><br>"
                     for cluster, count in counts.items():
                         info_html += f"Cluster {cluster}: {count} spots<br>"
                     # Añadir genes marcadores al panel
                     markers = self.sample.get_marker_genes(n_genes=5)
                     if markers:
-                        info_html += "<br><b>Top genes por cluster:</b><br>"
+                        info_html += "<br><b>Top genes per cluster:</b><br>"
                         for cluster, genes in markers.items():
                             gene_names = ", ".join([g[0] for g in genes])
                             info_html += f"Cluster {cluster}: {gene_names}<br>"
@@ -366,9 +367,33 @@ class Component:
 
         clustering_button.on_click(run_clustering)
 
+        reset_button = Button(label="Reset clustering", button_type="warning")
+        def reset_clustering():
+            def do_reset():
+                # Eliminar leiden de adata.obs
+                if 'leiden' in self.sample.adata.obs.columns:
+                    self.sample.adata.obs.drop(columns=['leiden'], inplace=True)
+                
+                # Volver al primer gen disponible
+                first_gene = self.sample.get_colnames()[0]
+                autocomplete = next(
+                    (w for w in self.widgets if isinstance(w, AutocompleteInput)), None
+                )
+                if autocomplete:
+                    autocomplete.completions = self.get_colnames()
+                    autocomplete.value = first_gene
+                
+                clustering_info.text = "<p style='color:gray;font-size:12px'>Run clustering to see results</p>"
+                reset_button.visible = False
+            doc.add_next_tick_callback(do_reset)
+
+        reset_button.on_click(reset_clustering)
+        reset_button.visible = False  # oculto hasta que se ejecute el clustering
+
         self.widgets.append(self.resolution_slider)
         self.widgets.append(clustering_button)
         self.widgets.append(clustering_info)
+        self.widgets.append(reset_button)
         return self.widgets
     
     def get_widgets_layout(self, doc):
