@@ -16,6 +16,8 @@ class Sample:
         self.gdf = gdf
         self.adata = adata
 
+        self.adata_processed = None
+
         self.pixels_per_bin = pixels_per_bin
 
         self.on = on
@@ -74,11 +76,17 @@ class Sample:
         else:
             raise ValueError(f"'{colname}' not found in adata")
          
-    def get_value(self, adata, gdf, colname=None):
+    def get_value(self, adata=None, gdf=None, colname=None):
+        if gdf is None:
+            gdf = self.gdf
+
+        if adata is None:
+            adata = self.adata
+
         if colname in gdf.columns:
             return gdf[colname].values.tolist()
 
-        elif self.has_adata():
+        elif self.has_adata():            
             value_df = self.get_adata_vector(adata, colname)
             value_df[self.on] = value_df.index.astype(gdf[self.on].dtype)
             
@@ -141,29 +149,35 @@ class Sample:
     def run_clustering(self, resolution=0.9, n_pcs=30, n_neighbors=15):
         import scanpy as sc
 
-        adata = self.adata.copy()
-        adata.var_names_make_unique() #elimina genes duplicados en el AnnData y Scanpy no puede procesarlos bien.
+        if not self.adata_processed:
+            adata = self.adata.copy()
+            adata.var_names_make_unique()
 
-        sc.pp.filter_genes(adata, min_cells=3)
-        sc.pp.normalize_total(adata, target_sum=1e4)
-        sc.pp.log1p(adata)
-        sc.pp.highly_variable_genes(adata, min_mean=0.0125, max_mean=3, min_disp=0.5)
-        adata = adata[:, adata.var.highly_variable].copy()
-        sc.pp.scale(adata, max_value=10)
-        sc.pp.pca(adata, n_comps=n_pcs)
-        sc.pp.neighbors(adata, n_neighbors=n_neighbors, n_pcs=n_pcs)
-        sc.tl.leiden(adata, resolution=resolution)
+            sc.pp.filter_genes(adata, min_cells=3)
+            sc.pp.normalize_total(adata, target_sum=1e4)
+            sc.pp.log1p(adata)
+            sc.pp.highly_variable_genes(adata)
+            adata = adata[:, adata.var.highly_variable].copy()
+            sc.pp.scale(adata, max_value=10)
+            sc.pp.pca(adata, n_comps=n_pcs)
+            sc.pp.neighbors(adata, n_neighbors=n_neighbors, n_pcs=n_pcs)
+
+            self.adata_processed = adata
+
+        sc.tl.leiden(self.adata_processed, resolution=resolution)
 #
-        common_idx = self.adata.obs_names.intersection(adata.obs_names)
-        self.adata.obs.loc[common_idx, 'leiden'] = adata.obs.loc[common_idx, 'leiden']
+        common_idx = self.adata.obs_names.intersection(self.adata_processed.obs_names)
 
-        self.adata_processed = adata
+        self.adata.obs["leiden"] = None
+        self.adata.obs.loc[common_idx, "leiden"] = (
+            self.adata_processed.obs.loc[common_idx, "leiden"]
+            .astype(str)
+            .values
+        )
+
         sc.tl.rank_genes_groups(self.adata_processed, groupby='leiden', method='wilcoxon')
-        print("OBS columns after clustering:", self.adata.obs.columns.tolist())
-        print("Leiden sample:", self.adata.obs['leiden'].dropna().head())
         
 
-        
 class Bins(Sample):
     def __init__(self, *args, half_bin_size=None, **kwargs):
         super().__init__(*args, **kwargs)

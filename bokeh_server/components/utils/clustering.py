@@ -5,7 +5,8 @@ from bokeh.models import (
     Button,
     Div,
     Slider,
-    ColumnDataSource,
+
+    BooleanFilter,
 )
 from bokeh.layouts import column, row
 from bokeh.palettes import Category20, Category10
@@ -146,6 +147,7 @@ class ClusteringManager:
                     reset_button.visible = True
                 except Exception as exc:
                     import traceback
+                    print(traceback.format_exc())
                     status_div.text = (
                         f"<p style='color:red;font-size:12px'>"
                         f"Error: {str(exc)[:60]}</p>"
@@ -211,9 +213,11 @@ class ClusteringManager:
             attr='color',
             colname=self.CLUSTER_COL,
             static=False,
-            not_sequenced_val="#fff",
+            not_sequenced_val="#000",
             colname_hovered=True,
         )
+
+        self.component.manager.update_param('alpha', avoid_scaling=True)
 
     def _clear_source_colors(self):
         """Remove cluster columns from the source after a reset."""
@@ -221,14 +225,16 @@ class ClusteringManager:
         pass
 
     def _apply_visibility_mask(self):
-        source: ColumnDataSource = self.component.manager.source
-        if self.CLUSTER_COL not in source.data:
-            return
-
-        obs = self.component.manager.sample.adata.obs
-        cluster_ids = obs[self.CLUSTER_COL].astype(str).values
-        visible = [c in self._active_clusters for c in cluster_ids]
-        self.glyph_renderer.view.filter.booleans = visible
+        cluster_ids = self.component.manager.sample.get_value(colname=self.CLUSTER_COL).values
+        visible = [
+            (
+                c in self._active_clusters 
+                or
+                c not in self._cluster_labels # NaN values
+            )
+            for c in cluster_ids
+        ]
+        self.component.glyph_renderer.view.filters = [BooleanFilter(booleans=visible)]
 
     # ------------------------------------------------------------------
     # Widget builders

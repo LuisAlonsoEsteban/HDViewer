@@ -38,7 +38,7 @@ class StaticParameter(Parameter):
         if new_val is not None:
             self.value = new_val
         if new_not_sequenced_val is not None:
-            self.new_not_sequenced_val = new_not_sequenced_val
+            self.not_sequenced_val = new_not_sequenced_val
             
         return self.get_values()
 
@@ -70,6 +70,7 @@ class DynamicParameter(Parameter):
         self.colname_hovered = colname_hovered
 
     def handle_nans(self, series):
+        series = series.copy().astype(object) # Avoid error with categorical values (e.g. leiden clusters) when setting not_sequenced_val
         not_sequenced = series.isna()
         series.loc[not_sequenced] = self.not_sequenced_val
         return series, ~not_sequenced
@@ -113,11 +114,18 @@ class Scaler(DynamicParameter):
         else:
             return self.scale_values(series)
     
-    def update(self, series, new_minv=None, new_maxv=None):
-        if new_minv is not None:
-            self.minv = new_minv if new_minv < self.maxv else self.maxv
-        if new_maxv is not None:
-            self.maxv = new_maxv if new_maxv > self.minv else self.minv
+    def update(self, series, new_minv=None, new_maxv=None, avoid_scaling=False):
+        if avoid_scaling:
+            self.minv = self.maxv
+        else:
+            if new_minv is not None:
+                self.minv = new_minv
+                if new_minv > self.maxv:
+                    self.maxv = new_minv
+            if new_maxv is not None:
+                self.maxv = new_maxv
+                if new_maxv < self.minv:
+                    self.minv = new_maxv
         return self.get_values(series)
 
 
@@ -141,7 +149,6 @@ class CategoricalColor(DynamicParameter):
         return self.category_colors[category]
 
     def apply_filter(self, series, sequenced):
-        result = series.copy().astype(str)
-        result[sequenced] = series[sequenced].astype(str).apply(self.get_color)
-        result[~sequenced] = self.not_sequenced_val
-        return result.tolist()
+        result_series = series.copy()
+        result_series[sequenced] = series[sequenced].astype(str).apply(self.get_color)
+        return result_series.tolist()
