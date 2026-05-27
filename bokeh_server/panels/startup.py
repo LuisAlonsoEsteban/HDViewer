@@ -99,7 +99,7 @@ class StartupController:
 
         self.example_select = Select(
             title="Choose example dataset",
-            options=[(key.replace(" ", "_"), key) for key in AVAILABLE_DATASETS.keys()],
+            options=[(key, key) for key in AVAILABLE_DATASETS.keys()],
             value=list(AVAILABLE_DATASETS.keys())[0]
         )
 
@@ -308,7 +308,8 @@ class StartupController:
                 self.update_progress(self.cells_progress, pct)
 
             cells_gdf = self.image_processor.get_cells_gdf(
-                                    self.image_processor.segment_image()[1], 
+                                   # self.image_processor.segment_image()[1],
+                                    self.image_processor.segment_image(min_overlap=320)[1], 
                                     progress_callback=on_progress
                                 )
 

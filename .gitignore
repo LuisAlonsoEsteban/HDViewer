@@ -1,9 +1,7 @@
 .ipynb_checkpoints
 __pycache__
-
 *.geojson
-
 data
 *.zarr
-
 .venv
+*.log
