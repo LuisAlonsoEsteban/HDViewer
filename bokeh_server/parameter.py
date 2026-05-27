@@ -81,26 +81,6 @@ class DynamicParameter(Parameter):
         return self.apply_filter(*self.handle_nans(series))
     
 
-import matplotlib.colors as mcolors
-
-class Color(DynamicParameter):
-
-    def __init__(self, c1, c2, *args, **kwargs):
-        super().__init__(*args, **kwargs)
-    #     self.cmap = Color.get_cmap(c1, c2)
-
-    @staticmethod
-    def get_cmap(color1, color2, name='custom_diverging'):
-        return mcolors.LinearSegmentedColormap.from_list(
-                name, 
-                [color1, color2]
-            )
-    
-    def apply_filter(self, values):
-        norm = mcolors.Normalize(vmin=min(values), vmax=max(values))
-        return self.cmap(norm(values))
-
-
 class Scaler(DynamicParameter):
 
     def __init__(self, minv, maxv, *args, **kwargs):
@@ -140,7 +120,6 @@ class Scaler(DynamicParameter):
             self.maxv = new_maxv if new_maxv > self.minv else self.minv
         return self.get_values(series)
 
-import colorsys
 
 class CategoricalColor(DynamicParameter):
 

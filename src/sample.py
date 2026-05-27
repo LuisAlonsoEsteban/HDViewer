@@ -128,6 +128,15 @@ class Sample:
     
     def get_colnames(self):
         return self.adata.var_names.tolist() + self.adata.obs.columns.tolist()
+    
+    def is_continous(self, colname):
+        if colname in self.get_colnames():
+            if colname in self.adata.var_names:
+                return True
+            else:
+                return pd.api.types.is_numeric_dtype(self.adata.obs[colname])
+        else:
+            raise ValueError(f"{colname} not found in 'adata'.")
 
     def run_clustering(self, resolution=0.9, n_pcs=30, n_neighbors=15):
         import scanpy as sc
@@ -144,19 +153,10 @@ class Sample:
         sc.pp.pca(adata, n_comps=n_pcs)
         sc.pp.neighbors(adata, n_neighbors=n_neighbors, n_pcs=n_pcs)
         sc.tl.leiden(adata, resolution=resolution)
-
-        #self.adata.obs['leiden'] = adata.obs['leiden'].astype(int)
 #
-        ## Asegurarse de que el índice coincide antes de asignar
-        #common_idx = self.adata.obs_names.intersection(adata.obs_names)
-        #self.adata.obs.loc[common_idx, 'leiden'] = adata.obs.loc[common_idx, 'leiden'].astype(int)
-        #print("OBS columns after clustering:", self.adata.obs.columns.tolist())
-        #print("Leiden sample:", self.adata.obs['leiden'].dropna().head())
-        # Guardar leiden en el adata original
         common_idx = self.adata.obs_names.intersection(adata.obs_names)
-        self.adata.obs.loc[common_idx, 'leiden'] = adata.obs.loc[common_idx, 'leiden'].astype(int)
+        self.adata.obs.loc[common_idx, 'leiden'] = adata.obs.loc[common_idx, 'leiden']
 
-        # Guardar adata procesado y calcular marcadores
         self.adata_processed = adata
         sc.tl.rank_genes_groups(self.adata_processed, groupby='leiden', method='wilcoxon')
         print("OBS columns after clustering:", self.adata.obs.columns.tolist())

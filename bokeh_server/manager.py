@@ -15,6 +15,10 @@ class SourceManager:
         self.source = ColumnDataSource(data={'x': [], 'y': []})
         self.cache = pd.DataFrame()
 
+    @property
+    def n_geometries(self):
+        return self.sample.n_geometries
+
     def reset(self):
         self.source = ColumnDataSource(data={'x': [], 'y': []})
         for param in self.parameters:
@@ -35,39 +39,48 @@ class SourceManager:
         return params
     
     def add_parameter(self, param):
-        if self.get_param(param.attr) is None:
-            self.parameters.append(param)
-            if param.is_static:
-                param.set_is_sequenced(self.is_sequenced)
-            else:
-                if self.sample.has_adata():
-                    param.min_counts, param.max_counts = self.sample.get_range(param.colname)
-                else:
-                    raise ValueError("Non-static parameters cannot be added without an AnnData associated")
-            
-            if not self.is_empty:
-                if param.is_static:
-                    self.source.data[param.attr] = param.get_values()
-                elif param.colname in self.cache.columns:
-                    self.source.data[param.attr] = param.get_values(self.cache[param.colname].copy())
-                else:
-                    pass # TODO
-            else:
-                self.reset()
+        existing_param = self.get_param(param.attr)
+        if existing_param is not None:
+            self.parameters.remove(self.get_param(param.attr))
+            if not existing_param.is_static and existing_param.colname in self.cache.columns:
+                self.cache.drop(columns=existing_param.colname, inplace=True)
+            if existing_param.attr in self.source.data.keys():
+                del self.source.data[existing_param.attr]
 
+        self.parameters.append(param)
+
+        if param.is_static:
+            param.set_is_sequenced(self.is_sequenced)
         else:
-            raise ValueError(f"A parameter for attribute '{param.attr}' is already present.")
+            if self.sample.has_adata():
+                if self.sample.is_continous(param.colname):
+                    param.min_counts, param.max_counts = self.sample.get_range(param.colname)
+            else:
+                raise ValueError("Non-static parameters cannot be added without an AnnData associated")
+        
+        if not self.is_empty:
+            if param.is_static:
+                self.source.data[param.attr] = param.get_values()
+            else:
+                if param.colname not in self.cache.columns:
+                    colname_data = self.sample.fetch_data(colnames=param.colname, return_coords=False)
+                    self.cache[param.colname] = colname_data[param.colname]
+                self.source.data[param.attr] = param.get_values(self.cache[param.colname].copy())
+        else:
+            self.reset()
         
     def update_colname(self, old_colname, new_colname):
         for param in self.get_params_by_colname(old_colname):
             param.colname = new_colname
-            min_val, max_val = self.sample.get_range(param.colname)
-            if isinstance(min_val, str):
-                param.min_counts = 0
-                param.max_counts = 1
-            else:
-                param.min_counts = min_val
-                param.max_counts = max_val
+
+            if hasattr(param, "min_counts"):
+                min_val, max_val = self.sample.get_range(param.colname)
+                if isinstance(min_val, str):
+                    param.min_counts = 0
+                    param.max_counts = 1
+                else:
+                    param.min_counts = min_val
+                    param.max_counts = max_val
 
             if param.colname not in self.cache.columns:
                 colname_data = self.sample.fetch_data(colnames=param.colname, return_coords=False)
@@ -137,18 +150,16 @@ class DynamicSourceManager(SourceManager):
     def update_colname(self, old_colname, new_colname):
         for param in self.get_params_by_colname(old_colname):
             param.colname = new_colname
-            min_val, max_val = self.sample.get_range(param.colname)
-            # Si los valores son strings (categórico como leiden), 
-            # forzar min/max numéricos para que Scaler no falle
-            if isinstance(min_val, str):
-                param.min_counts = 0
-                param.max_counts = 1
-            else:
-                param.min_counts = min_val
-                param.max_counts = max_val
-        #self.clear_sources()
-        #self.fetch_data()
-        # Reiniciar source completamente con las nuevas columnas
+
+            if hasattr(param, "min_counts"):
+                min_val, max_val = self.sample.get_range(param.colname)
+                if isinstance(min_val, str):
+                    param.min_counts = 0
+                    param.max_counts = 1
+                else:
+                    param.min_counts = min_val
+                    param.max_counts = max_val
+
         self.indexes.clear()
         self.is_sequenced.clear()
         self.cache = self.cache[0:0]

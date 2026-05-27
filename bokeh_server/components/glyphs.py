@@ -12,7 +12,10 @@ from bokeh.models import (
     Div,
     ColumnDataSource, 
     DataTable, 
-    TableColumn
+    TableColumn,
+
+    BooleanFilter,
+    CDSView
 )
 from bokeh.layouts import column
 
@@ -22,6 +25,7 @@ from ..parameter import StaticParameter, Scaler, CategoricalColor
 from ..loader import LazyLoader
 
 from .utils.param_form import ParamForm
+from .utils.clustering import ClusteringManager
 
 from pathlib import Path
 
@@ -34,6 +38,8 @@ class Component:
 
     AVAILABLE_ATTRS = ['color', 'alpha', 'fill_alpha', 'line_width', 'line_color', 'line_alpha']
     TABLE_ATTRS = ['attr', 'is_static', 'colname', 'value', 'minv', 'maxv', 'not_sequenced_val']
+
+    CLUSTER_COLOR_LABEL = "cluster_color"
 
     adata_path = None
 
@@ -48,30 +54,24 @@ class Component:
         
         self.figure = figure
 
-        self.sample = sample
         self.lazy_loading = lazy_loading
 
-        self.set_manager()
+        if self.lazy_loading:
+            self.manager = DynamicSourceManager(sample)
+        else:
+            self.manager = SourceManager(sample)
 
         self.hover_color = hover_color
         self.alias = alias
 
         self.glyph_renderer = None
         self.hover = None
-        
-        if not self.lazy_loading:
-            self.save_adata()
 
-    def save_adata(self):
-        if not self.lazy_loading:
-            i = 0
-            while(True):
-                adata_path = (DOWNLOADABLE_DATA_PATH / f"{i}.h5ad").resolve()
-                if not os.path.exists(adata_path):
-                    break
-                i += 1
-            self.adata_path = adata_path
-            self.sample.adata.write_h5ad(self.adata_path)
+        self.clustering_manager = ClusteringManager(self)
+
+    @property
+    def sample(self):
+        return self.manager.sample
 
     @property
     def static_adata_path(self):
@@ -85,12 +85,17 @@ class Component:
     @property
     def param_table_name(self):
         return f"{self.alias.lower()}s_params"
-
-    def set_manager(self):
-        if self.lazy_loading:
-            self.manager = DynamicSourceManager(self.sample)
-        else:
-            self.manager = SourceManager(self.sample)
+    
+    def save_adata(self):
+        if not self.lazy_loading:
+            i = 0
+            while(True):
+                adata_path = (DOWNLOADABLE_DATA_PATH / f"{i}.h5ad").resolve()
+                if not os.path.exists(adata_path):
+                    break
+                i += 1
+            self.adata_path = adata_path
+            self.sample.adata.write_h5ad(self.adata_path)
 
     def attach_loader(self, doc):
         if self.lazy_loading and self.glyph_renderer is not None:
@@ -134,6 +139,9 @@ class Component:
     def add_glyph(self):
         pass
 
+    def remove_parameter(self, attr):
+        pass
+
     def add_parameter(
             self, 
             attr='alpha', 
@@ -158,17 +166,28 @@ class Component:
         else:
             assert attr in self.AVAILABLE_ATTRS, "Incorrect attribute"
             
-            self.manager.add_parameter(
-                Scaler(
-                    min_val,
-                    max_val,
-                    colname,
-                    attr=attr,
-                    static_not_sequenced=static_not_sequenced,
-                    not_sequenced_val=not_sequenced_val,
-                    colname_hovered=colname_hovered
-                    )
-            )
+            if "color" in attr:
+                self.manager.add_parameter(
+                    CategoricalColor(
+                        colname,
+                        attr=attr,
+                        static_not_sequenced=static_not_sequenced,
+                        not_sequenced_val=not_sequenced_val,
+                        colname_hovered=colname_hovered
+                        )
+                )
+            else:
+                self.manager.add_parameter(
+                    Scaler(
+                        min_val,
+                        max_val,
+                        colname,
+                        attr=attr,
+                        static_not_sequenced=static_not_sequenced,
+                        not_sequenced_val=not_sequenced_val,
+                        colname_hovered=colname_hovered
+                        )
+                )
         self.refresh_figure()
 
     def get_hover_tooltips(self):
@@ -191,24 +210,11 @@ class Component:
             self.hover = HoverTool(tooltips=[(self.alias, self.get_hover_tooltips())], renderers=[self.glyph_renderer])
             self.figure.add_tools(self.hover)
 
-    #def set_visibility(self, visible:bool, apply_checkbox=False):
-    #    self.glyph_renderer.visible = visible
-    #    for widget in self.widgets:
-    #        if (widget is not self.checkbox and widget is not self.add_param_button) or apply_checkbox:
-    #            widget.disabled = not visible
-
     def set_visibility(self, visible:bool, apply_checkbox=False):
-        self.glyph_renderer.visible = visible
-        for widget in self.widgets:
-            is_clustering_widget = (
-                hasattr(self, 'resolution_slider') and widget is self.resolution_slider
-            ) or (
-                hasattr(widget, 'label') and widget.label in ["Run clustering", "Running...", "Reset clustering"]
-            )
-            if is_clustering_widget:
-                continue
-            if (widget is not self.checkbox and widget is not self.add_param_button) or apply_checkbox:
-                widget.disabled = not visible
+       self.glyph_renderer.visible = visible
+       for widget in self.widgets:
+           if widget is not self.checkbox or apply_checkbox:
+               widget.disabled = not visible
 
     def get_visible_checkbox(self):
         self.checkbox = CheckboxGroup(labels=[f"Show {self.alias}s"], active=[0])
@@ -222,17 +228,18 @@ class Component:
         return self.checkbox
     
     def get_download_button(self, host='0.0.0.0', port=5002):
-        self.download_button = Button(label="Download")
-        
-        self.download_button.js_on_click(
-            CustomJS(
-                    code=f"""
-                    window.open('{self.static_adata_path}');
-                    """,
+        self.save_adata()
+        if self.static_adata_path:
+            self.download_button = Button(label="Download")
+            self.download_button.js_on_click(
+                CustomJS(
+                        code=f"""
+                        window.open('{self.static_adata_path}');
+                        """,
+                )
             )
-        )
 
-        return self.download_button
+            return self.download_button
 
     def get_colnames(self):
         return self.sample.get_colnames()
@@ -323,77 +330,8 @@ class Component:
         if len(self.get_available_attrs()) > 0:
             self.widgets.append(self.get_add_param_button(doc))
 
-        # Clustering
-        self.resolution_slider = Slider(
-            start=0.1, end=2.0, value=0.9, step=0.1, title="Clustering resolution"
-        )
+        self.widgets.extend(self.clustering_manager.get_widgets(doc))
 
-        clustering_button = Button(label="Run clustering", button_type="success")
-        clustering_button = Button(label="Run clustering", button_type="success")
-        clustering_info = Div(text="<p style='color:gray;font-size:12px'>Run clustering to see results</p>")
-
-        def run_clustering():
-            resolution = self.resolution_slider.value
-            def do_clustering():
-                clustering_button.label = "Running..."
-                clustering_button.disabled = True
-                reset_button.visible = True
-                try:
-                    self.sample.run_clustering(resolution=resolution)
-                    autocomplete = next(
-                        (w for w in self.widgets if isinstance(w, AutocompleteInput)), None
-                    )
-                    if autocomplete:
-                        autocomplete.completions = self.get_colnames()
-                        autocomplete.value = 'leiden'
-                    counts = self.sample.adata.obs['leiden'].value_counts().sort_index()
-                    info_html = "<b>Clusters found:</b><br>"
-                    for cluster, count in counts.items():
-                        info_html += f"Cluster {cluster}: {count} spots<br>"
-                    # Añadir genes marcadores al panel
-                    markers = self.sample.get_marker_genes(n_genes=5)
-                    if markers:
-                        info_html += "<br><b>Top genes per cluster:</b><br>"
-                        for cluster, genes in markers.items():
-                            gene_names = ", ".join([g[0] for g in genes])
-                            info_html += f"Cluster {cluster}: {gene_names}<br>"
-                    clustering_info.text = info_html
-                    clustering_button.label = "Run clustering"
-                except Exception as e:
-                    clustering_button.label = f"Error: {str(e)[:30]}"
-                finally:
-                    clustering_button.disabled = False
-            doc.add_next_tick_callback(do_clustering)
-
-        clustering_button.on_click(run_clustering)
-
-        reset_button = Button(label="Reset clustering", button_type="warning")
-        def reset_clustering():
-            def do_reset():
-                # Eliminar leiden de adata.obs
-                if 'leiden' in self.sample.adata.obs.columns:
-                    self.sample.adata.obs.drop(columns=['leiden'], inplace=True)
-                
-                # Volver al primer gen disponible
-                first_gene = self.sample.get_colnames()[0]
-                autocomplete = next(
-                    (w for w in self.widgets if isinstance(w, AutocompleteInput)), None
-                )
-                if autocomplete:
-                    autocomplete.completions = self.get_colnames()
-                    autocomplete.value = first_gene
-                
-                clustering_info.text = "<p style='color:gray;font-size:12px'>Run clustering to see results</p>"
-                reset_button.visible = False
-            doc.add_next_tick_callback(do_reset)
-
-        reset_button.on_click(reset_clustering)
-        reset_button.visible = False  # oculto hasta que se ejecute el clustering
-
-        self.widgets.append(self.resolution_slider)
-        self.widgets.append(clustering_button)
-        self.widgets.append(clustering_info)
-        self.widgets.append(reset_button)
         return self.widgets
     
     def get_widgets_layout(self, doc):
@@ -431,6 +369,7 @@ class Circles(Component):
         self.radius = radius
 
     def add_glyph(self):
+        view = CDSView(filter=BooleanFilter(booleans=[True] * self.manager.n_geometries))
         self.glyph_renderer = self.figure.circle(
                                     x='x', 
                                     y='y', 
@@ -438,6 +377,7 @@ class Circles(Component):
                                     hover_color=self.hover_color,
                                     **{param.attr: param.attr for param in self.manager.parameters},
                                     source=self.manager.source,
+                                    view=view,
                                 )
         
 class Squares(Component):
@@ -449,6 +389,7 @@ class Squares(Component):
         self.angle=angle
 
     def add_glyph(self):
+        view = CDSView(filter=BooleanFilter(booleans=[True] * self.manager.n_geometries))
         self.glyph_renderer = self.figure.rect(
                                 x='x', 
                                 y='y', 
@@ -458,6 +399,7 @@ class Squares(Component):
                                 hover_color=self.hover_color,
                                 **{param.attr: param.attr for param in self.manager.parameters},
                                 source=self.manager.source,
+                                view=view,
                             )
         
 class Patches(Component):
@@ -466,12 +408,14 @@ class Patches(Component):
         super().__init__(*args, **kwargs)
 
     def add_glyph(self):
+        view = CDSView(filter=BooleanFilter(booleans=[True] * self.manager.n_geometries))
         self.glyph_renderer = self.figure.patches(
                                     xs='x', 
-                                    ys='y', 
+                                    ys='y',
                                     hover_color=self.hover_color,
                                     **{param.attr: param.attr for param in self.manager.parameters},
                                     source=self.manager.source,
+                                    view=view,
                                 )
 
 
