@@ -89,16 +89,16 @@ class Color(DynamicParameter):
         super().__init__(*args, **kwargs)
     #     self.cmap = Color.get_cmap(c1, c2)
 
-    # @staticmethod
-    # def get_cmap(color1, color2, name='custom_diverging'):
-    #     return mcolors.LinearSegmentedColormap.from_list(
-    #             name, 
-    #             [color1, color2]
-    #         )
+    @staticmethod
+    def get_cmap(color1, color2, name='custom_diverging'):
+        return mcolors.LinearSegmentedColormap.from_list(
+                name, 
+                [color1, color2]
+            )
     
-    # def apply_filter(self, values):
-    #     norm = mcolors.Normalize(vmin=min(values), vmax=max(values))
-    #     return self.cmap(norm(values))
+    def apply_filter(self, values):
+        norm = mcolors.Normalize(vmin=min(values), vmax=max(values))
+        return self.cmap(norm(values))
 
 
 class Scaler(DynamicParameter):
