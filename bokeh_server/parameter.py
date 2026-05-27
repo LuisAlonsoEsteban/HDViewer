@@ -109,6 +109,10 @@ class Scaler(DynamicParameter):
         self.maxv = maxv
 
     def scale_values(self, values):
+        try:
+            values = [float(v) for v in values]
+        except (ValueError, TypeError):
+            values = list(range(len(values)))
         range_val = self.max_counts - self.min_counts if self.max_counts != self.min_counts else 1
         scaled_values = [self.minv + (value - self.min_counts) * (self.maxv - self.minv) / range_val for value in values]
         return scaled_values
@@ -135,3 +139,30 @@ class Scaler(DynamicParameter):
         if new_maxv is not None:
             self.maxv = new_maxv if new_maxv > self.minv else self.minv
         return self.get_values(series)
+
+import colorsys
+
+class CategoricalColor(DynamicParameter):
+
+    PALETTE = [
+        "#e6194b", "#3cb44b", "#4363d8", "#f58231", "#911eb4",
+        "#42d4f4", "#f032e6", "#bfef45", "#fabed4", "#469990",
+        "#dcbeff", "#9A6324", "#fffac8", "#800000", "#aaffc3",
+        "#808000", "#ffd8b1", "#000075", "#a9a9a9", "#ffffff"
+    ]
+
+    def __init__(self, *args, **kwargs):
+        super().__init__(*args, **kwargs)
+        self.category_colors = {}
+
+    def get_color(self, category):
+        if category not in self.category_colors:
+            idx = len(self.category_colors) % len(self.PALETTE)
+            self.category_colors[category] = self.PALETTE[idx]
+        return self.category_colors[category]
+
+    def apply_filter(self, series, sequenced):
+        result = series.copy().astype(str)
+        result[sequenced] = series[sequenced].astype(str).apply(self.get_color)
+        result[~sequenced] = self.not_sequenced_val
+        return result.tolist()

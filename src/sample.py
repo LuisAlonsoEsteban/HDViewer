@@ -38,7 +38,10 @@ class Sample:
         if colname in self.adata.var_names:
             return self.adata[:, colname].X.min(), self.adata[:, colname].X.max()
         elif colname in self.adata.obs.columns:
-            return self.adata.obs[colname].min(), self.adata.obs[colname].max()
+            col = self.adata.obs[colname]
+            if hasattr(col, 'cat'):
+                col = col.cat.as_ordered()
+            return col.min(), col.max()
     
     def crop_geom(self, left, right, top, bottom):
         return self.gdf.cx[left:right, bottom:top].copy()
@@ -80,7 +83,7 @@ class Sample:
             value_df[self.on] = value_df.index.astype(gdf[self.on].dtype)
             
             merged_gdf = gdf.reset_index().merge(value_df, on=self.on, how='left').set_index('index')
-
+            print(f"Colname: {colname}, NaNs after merge: {merged_gdf[colname].isna().sum()}/{len(merged_gdf)}")
             return merged_gdf[colname]
         else:
             raise ValueError(f"'{colname}' not found in geometries, and AnnData not available")
@@ -108,8 +111,57 @@ class Sample:
 
         return data
     
+    def get_marker_genes(self, n_genes=5):
+        import scanpy as sc
+        import pandas as pd
+        if not hasattr(self, 'adata_processed') or 'rank_genes_groups' not in self.adata_processed.uns:
+            return {}
+        
+        result = self.adata_processed.uns['rank_genes_groups']
+        clusters = result['names'].dtype.names
+        markers = {}
+        for cluster in clusters:
+            genes = [result['names'][cluster][i] for i in range(n_genes)]
+            scores = [result['scores'][cluster][i] for i in range(n_genes)]
+            markers[cluster] = list(zip(genes, [round(s, 2) for s in scores]))
+        return markers
+    
     def get_colnames(self):
         return self.adata.var_names.tolist() + self.adata.obs.columns.tolist()
+
+    def run_clustering(self, resolution=0.9, n_pcs=30, n_neighbors=15):
+        import scanpy as sc
+
+        adata = self.adata.copy()
+        adata.var_names_make_unique() #elimina genes duplicados en el AnnData y Scanpy no puede procesarlos bien.
+
+        sc.pp.filter_genes(adata, min_cells=3)
+        sc.pp.normalize_total(adata, target_sum=1e4)
+        sc.pp.log1p(adata)
+        sc.pp.highly_variable_genes(adata, min_mean=0.0125, max_mean=3, min_disp=0.5)
+        adata = adata[:, adata.var.highly_variable].copy()
+        sc.pp.scale(adata, max_value=10)
+        sc.pp.pca(adata, n_comps=n_pcs)
+        sc.pp.neighbors(adata, n_neighbors=n_neighbors, n_pcs=n_pcs)
+        sc.tl.leiden(adata, resolution=resolution)
+
+        #self.adata.obs['leiden'] = adata.obs['leiden'].astype(int)
+#
+        ## Asegurarse de que el índice coincide antes de asignar
+        #common_idx = self.adata.obs_names.intersection(adata.obs_names)
+        #self.adata.obs.loc[common_idx, 'leiden'] = adata.obs.loc[common_idx, 'leiden'].astype(int)
+        #print("OBS columns after clustering:", self.adata.obs.columns.tolist())
+        #print("Leiden sample:", self.adata.obs['leiden'].dropna().head())
+        # Guardar leiden en el adata original
+        common_idx = self.adata.obs_names.intersection(adata.obs_names)
+        self.adata.obs.loc[common_idx, 'leiden'] = adata.obs.loc[common_idx, 'leiden'].astype(int)
+
+        # Guardar adata procesado y calcular marcadores
+        self.adata_processed = adata
+        sc.tl.rank_genes_groups(self.adata_processed, groupby='leiden', method='wilcoxon')
+        print("OBS columns after clustering:", self.adata.obs.columns.tolist())
+        print("Leiden sample:", self.adata.obs['leiden'].dropna().head())
+        
 
         
 class Bins(Sample):
