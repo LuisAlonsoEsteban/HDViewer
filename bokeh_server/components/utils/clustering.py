@@ -11,8 +11,10 @@ from bokeh.models import (
 from bokeh.layouts import column, row
 from bokeh.palettes import Category20, Category10
 
-CLUSTER_PALETTES = [*Category20[20], *Category10[10]]
+from .. import NOT_SEQUENCED_VAL
 
+
+CLUSTER_PALETTES = [*Category20[20], *Category10[10]]
 
 class ClusteringManager:
     """
@@ -46,7 +48,7 @@ class ClusteringManager:
         sample  : object with `.adata`, `.run_clustering(resolution)`,
                   and `.get_colnames()` methods.
         manager : SourceManager / DynamicSourceManager that exposes
-                  `.source` (ColumnDataSource) and `.update_colname()`.
+                  `.source` (ColumnDataSource) and `.update_colname()`.run
         """
         self.component = component
 
@@ -84,25 +86,7 @@ class ClusteringManager:
         if on_done is not None:
             on_done(doc)
 
-    def reset(self, doc, on_done=None):
-        """Remove clustering results and tear down cluster widgets."""
-        obs = self.component.manager.sample.adata.obs
-        if self.CLUSTER_COL in obs.columns:
-            obs.drop(columns=[self.CLUSTER_COL], inplace=True)
-
-        self._cluster_labels = []
-        self._color_map = {}
-        self._active_clusters = set()
-        self._checkbox_group = None
-        self._color_pickers = []
-
-        self._clear_source_colors()
-        self._rebuild_cluster_widgets(doc)   # renders empty placeholder
-
-        if on_done is not None:
-            on_done(doc)
-
-    def get_widgets(self, doc) -> list:
+    def get_widgets(self, doc, on_run=None) -> list:
         """
         Return the full list of widgets for the clustering section:
         resolution slider, run button, status div, reset button, and —
@@ -119,8 +103,6 @@ class ClusteringManager:
             text="<p style='color:gray;font-size:12px'>"
                  "Run clustering to see results</p>"
         )
-        reset_button = Button(label="Reset clustering", button_type="warning")
-        reset_button.visible = self.is_clustered
 
         # Lazy-build cluster widget placeholder so we can update it in-place
         if self._cluster_layout is None:
@@ -139,12 +121,12 @@ class ClusteringManager:
                     self.run(
                         resolution=resolution_slider.value,
                         doc=doc,
+                        on_done=on_run
                     )
                     status_div.text = (
                         f"<p style='color:green;font-size:12px'>"
                         f"{len(self._cluster_labels)} clusters found</p>"
                     )
-                    reset_button.visible = True
                 except Exception as exc:
                     import traceback
                     print(traceback.format_exc())
@@ -157,25 +139,12 @@ class ClusteringManager:
 
             doc.add_next_tick_callback(_do)
 
-        def _on_reset():
-            def _do():
-                self.reset(doc=doc)
-                status_div.text = (
-                    "<p style='color:gray;font-size:12px'>"
-                    "Run clustering to see results</p>"
-                )
-                reset_button.visible = False
-
-            doc.add_next_tick_callback(_do)
-
         run_button.on_click(_on_run)
-        reset_button.on_click(_on_reset)
 
         return [
             resolution_slider,
             run_button,
             status_div,
-            reset_button,
             self._cluster_layout,
         ]
 
@@ -213,28 +182,27 @@ class ClusteringManager:
             attr='color',
             colname=self.CLUSTER_COL,
             static=False,
-            not_sequenced_val="#000",
+            not_sequenced_val=NOT_SEQUENCED_VAL[f"{self.component.alias.lower()}s"]["color"],
             colname_hovered=True,
         )
 
         self.component.manager.update_param('alpha', avoid_scaling=True)
 
-    def _clear_source_colors(self):
-        """Remove cluster columns from the source after a reset."""
-        # self.component.
-        pass
-
     def _apply_visibility_mask(self):
-        cluster_ids = self.component.manager.sample.get_value(colname=self.CLUSTER_COL).values
-        visible = [
-            (
-                c in self._active_clusters 
-                or
-                c not in self._cluster_labels # NaN values
-            )
-            for c in cluster_ids
+        cluster_ids = self.component.manager.sample.get_value(
+            colname=self.CLUSTER_COL
+        )
+
+        visible = cluster_ids.isin(self._active_clusters)
+
+        if 0 in self.component.notsequenced_checkbox.active:
+            visible |= cluster_ids.isna()
+
+        self.component._view = visible.to_list()
+
+        self.component.glyph_renderer.view.filters = [
+            BooleanFilter(booleans=self.component._view)
         ]
-        self.component.glyph_renderer.view.filters = [BooleanFilter(booleans=visible)]
 
     # ------------------------------------------------------------------
     # Widget builders
@@ -248,8 +216,6 @@ class ClusteringManager:
         if not self.is_clustered:
             return []
 
-        widgets = []
-
         # --- CheckboxGroup: one entry per cluster ----------------------
         labels = [
             f"Cluster {label}  ({self._count_spots(label)} spots)"
@@ -260,6 +226,8 @@ class ClusteringManager:
             active=list(range(len(self._cluster_labels))),
             name="cluster_checkbox_group",
         )
+
+        self._apply_visibility_mask() # Make all spots appear
 
         def _on_checkbox_change(attr, old, new):
             self._active_clusters = {
@@ -272,39 +240,8 @@ class ClusteringManager:
             doc.add_next_tick_callback(_patch)
 
         self._checkbox_group.on_change("active", _on_checkbox_change)
-        widgets.append(self._checkbox_group)
 
-        # --- ColorPicker: one per cluster ------------------------------
-        self._color_pickers = []
-        color_picker_rows = []
-
-        for label in self._cluster_labels:
-            picker = ColorPicker(
-                title=f"Cluster {label}",
-                color=self._color_map[label],
-                width=120,
-            )
-
-            def _on_color_change(attr, old, new, _label=label):
-                self._color_map[_label] = new
-
-                def _repaint():
-                    self._update_source_colors()
-                    self._apply_visibility_mask()
-
-                doc.add_next_tick_callback(_repaint)
-
-            picker.on_change("color", _on_color_change)
-            self._color_pickers.append(picker)
-
-        # Group pickers in rows of 3 to avoid an endless vertical list
-        for i in range(0, len(self._color_pickers), 3):
-            color_picker_rows.append(
-                row(*self._color_pickers[i:i + 3])
-            )
-
-        widgets.extend(color_picker_rows)
-        return widgets
+        return [self._checkbox_group]
 
     def _rebuild_cluster_widgets(self, doc):
         """Replace the children of _cluster_layout in-place."""

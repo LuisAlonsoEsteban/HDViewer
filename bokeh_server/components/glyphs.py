@@ -1,7 +1,11 @@
 
 import os
+from pathlib import Path
+
+import numpy as np
 
 from bokeh.models import (
+    Div,
     HoverTool, 
     CheckboxGroup,
     AutocompleteInput,
@@ -9,7 +13,8 @@ from bokeh.models import (
     ColorPicker,
     Button,
     CustomJS,
-    Div,
+    Tabs,
+    TabPanel,
     ColumnDataSource, 
     DataTable, 
     TableColumn,
@@ -27,7 +32,8 @@ from ..loader import LazyLoader
 from .utils.param_form import ParamForm
 from .utils.clustering import ClusteringManager
 
-from pathlib import Path
+from . import NOT_SEQUENCED_VAL
+
 
 STATIC_PATH = Path("/bokeh_server/static/data")
 
@@ -67,7 +73,13 @@ class Component:
         self.glyph_renderer = None
         self.hover = None
 
+        self.slider = None
+        self.colorpicker = None
+        self.autocomplete_input = None
+
         self.clustering_manager = ClusteringManager(self)
+
+        self._view = None
 
     @property
     def sample(self):
@@ -85,6 +97,12 @@ class Component:
     @property
     def param_table_name(self):
         return f"{self.alias.lower()}s_params"
+    
+    @property
+    def view(self):
+        if not self._view:
+            self._view = [True] * self.manager.n_geometries
+        return self._view
     
     def save_adata(self):
         if not self.lazy_loading:
@@ -104,7 +122,7 @@ class Component:
 
     def refresh_widgets_layout(self, doc):
         widgets_layout = doc.get_model_by_name(self.widgets_name)
-        widgets_layout.children = self.get_widgets(doc)
+        widgets_layout.children = [self.get_widgets(doc)]
 
     def refresh_params_layout(self, doc):
         params_layout = doc.get_model_by_name(self.param_table_name)
@@ -212,7 +230,7 @@ class Component:
 
     def set_visibility(self, visible:bool, apply_checkbox=False):
        self.glyph_renderer.visible = visible
-       for widget in self.widgets:
+       for widget in self._all_widgets:
            if widget is not self.checkbox or apply_checkbox:
                widget.disabled = not visible
 
@@ -226,6 +244,38 @@ class Component:
         self.checkbox.on_change('active', on_checkbox_change)
 
         return self.checkbox
+    
+    def get_not_sequenced_visible_checkbox(self):
+        self.notsequenced_checkbox = CheckboxGroup(labels=[f"Show not sequenced {self.alias}s"], active=[0])
+
+        sample = self.manager.sample
+        first_col = sample.get_colnames()[0]
+        is_nan = sample.get_value(colname=first_col).isna().to_numpy()
+
+        def on_checkbox_change(attr, old, new):
+            visible = 0 in new
+
+            current_filter = np.asarray(
+                self.glyph_renderer.view.filters[0].booleans,
+                dtype=bool,
+            )
+
+            if is_nan.shape[0] != current_filter.shape[0]:
+                raise ValueError(
+                    "Unexpected mismatch between glyph view filter and sample data shape."
+                )
+
+            booleans = current_filter.copy()
+            booleans[is_nan] = visible
+
+            self._view = booleans.tolist()
+
+            self.glyph_renderer.view.filters = [
+                BooleanFilter(booleans=self._view)
+            ]
+
+        self.notsequenced_checkbox.on_change("active", on_checkbox_change)
+        return self.notsequenced_checkbox
     
     def get_download_button(self, host='0.0.0.0', port=5002):
         self.save_adata()
@@ -245,7 +295,7 @@ class Component:
         return self.sample.get_colnames()
     
     def get_autocomplete_input(self, doc):
-        autocomplete_input = AutocompleteInput(
+        self.autocomplete_input = AutocompleteInput(
                                     title="Gene/Metadata", 
                                     value=self.get_colnames()[0], # TODO
                                     completions=self.get_colnames(), 
@@ -256,15 +306,38 @@ class Component:
         
         def on_input_change(_, old, new):
             def update_colname():
-                self.manager.update_colname(old, new)
+                if self.sample.is_continous(old) == self.sample.is_continous(new):
+                    self.manager.update_colname(old, new)
+                else:
+                    if self.sample.is_continous(new):
+                        if self.slider:
+                            self.manager.update_param('alpha', new_minv=0, new_maxv=self.slider.value)
+                        if self.colorpicker:
+                            self.add_parameter(
+                                attr='color',
+                                val=self.colorpicker.color,
+                                static=True,
+                                not_sequenced_val=NOT_SEQUENCED_VAL[f"{self.alias.lower()}s"]["color"],
+                            )
+                    else:
+                        self.manager.update_param('alpha', avoid_scaling=True)
+                        if self.autocomplete_input:
+                            self.add_parameter(
+                                attr='color',
+                                colname=self.autocomplete_input.value,
+                                static=False,
+                                not_sequenced_val=NOT_SEQUENCED_VAL[f"{self.alias.lower()}s"]["color"],
+                                colname_hovered=True,
+                            )
+
                 self.update_hover_tooltips()
                 self.refresh_params_layout(doc)
-
+                
             doc.add_next_tick_callback(update_colname)
 
-        autocomplete_input.on_change('value', on_input_change)
+        self.autocomplete_input.on_change('value', on_input_change)
 
-        return autocomplete_input
+        return self.autocomplete_input
     
     def get_available_attrs(self):
         avail_attrs = []
@@ -274,68 +347,95 @@ class Component:
 
         return avail_attrs
     
-    def get_add_param_button(self, doc):
-        self.add_param_button = Button(label='Add parameter')
-
-        def handler():
-            if not hasattr(self, 'add_param_form'):
-                self.add_param_form = ParamForm(self)
-            form_layout = self.add_param_form.get_layout(doc)
-            parent_layout = doc.get_model_by_name('spots_widgets')
-            
-            def append_form():
-                self.add_param_button.visible = False
-                parent_layout.children.append(form_layout)
-                
-            doc.add_next_tick_callback(append_form)
-    
-        self.add_param_button.on_click(handler)
-        return self.add_param_button
     
     def get_widgets(self, doc):
-        self.widgets = [self.get_visible_checkbox()]
+        self._all_widgets = []  # flat list for set_visibility
+
+        # --- General Tab ---
+        general_widgets = [self.get_visible_checkbox()]
+        self._all_widgets.append(self.checkbox)
+
+        general_widgets.append(self.get_not_sequenced_visible_checkbox())
+        self._all_widgets.append(self.notsequenced_checkbox)
 
         if not self.lazy_loading:
-            self.widgets.append(self.get_download_button())
-
-        if any([not param.is_static for param in self.manager.parameters]):
-            self.widgets.append(self.get_autocomplete_input(doc))
+            dl = self.get_download_button()
+            if dl:
+                general_widgets.append(dl)
+                self._all_widgets.append(dl)
 
         for param in self.manager.parameters:
-
             if 'alpha' in param.attr and not param.is_static:
-                widget = Slider(start=0.0, end=1.0, value=1.0, step=0.05, title=f"{self.alias}s alpha")
+                self.slider = Slider(start=0.0, end=1.0, value=1.0, step=0.05, title=f"{self.alias}s alpha")
 
                 def update_alpha(attr, old, new, _param=param):
                     def set_new_max_alpha():
                         self.manager.update_param(_param.attr, new_maxv=new)
                     doc.add_next_tick_callback(set_new_max_alpha)
-                
-                widget.on_change('value', update_alpha)
 
-            elif 'color' in param.attr:
-                widget = ColorPicker(title=f"Select {self.alias}s Color", color='#6baed6')
+                self.slider.on_change('value', update_alpha)
+                general_widgets.append(self.slider)
+                self._all_widgets.append(self.slider)
+
+        # --- Color Tab ---
+        color_widgets = []
+
+        if any([not param.is_static for param in self.manager.parameters]):
+            autocomplete = self.get_autocomplete_input(doc)
+            color_widgets.append(autocomplete)
+            self._all_widgets.append(autocomplete)
+
+        for param in self.manager.parameters:
+            if 'color' in param.attr:
+                self.colorpicker = ColorPicker(title=f"Select {self.alias}s Color", color='#6baed6')
 
                 def update_color(attr, old, new, _param=param):
                     def set_new_color():
                         self.manager.update_param('color', new_val=new)
                         self.refresh_params_layout(doc)
-
                     doc.add_next_tick_callback(set_new_color)
 
-                widget.on_change('color', update_color)
+                self.colorpicker.on_change('color', update_color)
+                color_widgets.append(self.colorpicker)
+                self._all_widgets.append(self.colorpicker)
 
-            self.widgets.append(widget)
+        # --- Clustering Tab ---
+        def on_run_clustering(doc):
+            if self.autocomplete_input:
+                self.autocomplete_input.completions = self.get_colnames()
+                self.autocomplete_input.value = self.clustering_manager.CLUSTER_COL
+
+                self.add_param_form.colname_input.completions = self.get_colnames()
+
+        clustering_widgets = self.clustering_manager.get_widgets(doc, on_run_clustering)
+        self._all_widgets.extend(clustering_widgets)
+
+        # --- Tab panels ---
+        tab_panels = [
+            TabPanel(child=column(*general_widgets), title="General"),
+            TabPanel(child=column(*color_widgets) if color_widgets else column(Div(text="No color options.")), title="Color"),
+            TabPanel(child=column(*clustering_widgets), title="Clustering"),
+        ]
+
+        for param in self.manager.parameters:
+            if not param.is_static and 'alpha' not in param.attr and 'color' not in param.attr:
+                tab_panels.append(
+                    TabPanel(child=column(Div(text=f"Parameter: <b>{param.attr}</b>")), title=param.attr)
+                )
 
         if len(self.get_available_attrs()) > 0:
-            self.widgets.append(self.get_add_param_button(doc))
+            self.add_param_form = ParamForm(self)
+            form_layout = self.add_param_form.get_layout(doc)
+            self._all_widgets.append(form_layout)
+            tab_panels.append(
+                TabPanel(child=column(form_layout), title="＋ Add param")
+            )
 
-        self.widgets.extend(self.clustering_manager.get_widgets(doc))
+        self.tabs_widget = Tabs(tabs=tab_panels)
+        return self.tabs_widget
 
-        return self.widgets
-    
     def get_widgets_layout(self, doc):
-        return column(*self.get_widgets(doc), name=self.widgets_name)
+        return column(self.get_widgets(doc), name=self.widgets_name)
     
 
     @property
@@ -369,7 +469,6 @@ class Circles(Component):
         self.radius = radius
 
     def add_glyph(self):
-        view = CDSView(filter=BooleanFilter(booleans=[True] * self.manager.n_geometries))
         self.glyph_renderer = self.figure.circle(
                                     x='x', 
                                     y='y', 
@@ -377,7 +476,7 @@ class Circles(Component):
                                     hover_color=self.hover_color,
                                     **{param.attr: param.attr for param in self.manager.parameters},
                                     source=self.manager.source,
-                                    view=view,
+                                    view=CDSView(filter=BooleanFilter(booleans=self.view)),
                                 )
         
 class Squares(Component):
@@ -389,7 +488,6 @@ class Squares(Component):
         self.angle=angle
 
     def add_glyph(self):
-        view = CDSView(filter=BooleanFilter(booleans=[True] * self.manager.n_geometries))
         self.glyph_renderer = self.figure.rect(
                                 x='x', 
                                 y='y', 
@@ -399,7 +497,7 @@ class Squares(Component):
                                 hover_color=self.hover_color,
                                 **{param.attr: param.attr for param in self.manager.parameters},
                                 source=self.manager.source,
-                                view=view,
+                                view=CDSView(filter=BooleanFilter(booleans=self.view)),
                             )
         
 class Patches(Component):
@@ -408,14 +506,13 @@ class Patches(Component):
         super().__init__(*args, **kwargs)
 
     def add_glyph(self):
-        view = CDSView(filter=BooleanFilter(booleans=[True] * self.manager.n_geometries))
         self.glyph_renderer = self.figure.patches(
                                     xs='x', 
                                     ys='y',
                                     hover_color=self.hover_color,
                                     **{param.attr: param.attr for param in self.manager.parameters},
                                     source=self.manager.source,
-                                    view=view,
+                                    view=CDSView(filter=BooleanFilter(booleans=self.view)),
                                 )
 
 
