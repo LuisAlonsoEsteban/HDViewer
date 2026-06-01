@@ -1,5 +1,6 @@
 
 import geopandas as gpd
+import numpy as np
 import pandas as pd
 
 class Sample:
@@ -17,6 +18,11 @@ class Sample:
         self.adata = adata
 
         self.adata_processed = None
+        self._embedding_keys = {
+            "pca": "X_pca_2d",
+            "umap": "X_umap",
+            "tsne": "X_tsne",
+        }
 
         self.pixels_per_bin = pixels_per_bin
 
@@ -95,6 +101,31 @@ class Sample:
             return merged_gdf[colname]
         else:
             raise ValueError(f"'{colname}' not found in geometries, and AnnData not available")
+        
+    def get_dummy_colname(self, dtype="numpy"):
+        colname = self.get_value(colname=self.get_colnames()[0]).isna()
+        if dtype == "numpy":
+            return colname.to_numpy()
+        elif dtype == "list":
+            return colname.values.tolist()
+
+    def get_obs_names(self, adata=None, gdf=None):
+        if gdf is None:
+            gdf = self.gdf
+
+        if adata is None:
+            adata = self.adata
+
+        if adata is None:
+            return gdf[self.on].astype(str)
+
+        obs_df = pd.DataFrame({
+            "obs_name": adata.obs_names.astype(str),
+            self.on: adata.obs_names.astype(gdf[self.on].dtype),
+        })
+        merged_gdf = gdf.reset_index().merge(obs_df, on=self.on, how='left').set_index('index')
+        # return merged_gdf["obs_name"].astype(str)
+        return merged_gdf["obs_name"]
 
     
     def fetch_data(self, bbox=None, colnames=None, return_coords=True) -> pd.DataFrame:
@@ -111,6 +142,8 @@ class Sample:
         else:
             data = pd.DataFrame()
 
+        data['obs_name'] = self.get_obs_names(cropped_adata, cropped_gdf).values
+
         if colnames is not None:
             if isinstance(colnames, str):
                 colnames = [colnames]
@@ -120,8 +153,6 @@ class Sample:
         return data
     
     def get_marker_genes(self, n_genes=5):
-        import scanpy as sc
-        import pandas as pd
         if not hasattr(self, 'adata_processed') or 'rank_genes_groups' not in self.adata_processed.uns:
             return {}
         
@@ -146,23 +177,85 @@ class Sample:
         else:
             raise ValueError(f"{colname} not found in 'adata'.")
 
+    def prepare_adata_processed(self, n_pcs=30, n_neighbors=15):
+        import scanpy as sc
+
+        if self.adata_processed is not None:
+            return self.adata_processed
+
+        adata = self.adata.copy()
+        adata.var_names_make_unique()
+
+        sc.pp.filter_genes(adata, min_cells=3)
+        sc.pp.normalize_total(adata, target_sum=1e4)
+        sc.pp.log1p(adata)
+        sc.pp.highly_variable_genes(adata)
+        adata = adata[:, adata.var.highly_variable].copy()
+        sc.pp.scale(adata, max_value=10)
+        sc.pp.pca(adata, n_comps=n_pcs)
+        sc.pp.neighbors(adata, n_neighbors=n_neighbors, n_pcs=n_pcs)
+
+        self.adata_processed = adata
+        return self.adata_processed
+
+    def _store_embedding(self, method, values):
+        key = self._embedding_keys[method]
+        full = np.full((self.adata.n_obs, 2), np.nan, dtype=float)
+        obs_index = pd.Index(self.adata.obs_names.astype(str))
+        processed_index = pd.Index(self.adata_processed.obs_names.astype(str))
+        common_idx = obs_index.get_indexer(processed_index)
+        valid = common_idx >= 0
+        full[common_idx[valid], :] = values[valid, :]
+        self.adata.obsm[key] = full
+
+    def compute_embedding(self, method: str, **params):
+        import scanpy as sc
+
+        method = method.lower()
+        if method not in self._embedding_keys:
+            raise ValueError(f"Unsupported embedding method: {method}")
+
+        key = self._embedding_keys[method]
+        if key in self.adata.obsm:
+            return self.adata.obsm[key]
+
+        adata = self.prepare_adata_processed(**params)
+
+        if method == "pca":
+            if "X_pca" not in adata.obsm:
+                sc.pp.pca(adata, n_comps=params.get("n_pcs", 30))
+            values = np.asarray(adata.obsm["X_pca"][:, :2], dtype=float)
+        elif method == "umap":
+            if "neighbors" not in adata.uns:
+                sc.pp.neighbors(adata, n_neighbors=params.get("n_neighbors", 15), n_pcs=params.get("n_pcs", 30))
+            if "X_umap" not in adata.obsm:
+                sc.tl.umap(adata)
+            values = np.asarray(adata.obsm["X_umap"][:, :2], dtype=float)
+        else:
+            if "X_tsne" not in adata.obsm:
+                sc.tl.tsne(adata)
+            values = np.asarray(adata.obsm["X_tsne"][:, :2], dtype=float)
+
+        self._store_embedding(method, values)
+        return self.adata.obsm[key]
+
+    def get_embedding_dataframe(self, method: str) -> pd.DataFrame:
+        method = method.lower()
+        key = self._embedding_keys[method]
+        if key not in self.adata.obsm:
+            self.compute_embedding(method)
+
+        values = np.asarray(self.adata.obsm[key], dtype=float)
+        df = pd.DataFrame(values, columns=["x", "y"], index=self.adata.obs_names.astype(str))
+        df.index.name = "obs_name"
+        df.reset_index(inplace=True)
+        df = df.dropna(subset=["x", "y"]).copy()
+        return df
+
     def run_clustering(self, resolution=0.9, n_pcs=30, n_neighbors=15):
         import scanpy as sc
 
-        if not self.adata_processed:
-            adata = self.adata.copy()
-            adata.var_names_make_unique()
-
-            sc.pp.filter_genes(adata, min_cells=3)
-            sc.pp.normalize_total(adata, target_sum=1e4)
-            sc.pp.log1p(adata)
-            sc.pp.highly_variable_genes(adata)
-            adata = adata[:, adata.var.highly_variable].copy()
-            sc.pp.scale(adata, max_value=10)
-            sc.pp.pca(adata, n_comps=n_pcs)
-            sc.pp.neighbors(adata, n_neighbors=n_neighbors, n_pcs=n_pcs)
-
-            self.adata_processed = adata
+        self.prepare_adata_processed(n_pcs=n_pcs, n_neighbors=n_neighbors)
 
         sc.tl.leiden(self.adata_processed, resolution=resolution)
 #
@@ -217,4 +310,3 @@ class Cells(Sample):
     
     def get_y(self, geom):
         return list(zip(*geom.exterior.coords))[1]
-

@@ -66,6 +66,7 @@ class Component:
             self.manager = DynamicSourceManager(sample)
         else:
             self.manager = SourceManager(sample)
+        self.manager.component = self
 
         self.hover_color = hover_color
         self.alias = alias
@@ -73,11 +74,17 @@ class Component:
         self.glyph_renderer = None
         self.hover = None
 
+        self.checkbox = None
         self.slider = None
         self.colorpicker = None
         self.autocomplete_input = None
 
         self.clustering_manager = ClusteringManager(self)
+        self.selected_obs_names = set()
+        self._selection_listeners = []
+        self._suspend_selection_sync = False
+        self._selection_callback_bound = False
+        self.sample_type = f"{self.alias.lower()}s"
 
         self._view = None
 
@@ -130,7 +137,7 @@ class Component:
 
     def refresh_layout(self, doc):
         self.refresh_widgets_layout(doc)
-        self.refresh_params_layout(doc)
+        # self.refresh_params_layout(doc)
 
     def remove_existing_glyph(self):
         if self.glyph_renderer:
@@ -153,6 +160,54 @@ class Component:
     def refresh_figure(self):
         self.refresh_glyph()
         self.refresh_hover()
+
+    @property
+    def obs_name_values(self):
+        return [str(v) for v in self.manager.source.data.get("obs_name", [])]
+
+    def get_selected_obs_names(self):
+        return set(self.selected_obs_names)
+
+    def add_selection_listener(self, callback):
+        if callback not in self._selection_listeners:
+            self._selection_listeners.append(callback)
+
+    def notify_selection_changed(self):
+        for callback in self._selection_listeners:
+            callback(self)
+
+    def apply_selected_obs_names(self):
+        if self.glyph_renderer is None:
+            return
+
+        obs_names = self.obs_name_values
+        indices = [i for i, obs_name in enumerate(obs_names) if obs_name in self.selected_obs_names]
+        self._suspend_selection_sync = True
+        self.glyph_renderer.data_source.selected.indices = indices
+        self._suspend_selection_sync = False
+
+    def set_selected_obs_names(self, obs_names, notify=True):
+        self.selected_obs_names = {str(obs_name) for obs_name in obs_names}
+        self.apply_selected_obs_names()
+        if notify:
+            self.notify_selection_changed()
+
+    def _on_source_selection_change(self, attr, old, new):
+        if self._suspend_selection_sync:
+            return
+        obs_names = self.obs_name_values
+        self.selected_obs_names = {
+            obs_names[i] for i in new if i < len(obs_names)
+        }
+        self.notify_selection_changed()
+
+    def attach_selection_callbacks(self):
+        if self.glyph_renderer is None:
+            return
+        selected = self.glyph_renderer.data_source.selected
+        if not self._selection_callback_bound:
+            selected.on_change("indices", self._on_source_selection_change)
+            self._selection_callback_bound = True
 
     def add_glyph(self):
         pass
@@ -224,7 +279,7 @@ class Component:
             self.hover.tooltips = self.get_hover_tooltips()
 
     def add_hover(self):
-        if self.hover_color:
+        if self.glyph_renderer:
             self.hover = HoverTool(tooltips=[(self.alias, self.get_hover_tooltips())], renderers=[self.glyph_renderer])
             self.figure.add_tools(self.hover)
 
@@ -245,34 +300,40 @@ class Component:
 
         return self.checkbox
     
+    def change_glyph_view(self):
+        if self._view:
+            self.glyph_renderer.view.filters = [
+                BooleanFilter(booleans=self._view)
+            ]
+    
     def get_not_sequenced_visible_checkbox(self):
         self.notsequenced_checkbox = CheckboxGroup(labels=[f"Show not sequenced {self.alias}s"], active=[0])
 
-        sample = self.manager.sample
-        first_col = sample.get_colnames()[0]
-        is_nan = sample.get_value(colname=first_col).isna().to_numpy()
+        static_is_nan = self.manager.get_nan_vector()
 
         def on_checkbox_change(attr, old, new):
             visible = 0 in new
 
+            if self.lazy_loading:
+                is_nan = self.manager.get_nan_vector()
+            else:
+                is_nan = static_is_nan
+            
             current_filter = np.asarray(
                 self.glyph_renderer.view.filters[0].booleans,
                 dtype=bool,
             )
-
+            
             if is_nan.shape[0] != current_filter.shape[0]:
                 raise ValueError(
-                    "Unexpected mismatch between glyph view filter and sample data shape."
+                    f"Unexpected mismatch between glyph view filter and sample data shape. Glyph view filter has {current_filter.shape[0]} rows, and sample data has {is_nan.shape[0]} rows"
                 )
 
             booleans = current_filter.copy()
             booleans[is_nan] = visible
 
             self._view = booleans.tolist()
-
-            self.glyph_renderer.view.filters = [
-                BooleanFilter(booleans=self._view)
-            ]
+            self.change_glyph_view()
 
         self.notsequenced_checkbox.on_change("active", on_checkbox_change)
         return self.notsequenced_checkbox
@@ -331,7 +392,7 @@ class Component:
                             )
 
                 self.update_hover_tooltips()
-                self.refresh_params_layout(doc)
+                # self.refresh_params_layout(doc)
                 
             doc.add_next_tick_callback(update_colname)
 
@@ -392,7 +453,7 @@ class Component:
                 def update_color(attr, old, new, _param=param):
                     def set_new_color():
                         self.manager.update_param('color', new_val=new)
-                        self.refresh_params_layout(doc)
+                        # self.refresh_params_layout(doc)
                     doc.add_next_tick_callback(set_new_color)
 
                 self.colorpicker.on_change('color', update_color)
@@ -478,6 +539,8 @@ class Circles(Component):
                                     source=self.manager.source,
                                     view=CDSView(filter=BooleanFilter(booleans=self.view)),
                                 )
+        self.attach_selection_callbacks()
+        self.apply_selected_obs_names()
         
 class Squares(Component):
 
@@ -499,6 +562,8 @@ class Squares(Component):
                                 source=self.manager.source,
                                 view=CDSView(filter=BooleanFilter(booleans=self.view)),
                             )
+        self.attach_selection_callbacks()
+        self.apply_selected_obs_names()
         
 class Patches(Component):
 
@@ -514,6 +579,5 @@ class Patches(Component):
                                     source=self.manager.source,
                                     view=CDSView(filter=BooleanFilter(booleans=self.view)),
                                 )
-
-
-
+        self.attach_selection_callbacks()
+        self.apply_selected_obs_names()

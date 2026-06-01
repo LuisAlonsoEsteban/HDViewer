@@ -7,6 +7,7 @@ from bokeh.models import Range1d
 from .thumbnail import ThumbnailPanel
 from .figure import FigurePanel
 from .metadata import MetadataPanel
+from .embedding import EmbeddingPanel
 
 import sys
 sys.path.insert(0, os.path.abspath(os.path.join(os.path.dirname(__file__), '..', '..', '..')))
@@ -36,6 +37,7 @@ class App:
         self.thumbnail_panel = ThumbnailPanel()
         self.figure_panel = FigurePanel()
         self.metadata_panel = MetadataPanel()
+        self.embedding_panel = EmbeddingPanel()
 
         self.image_component = None
         if image_processor is not None:
@@ -71,6 +73,7 @@ class App:
             radius = b2s.converter.get_pixels(b2s.converter.VisiumV2.SPOT_DIAMETER) / 2
 
             geom = Circles(radius, self.figure_panel.p, sample, hover_color='green')
+            geom.sample_type = sample_type
             geom.add_parameter(
                 attr='alpha',
                 static=False,
@@ -103,6 +106,7 @@ class App:
             angle = b2s.get_rotation(rad=True)
 
             geom = Squares(width, height, angle, self.figure_panel.p, sample, lazy_loading=True, alias='Bin', hover_color='green')
+            geom.sample_type = sample_type
 
             geom.add_parameter(
                 attr='alpha',
@@ -126,6 +130,7 @@ class App:
         elif sample_type == "cells":
             sample = Cells(polygons, adata)
             geom = Patches(self.figure_panel.p, sample, lazy_loading=True, alias='Cell', hover_color='blue')
+            geom.sample_type = sample_type
 
             geom.add_parameter(
                 attr='alpha',
@@ -150,6 +155,7 @@ class App:
 
     def add_geometry(self, geom):
         self.geometries.append(geom)
+        self.embedding_panel.set_components(self.geometries)
 
         # If the image is lowres, adjust the width and height to the max of geometries
         if self.image_component:
@@ -193,7 +199,7 @@ class App:
         self.metadata_panel.populate(self.geometries)
         self.add_root(self.metadata_panel.layout)
 
+        self.add_root(self.embedding_panel.layout)
+
         for geom in self.geometries:
             self.add_root(geom.get_widgets_layout(self.doc))
-            self.add_root(geom.get_table_layout())
-

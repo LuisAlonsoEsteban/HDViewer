@@ -96,6 +96,13 @@
     #bottom-right {
         overflow: auto; /* Ensures content is scrollable if it exceeds div height */
     }
+    .embedding-panel-container {
+        height: 100%;
+        padding: 10px;
+        background: #fff;
+        color: #333;
+        overflow: auto;
+    }
     
   </style>
 {% endblock %}
@@ -155,32 +162,8 @@
                 </div>
 
                 <div id="bottom-right" style="height: 50%;">
-
-                    <div class="widget-section">
-                        <div class="widget-title">Spot Parameters<span class="fa fa-chevron-down"></span></div>
-                        <div class="widget-content">
-                            <div class="scroll-container">
-                                {{ embed(roots.spots_params) }}
-                            </div>
-                        </div>
-                    </div>
-
-                    <div class="widget-section">
-                        <div class="widget-title">Bin Parameters<span class="fa fa-chevron-down"></span></div>
-                        <div class="widget-content">
-                            <div class="scroll-container">
-                                {{ embed(roots.bins_params) }}
-                            </div>
-                        </div>
-                    </div>
-
-                    <div class="widget-section">
-                        <div class="widget-title">Cells Parameters<span class="fa fa-chevron-down"></span></div>
-                        <div class="widget-content">
-                            <div class="scroll-container">
-                                {{ embed(roots.cells_params) }}
-                            </div>
-                        </div>
+                    <div class="embedding-panel-container">
+                        {{ embed(roots.embedding_panel) }}
                     </div>
 
                 </div>

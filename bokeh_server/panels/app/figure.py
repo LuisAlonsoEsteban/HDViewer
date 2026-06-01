@@ -20,7 +20,7 @@ class FigurePanel(Panel):
             x_range=(0, max_dim), 
             y_range=(0, max_dim),
             background_fill_color='#7e7e7e',
-            tools='pan,wheel_zoom,save,reset')
+            tools='pan,wheel_zoom,box_select,lasso_select,tap,save,reset')
         
         self.p.grid.visible = False
         self.p.xaxis.visible = False

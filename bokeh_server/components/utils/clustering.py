@@ -199,10 +199,7 @@ class ClusteringManager:
             visible |= cluster_ids.isna()
 
         self.component._view = visible.to_list()
-
-        self.component.glyph_renderer.view.filters = [
-            BooleanFilter(booleans=self.component._view)
-        ]
+        self.change_glyph_view()
 
     # ------------------------------------------------------------------
     # Widget builders

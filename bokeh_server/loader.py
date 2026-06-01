@@ -1,6 +1,4 @@
 
-from time import sleep
-
 class LazyLoader:
 
     STATIC_RANGE = 0.6

@@ -7,6 +7,7 @@ class SourceManager:
 
     def __init__(self, sample):
         self.sample = sample
+        self.component = None
         self.parameters = []
         self.is_empty = True
 
@@ -37,6 +38,10 @@ class SourceManager:
             if not param.is_static and param.colname == colname:
                 params.append(param)
         return params
+
+    def get_nan_vector(self):
+        dummy_vector = self.sample.get_value(colname=self.get_colnames()[0])
+        return dummy_vector.isna().to_numpy()
     
     def add_parameter(self, param):
         existing_param = self.get_param(param.attr)
@@ -83,8 +88,7 @@ class SourceManager:
                     param.max_counts = max_val
 
             if param.colname not in self.cache.columns:
-                colname_data = self.sample.fetch_data(colnames=param.colname, return_coords=False)
-                self.cache[param.colname] = colname_data[param.colname]
+                self.cache[param.colname] = self.sample.get_value(colname=param.colname)
 
             self.source.data[param.attr] = param.get_values(self.cache[param.colname].copy())
             self.source.data[param.colname] = self.cache[param.colname]
@@ -111,6 +115,8 @@ class SourceManager:
 
         fetched_data.drop([param.colname for param in self.parameters if not param.is_static and not param.colname_hovered], axis=1, inplace=True)
         self.source.data = fetched_data.to_dict(orient='list')
+        if self.component is not None:
+            self.component.apply_selected_obs_names()
         self.is_empty = False
 
     def update_param(self, attr, *args, **kwargs):
@@ -119,6 +125,8 @@ class SourceManager:
             self.source.data[param.attr] = param.update(*args, **kwargs)
         else:
             self.source.data[param.attr] = param.update(self.cache[param.colname].copy(), *args, **kwargs)
+        if self.component is not None:
+            self.component.apply_selected_obs_names()
 
 
 import math
@@ -130,6 +138,10 @@ class DynamicSourceManager(SourceManager):
         super().__init__(*args, **kwargs)
         self.indexes = []
         self.bbox = None
+
+    @property
+    def n_geometries(self):
+        return len(self.indexes)
 
     def clear_sources(self):
         self.indexes.clear()
@@ -145,7 +157,14 @@ class DynamicSourceManager(SourceManager):
             attr_dict = {}
             hovered_dict = {}
         
-        self.source.data = {'x': [], 'y': [], **attr_dict, **hovered_dict}
+        self.source.data = {
+            'x': [], 
+            'y': [], 
+            'obs_name': [],
+            **attr_dict, 
+            **hovered_dict
+        }
+        self.view_filter = []
 
     def update_colname(self, old_colname, new_colname):
         for param in self.get_params_by_colname(old_colname):
@@ -160,14 +179,7 @@ class DynamicSourceManager(SourceManager):
                     param.min_counts = min_val
                     param.max_counts = max_val
 
-        self.indexes.clear()
-        self.is_sequenced.clear()
-        self.cache = self.cache[0:0]
-        
-        attr_dict = {param.attr: [] for param in self.parameters}
-        colname_dict = {param.colname: [] for param in self.parameters if not param.is_static}
-        self.source.data = {'x': [], 'y': [], **attr_dict, **colname_dict}
-        
+        self.clear_sources()
         self.fetch_data()
 
     def add_parameter(self, param):
@@ -186,11 +198,17 @@ class DynamicSourceManager(SourceManager):
         else:
             raise ValueError(f"A parameter for attribute '{param.attr}' is already present.")
         
+    def get_nan_vector(self):
+        obs_names = pd.Series(self.source.data['obs_name'])
+        return obs_names.isna().to_numpy()
+        
     def add_data(self, bbox=None):
         fetched_data = self.sample.fetch_data(colnames=self.get_colnames(), bbox=bbox)
         new_data = fetched_data[~fetched_data.index.isin(self.indexes)]
 
         self.indexes += new_data.index.tolist()
+        self.view_filter += [True] * new_data.shape[0]
+
         if len(self.get_colnames()) > 0:
             new_is_sequenced = (~new_data[self.get_colnames()[0]].isna()).values.tolist()
             self.is_sequenced += new_is_sequenced
@@ -213,6 +231,12 @@ class DynamicSourceManager(SourceManager):
         new_data = new_data.drop(cols_to_drop, axis=1, inplace=False)
         
         self.source.stream(new_data.to_dict(orient='list'))
+        if self.component is not None:
+            self.component.apply_selected_obs_names()
+
+            self.component._view = self.view_filter
+            self.component.change_glyph_view()
+
 
     def fetch_data(self):
         self.add_data(bbox=self.bbox)
@@ -242,4 +266,3 @@ class DynamicSourceManager(SourceManager):
         removed_indexes = [i for d, i in zip(distances, self.indexes) if d > distance]
         print(f"Removing {len(removed_indexes)} bins")
         self.remove_indcs(removed_indexes)
-
