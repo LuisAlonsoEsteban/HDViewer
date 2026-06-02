@@ -199,7 +199,7 @@ class ClusteringManager:
             visible |= cluster_ids.isna()
 
         self.component._view = visible.to_list()
-        self.change_glyph_view()
+        self.component.change_glyph_view()
 
     # ------------------------------------------------------------------
     # Widget builders
