@@ -1,6 +1,8 @@
 
 
 import pandas as pd
+import numpy as np
+
 from bokeh.models import ColumnDataSource
 
 class SourceManager:
@@ -96,14 +98,15 @@ class SourceManager:
         del self.source.data[old_colname]
         
     def get_colnames(self):
-        return list(set([param.colname for param in self.parameters if not param.is_static]))
+        return list({param.colname for param in self.parameters if not param.is_static})
 
     def fetch_data(self):
         fetched_data = self.sample.fetch_data(colnames=self.get_colnames())
 
-        if len(self.get_colnames()) > 0:
+        colnames = self.get_colnames()
+        if len(colnames) > 0:
             self.is_sequenced.clear()
-            self.is_sequenced += (~fetched_data[self.get_colnames()[0]].isna()).values.tolist()
+            self.is_sequenced += (~fetched_data[colnames[0]].isna()).to_numpy().tolist()
 
         for param in self.parameters:
             if not param.is_static:
@@ -113,7 +116,11 @@ class SourceManager:
             else:
                 fetched_data[param.attr] = param.get_values()
 
-        fetched_data.drop([param.colname for param in self.parameters if not param.is_static and not param.colname_hovered], axis=1, inplace=True)
+        cols_to_drop = [
+            param.colname for param in self.parameters
+            if not param.is_static and not param.colname_hovered
+        ]
+        fetched_data.drop(cols_to_drop, axis=1, inplace=True)
         self.source.data = fetched_data.to_dict(orient='list')
         if self.component is not None:
             self.component.apply_selected_obs_names()
@@ -138,6 +145,8 @@ class DynamicSourceManager(SourceManager):
         super().__init__(*args, **kwargs)
         self.indexes = []
         self.bbox = None
+        self.fetch_kwargs = {}
+        self.resolution_level = None
 
     @property
     def n_geometries(self):
@@ -160,11 +169,13 @@ class DynamicSourceManager(SourceManager):
         self.source.data = {
             'x': [], 
             'y': [], 
+            'width': [],
+            'height': [],
             'obs_name': [],
             **attr_dict, 
             **hovered_dict
         }
-        self.view_filter = []
+        self.view_filter = np.empty(0, dtype=bool)
 
     def update_colname(self, old_colname, new_colname):
         for param in self.get_params_by_colname(old_colname):
@@ -199,18 +210,43 @@ class DynamicSourceManager(SourceManager):
             raise ValueError(f"A parameter for attribute '{param.attr}' is already present.")
         
     def get_nan_vector(self):
+        colnames = self.get_colnames()
+        if len(colnames) > 0 and colnames[0] in self.source.data:
+            return pd.Series(self.source.data[colnames[0]]).isna().to_numpy()
         obs_names = pd.Series(self.source.data['obs_name'])
         return obs_names.isna().to_numpy()
         
+    def set_fetch_context(self, bbox=None, resolution_level=None, **fetch_kwargs):
+        resolution_changed = resolution_level != self.resolution_level
+        extra_changed = fetch_kwargs != self.fetch_kwargs
+
+        self.bbox = bbox
+        self.resolution_level = resolution_level
+        self.fetch_kwargs = fetch_kwargs
+
+        if resolution_changed or extra_changed:
+            self.clear_sources()
+
+        return resolution_changed or extra_changed
+
     def add_data(self, bbox=None):
-        fetched_data = self.sample.fetch_data(colnames=self.get_colnames(), bbox=bbox)
+        colnames = self.get_colnames()
+        fetch_kwargs = dict(self.fetch_kwargs)
+        if self.resolution_level is not None:
+            fetch_kwargs["resolution_level"] = self.resolution_level
+            
+        fetched_data = self.sample.fetch_data(colnames=colnames, bbox=bbox, **fetch_kwargs)
         new_data = fetched_data[~fetched_data.index.isin(self.indexes)]
 
-        self.indexes += new_data.index.tolist()
-        self.view_filter += [True] * new_data.shape[0]
+        self.indexes.extend(new_data.index.tolist())
+        self.view_filter = np.concatenate((
+            self.view_filter,
+            np.ones(new_data.shape[0], dtype=bool),
+        ))
 
-        if len(self.get_colnames()) > 0:
-            new_is_sequenced = (~new_data[self.get_colnames()[0]].isna()).values.tolist()
+        new_is_sequenced = []
+        if len(colnames) > 0:
+            new_is_sequenced = (~new_data[colnames[0]].isna()).to_numpy().tolist()
             self.is_sequenced += new_is_sequenced
 
         for param in self.parameters:
@@ -235,7 +271,7 @@ class DynamicSourceManager(SourceManager):
         if self.component is not None:
             self.component.apply_selected_obs_names()
 
-            self.component._view = self.view_filter
+            self.component._view = self.view_filter.tolist()
             self.component.change_glyph_view()
 
 
@@ -243,17 +279,31 @@ class DynamicSourceManager(SourceManager):
         self.add_data(bbox=self.bbox)
 
     def remove_indcs(self, rem_indcs):
-        for key in self.source.data.keys():
-            self.source.data[key] = [value for idx, value in zip(self.indexes, self.source.data[key]) if idx not in rem_indcs]
-        
-        self.view_filter = [value for idx, value in zip(self.indexes, self.view_filter) if idx not in rem_indcs]
-        self.component._view = self.view_filter
+        if len(rem_indcs) == 0 or len(self.indexes) == 0:
+            return
 
-        self.indexes = [ind for ind in self.indexes if ind not in rem_indcs]
+        rem_idx_set = set(rem_indcs)
+        keep_mask = ~pd.Index(self.indexes).isin(rem_idx_set)
+
+        new_source_data = {}
+        for key, values in self.source.data.items():
+            values_array = np.asarray(values, dtype=object)
+            new_source_data[key] = values_array[keep_mask].tolist()
+        self.source.data = new_source_data
+
+        self.view_filter = self.view_filter[keep_mask]
+        if self.component is not None:
+            self.component._view = self.view_filter.tolist()
+
+        indexes_array = np.asarray(self.indexes, dtype=object)
+        self.indexes = indexes_array[keep_mask].tolist()
 
     def remove_data(self, bbox):
-        fetched_data = self.sample.fetch_data(bbox=bbox)
-        removed_indexes = fetched_data['obs_name'].values.tolist()
+        fetch_kwargs = dict(self.fetch_kwargs)
+        if self.resolution_level is not None:
+            fetch_kwargs["resolution_level"] = self.resolution_level
+        fetched_data = self.sample.fetch_data(bbox=bbox, **fetch_kwargs)
+        removed_indexes = fetched_data['obs_name'].to_numpy()
         self.remove_indcs(removed_indexes)
 
     @staticmethod
@@ -267,7 +317,11 @@ class DynamicSourceManager(SourceManager):
         return math.sqrt((p1[0] - p2[0])**2 + (p1[1] - p2[1])**2)
 
     def remove_further_data(self, x, y, distance=1000):
-        distances = [DynamicSourceManager.distance((x,y), (_x,_y)) for _x, _y in zip(self.source.data['x'], self.source.data['y'])]
-        removed_indexes = [i for d, i in zip(distances, self.indexes) if d > distance]
-        print(f"Removing {len(removed_indexes)} bins")
+        x_values = np.asarray(self.source.data['x'], dtype=float)
+        y_values = np.asarray(self.source.data['y'], dtype=float)
+
+        distances = np.hypot(x_values - x, y_values - y)
+        indexes_array = np.asarray(self.indexes, dtype=object)
+        
+        removed_indexes = indexes_array[distances > distance].tolist()
         self.remove_indcs(removed_indexes)

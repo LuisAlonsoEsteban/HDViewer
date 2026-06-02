@@ -1,4 +1,8 @@
 
+import numpy as np
+import pandas as pd
+
+
 class Parameter:
 
     def __init__(self, is_static):
@@ -20,16 +24,22 @@ class StaticParameter(Parameter):
     def set_is_sequenced(self, is_sequenced):
         self.is_sequenced = is_sequenced
 
+    def _build_values(self, is_sequenced_values):
+        sequenced_array = np.asarray(is_sequenced_values, dtype=bool)
+        if sequenced_array.size == 0:
+            return []
+        return np.where(
+            sequenced_array,
+            self.value,
+            self.not_sequenced_val,
+        ).tolist()
+
     def get_values(self, is_sequenced_values:list=None):
-        if is_sequenced_values:
-            return [self.value if is_sequenced
-                    else self.not_sequenced_val
-                    for is_sequenced in is_sequenced_values]
+        if is_sequenced_values is not None and len(is_sequenced_values) > 0:
+            return self._build_values(is_sequenced_values)
         
         elif self.is_sequenced is not None and len(self.is_sequenced) > 0:
-            return [self.value if is_sequenced
-                    else self.not_sequenced_val
-                    for is_sequenced in self.is_sequenced]
+            return self._build_values(self.is_sequenced)
         
         else:
             return self.value
@@ -91,12 +101,12 @@ class Scaler(DynamicParameter):
 
     def scale_values(self, values):
         try:
-            values = [float(v) for v in values]
+            values_array = pd.to_numeric(values, errors="raise").to_numpy(dtype=float, copy=False)
         except (ValueError, TypeError):
-            values = list(range(len(values)))
+            values_array = np.arange(len(values), dtype=float)
         range_val = self.max_counts - self.min_counts if self.max_counts != self.min_counts else 1
-        scaled_values = [self.minv + (value - self.min_counts) * (self.maxv - self.minv) / range_val for value in values]
-        return scaled_values
+        scaled_values = self.minv + (values_array - self.min_counts) * (self.maxv - self.minv) / range_val
+        return scaled_values.tolist()
 
     def apply_filter(self, series, sequenced):
         if self.static_not_sequenced:
@@ -142,13 +152,16 @@ class CategoricalColor(DynamicParameter):
         super().__init__(*args, **kwargs)
         self.category_colors = {}
 
-    def get_color(self, category):
-        if category not in self.category_colors:
+    def ensure_colors(self, categories):
+        missing_categories = pd.Index(categories).difference(self.category_colors.keys())
+        for category in missing_categories:
             idx = len(self.category_colors) % len(self.PALETTE)
             self.category_colors[category] = self.PALETTE[idx]
-        return self.category_colors[category]
 
     def apply_filter(self, series, sequenced):
         result_series = series.copy()
-        result_series[sequenced] = series[sequenced].astype(str).apply(self.get_color)
+        sequenced_series = series[sequenced].astype(str)
+        unique_categories = pd.unique(sequenced_series)
+        self.ensure_colors(unique_categories)
+        result_series.loc[sequenced] = sequenced_series.map(self.category_colors)
         return result_series.tolist()

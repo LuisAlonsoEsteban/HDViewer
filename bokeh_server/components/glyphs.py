@@ -163,7 +163,7 @@ class Component:
 
     @property
     def obs_name_values(self):
-        return [str(v) for v in self.manager.source.data.get("obs_name", [])]
+        return np.asarray(self.manager.source.data.get("obs_name", []), dtype=str)
 
     def get_selected_obs_names(self):
         return set(self.selected_obs_names)
@@ -181,7 +181,11 @@ class Component:
             return
 
         obs_names = self.obs_name_values
-        indices = [i for i, obs_name in enumerate(obs_names) if obs_name in self.selected_obs_names]
+        if obs_names.size == 0 or len(self.selected_obs_names) == 0:
+            indices = []
+        else:
+            indices = np.flatnonzero(np.isin(obs_names, list(self.selected_obs_names))).tolist()
+            
         self._suspend_selection_sync = True
         self.glyph_renderer.data_source.selected.indices = indices
         self._suspend_selection_sync = False
@@ -196,9 +200,9 @@ class Component:
         if self._suspend_selection_sync:
             return
         obs_names = self.obs_name_values
-        self.selected_obs_names = {
-            obs_names[i] for i in new if i < len(obs_names)
-        }
+        selected_indices = np.asarray(new, dtype=int)
+        valid_indices = selected_indices[selected_indices < obs_names.size]
+        self.selected_obs_names = set(obs_names[valid_indices].tolist())
         self.notify_selection_changed()
 
     def attach_selection_callbacks(self):
@@ -544,18 +548,22 @@ class Circles(Component):
         
 class Squares(Component):
 
-    def __init__(self, width, height, angle, *args, **kwargs):
+    def __init__(self, angle, *args, **kwargs):
         super().__init__(*args, **kwargs)
-        self.width = width
-        self.height = height
+        # self.width = width
+        # self.height = height
         self.angle=angle
 
     def add_glyph(self):
+        # width = 'width' if 'width' in self.manager.source.data else self.width
+        # height = 'height' if 'height' in self.manager.source.data else self.height
         self.glyph_renderer = self.figure.rect(
                                 x='x', 
                                 y='y', 
-                                width=self.width, 
-                                height=self.height,
+                                # width=width, 
+                                # height=height,
+                                width='width', 
+                                height='height',
                                 angle=self.angle,
                                 hover_color=self.hover_color,
                                 **{param.attr: param.attr for param in self.manager.parameters},
