@@ -231,6 +231,7 @@ class DynamicSourceManager(SourceManager):
         new_data = new_data.drop(cols_to_drop, axis=1, inplace=False)
         
         self.source.stream(new_data.to_dict(orient='list'))
+
         if self.component is not None:
             self.component.apply_selected_obs_names()
 
@@ -244,11 +245,15 @@ class DynamicSourceManager(SourceManager):
     def remove_indcs(self, rem_indcs):
         for key in self.source.data.keys():
             self.source.data[key] = [value for idx, value in zip(self.indexes, self.source.data[key]) if idx not in rem_indcs]
+        
+        self.view_filter = [value for idx, value in zip(self.indexes, self.view_filter) if idx not in rem_indcs]
+        self.component._view = self.view_filter
+
         self.indexes = [ind for ind in self.indexes if ind not in rem_indcs]
 
     def remove_data(self, bbox):
         fetched_data = self.sample.fetch_data(bbox=bbox)
-        removed_indexes = fetched_data.index.tolist()
+        removed_indexes = fetched_data['obs_name'].values.tolist()
         self.remove_indcs(removed_indexes)
 
     @staticmethod

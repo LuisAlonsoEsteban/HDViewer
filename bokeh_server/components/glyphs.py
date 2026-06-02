@@ -320,7 +320,7 @@ class Component:
                 is_nan = static_is_nan
             
             current_filter = np.asarray(
-                self.glyph_renderer.view.filters[0].booleans,
+                self.view,
                 dtype=bool,
             )
             
