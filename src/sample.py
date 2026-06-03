@@ -2,6 +2,7 @@
 import geopandas as gpd
 import numpy as np
 import pandas as pd
+from collections import OrderedDict
 
 class Sample:
 
@@ -97,7 +98,6 @@ class Sample:
             value_df[self.on] = value_df.index.astype(gdf[self.on].dtype)
             
             merged_gdf = gdf.reset_index().merge(value_df, on=self.on, how='left').set_index('index')
-            print(f"Colname: {colname}, NaNs after merge: {merged_gdf[colname].isna().sum()}/{len(merged_gdf)}")
             return merged_gdf[colname]
         else:
             raise ValueError(f"'{colname}' not found in geometries, and AnnData not available")
@@ -272,9 +272,14 @@ class Sample:
         
 
 class Bins(Sample):
+    AGGREGATED_PREFIX = "agg:"
+    AGGREGATION_FACTORS = (1, 2, 4, 8, 12)
+    MAX_CACHE_ENTRIES = 24
+
     def __init__(self, *args, half_bin_size=None, **kwargs):
         super().__init__(*args, **kwargs)
         self.half_bin_size = half_bin_size or 0
+        self._multiscale_cache = OrderedDict()
 
     def crop_geom(self, left, right, top, bottom):
         if left is None: left = self.half_bin_size
@@ -290,6 +295,136 @@ class Bins(Sample):
     
     def get_y(self, geom):
         return geom.centroid.y
+
+    @property
+    def native_width(self):
+        return float(self.pixels_per_bin or 0)
+
+    @property
+    def native_height(self):
+        return float(self.pixels_per_bin or 0)
+
+    def get_aggregation_factor(self, resolution_level):
+        if resolution_level is None:
+            return 1
+        if isinstance(resolution_level, str) and resolution_level.startswith(self.AGGREGATED_PREFIX):
+            return max(1, int(resolution_level.split(":", 1)[1]))
+        return 1
+
+    def get_resolution_level_for_factor(self, factor):
+        if factor <= 1:
+            return None
+        return f"{self.AGGREGATED_PREFIX}{int(factor)}"
+
+    def _cache_result(self, cache_key, value):
+        self._multiscale_cache[cache_key] = value
+        self._multiscale_cache.move_to_end(cache_key)
+        while len(self._multiscale_cache) > self.MAX_CACHE_ENTRIES:
+            self._multiscale_cache.popitem(last=False)
+
+    def _align_bbox(self, bbox, cell_width, cell_height):
+        if bbox is None:
+            min_x, min_y, max_x, max_y = self.gdf.total_bounds
+            bbox = [min_x, max_x, min_y, max_y]
+
+        left, right, bottom, top = bbox
+
+        aligned_left = np.floor(left / cell_width) * cell_width
+        aligned_right = np.ceil(right / cell_width) * cell_width
+        aligned_bottom = np.floor(bottom / cell_height) * cell_height
+        aligned_top = np.ceil(top / cell_height) * cell_height
+
+        return [aligned_left, aligned_right, aligned_bottom, aligned_top]
+
+    def _get_numeric_value(self, adata, gdf, colname):
+        values = self.get_value(adata=adata, gdf=gdf, colname=colname)
+        if not isinstance(values, pd.Series):
+            values = pd.Series(values, index=gdf.index)
+        return pd.to_numeric(values, errors="coerce")
+
+    def _fetch_aggregated_data(self, bbox=None, colnames=None, factor=1):
+        cell_width = self.native_width * factor
+        cell_height = self.native_height * factor
+
+        aligned_bbox = self._align_bbox(bbox, cell_width, cell_height)
+
+        cache_key = (
+            factor,
+            tuple(round(value, 4) for value in aligned_bbox),
+            tuple(sorted(colnames or [])),
+        )
+        
+        if cache_key in self._multiscale_cache:
+            self._multiscale_cache.move_to_end(cache_key)
+            return self._multiscale_cache[cache_key].copy()
+
+        cropped_gdf, cropped_adata = self.crop(*aligned_bbox, crop_adata=True)
+        if cropped_gdf.empty:
+            empty = pd.DataFrame(columns=["x", "y", "width", "height", "obs_name"])
+            self._cache_result(cache_key, empty)
+            return empty.copy()
+
+        coords = self.get_coordinates(cropped_gdf.copy())
+        grid_x = np.floor(coords["x"].to_numpy() / cell_width).astype(np.int32)
+        grid_y = np.floor(coords["y"].to_numpy() / cell_height).astype(np.int32)
+
+        data = pd.DataFrame(
+            {
+                "grid_x": grid_x,
+                "grid_y": grid_y,
+                "x": (grid_x + 0.5) * cell_width,
+                "y": (grid_y + 0.5) * cell_height,
+            },
+            index=coords.index,
+        )
+        data["width"] = cell_width
+        data["height"] = cell_height
+        data["obs_name"] = (
+            "summary:"
+            + data["grid_x"].astype(str)
+            + ":"
+            + data["grid_y"].astype(str)
+            + f":{factor}"
+        )
+
+        grouped = data.groupby(["grid_x", "grid_y"], sort=False).agg(
+            x=("x", "first"),
+            y=("y", "first"),
+            width=("width", "first"),
+            height=("height", "first"),
+            obs_name=("obs_name", "first"),
+        )
+
+        if colnames is not None:
+            if isinstance(colnames, str):
+                colnames = [colnames]
+            for colname in colnames:
+                values = self._get_numeric_value(cropped_adata, cropped_gdf, colname)
+                value_frame = pd.DataFrame(
+                    {
+                        "grid_x": grid_x,
+                        "grid_y": grid_y,
+                        colname: values.values,
+                    },
+                    index=cropped_gdf.index,
+                )
+                grouped[colname] = value_frame.groupby(["grid_x", "grid_y"], sort=False)[colname].sum(min_count=1)
+
+        grouped.reset_index(drop=True, inplace=True)
+        grouped.index = grouped["obs_name"]
+        self._cache_result(cache_key, grouped)
+        return grouped.copy()
+
+    def fetch_data(self, bbox=None, colnames=None, return_coords=True, resolution_level=None) -> pd.DataFrame:
+        factor = self.get_aggregation_factor(resolution_level)
+        if factor <= 1:
+            data = super().fetch_data(bbox=bbox, colnames=colnames, return_coords=return_coords)
+            if return_coords:
+                data["width"] = self.native_width
+                data["height"] = self.native_height
+            return data
+
+        return self._fetch_aggregated_data(bbox=bbox, colnames=colnames, factor=factor)
     
 class Spots(Sample):
     def __init__(self, *args, **kwargs):

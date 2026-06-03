@@ -33,7 +33,6 @@ class App:
 
         self.geometries = []
 
-        # self.upload_panel = UploadPanel(self.on_data_loaded)
         self.thumbnail_panel = ThumbnailPanel()
         self.figure_panel = FigurePanel()
         self.metadata_panel = MetadataPanel()
@@ -101,11 +100,18 @@ class App:
                 pixels_per_bin=b2s.converter.visiumHD.pixels_per_bin
             )
 
-            width = sample.pixels_per_bin * b2s.tile_scale_xfactor
-            height = sample.pixels_per_bin * b2s.tile_scale_yfactor
+            # width = sample.pixels_per_bin * b2s.tile_scale_xfactor
+            # height = sample.pixels_per_bin * b2s.tile_scale_yfactor
             angle = b2s.get_rotation(rad=True)
 
-            geom = Squares(width, height, angle, self.figure_panel.p, sample, lazy_loading=True, alias='Bin', hover_color='green')
+            geom = Squares(
+                angle, 
+                self.figure_panel.p, 
+                sample, 
+                lazy_loading=True, 
+                alias='Bin', 
+                hover_color='green'
+            )
             geom.sample_type = sample_type
 
             geom.add_parameter(
@@ -129,7 +135,13 @@ class App:
 
         elif sample_type == "cells":
             sample = Cells(polygons, adata)
-            geom = Patches(self.figure_panel.p, sample, lazy_loading=True, alias='Cell', hover_color='blue')
+            geom = Patches(
+                self.figure_panel.p, 
+                sample, 
+                lazy_loading=True, 
+                alias='Cell', 
+                hover_color='blue'
+            )
             geom.sample_type = sample_type
 
             geom.add_parameter(
@@ -193,9 +205,6 @@ class App:
     def build(self):
         if self.image_component is None:
             raise ValueError("The ImageComponent must be loaded first with the 'add_image_component' function.")
-        
-        # self.upload_panel.populate()
-        # doc.add_root(self.upload_panel.layout)
 
         self.figure_panel.populate(self.image_component)
         self.add_root(self.figure_panel.layout)
