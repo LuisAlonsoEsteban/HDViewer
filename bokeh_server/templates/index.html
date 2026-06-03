@@ -253,12 +253,8 @@
             title.addEventListener('click', function() {
                 const icon = this.querySelector('.fa');
                 const content = this.nextElementSibling;
-                content.style.display = content.style.display === 'none' ? 'block' : 'none';
-                if (content.style.display === 'block') {
-                    icon.style.transform = "rotate(180deg)";
-                } else {
-                    icon.style.transform = "rotate(0deg)";
-                }
+                const isVisible = content.classList.toggle('visible');
+                icon.style.transform = isVisible ? "rotate(180deg)" : "rotate(0deg)";
             });
         });
     });
