@@ -52,7 +52,7 @@
 
     .widget-title {
         background-color: #575757; /* Indigo shade */
-        color: white;
+        color: #cccccc;
         padding: 10px 15px;
         width: 100%;
         text-align: left;
@@ -68,6 +68,7 @@
 
     .widget-title:hover {
         background-color: #6c6c6c; /* Lighter indigo on hover */
+        color: #333333;
     }
 
     .widget-title .fa { /* Styling for font-awesome icon */
@@ -83,6 +84,11 @@
         border-top: none;
         position: relative; /* Added to establish a positioning context */
         overflow-x: hidden; /* Prevents horizontal scrolling on the content div */
+    }
+
+    .widget-title:hover {
+        background-color: #6c6c6c;
+        color: #333333;
     }
 
     .scroll-container {
@@ -102,6 +108,40 @@
         background: #fff;
         color: #333;
         overflow: auto;
+    }
+
+    /* Tabs de Bokeh */
+    .bk-tab {
+        color: #cccccc !important;
+    }
+
+    .bk-tab:hover {
+        color: #333333 !important;
+        background-color: #6c6c6c !important;
+    }
+
+    .bk-tab.bk-active {
+        color: #ffffff !important;
+        background-color: #4e9af1 !important;
+    }
+
+    /* 1. Forzar color de texto negro en hover sobre la pestaña */
+    .bk-tabs-header .bk-tab:hover,
+    .bk-tabs-header .bk-tab:hover * {
+        color: #000000 !important;
+    }
+
+    /* 2. Forzar color de texto negro si la pestaña está activa (seleccionada) y pasamos el ratón */
+    .bk-tabs-header .bk-tab.bk-active:hover,
+    .bk-tabs-header .bk-tab.bk-active:hover * {
+        color: #000000 !important;
+    }
+
+    /* 3. Asegurar que las pestañas activas normales mantengan buena visibilidad en tu tema oscuro */
+    .bk-tabs-header .bk-tab.bk-active {
+        color: #000000 !important; /* Si tu fondo activo es blanco/claro, la letra debe ser negra */
+        background-color: #ffffff !important; 
+        border-bottom-color: #ffffff !important;
     }
     
   </style>

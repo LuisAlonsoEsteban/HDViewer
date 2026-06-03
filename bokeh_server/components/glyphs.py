@@ -472,6 +472,11 @@ class Component:
 
                 self.add_param_form.colname_input.completions = self.get_colnames()
 
+            if hasattr(self, "_metadata_panel"):
+                def _refresh(doc=doc):
+                    self._metadata_panel.update_marker_table(self)
+                doc.add_next_tick_callback(_refresh)
+
         clustering_widgets = self.clustering_manager.get_widgets(doc, on_run_clustering)
         self._all_widgets.extend(clustering_widgets)
 

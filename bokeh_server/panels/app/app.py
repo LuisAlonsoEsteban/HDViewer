@@ -167,6 +167,13 @@ class App:
 
     def add_geometry(self, geom):
         self.geometries.append(geom)
+        geom._metadata_panel = self.metadata_panel #referencia metadata panel
+
+        # Reconstruir metadata si la app ya está construida
+        if hasattr(self, '_app_built') and self._app_built:
+            self.doc.add_next_tick_callback(
+                lambda: self.metadata_panel.populate(self.geometries)
+            )
         self.embedding_panel.set_components(self.geometries)
 
         # If the image is lowres, adjust the width and height to the max of geometries
@@ -212,3 +219,4 @@ class App:
 
         for geom in self.geometries:
             self.add_root(geom.get_widgets_layout(self.doc))
+        self._app_built = True  # ← añadir esta línea al final
