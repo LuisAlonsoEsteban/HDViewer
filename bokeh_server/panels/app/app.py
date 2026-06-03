@@ -71,8 +71,15 @@ class App:
             sample = Spots(polygons, adata)
             radius = b2s.converter.get_pixels(b2s.converter.VisiumV2.SPOT_DIAMETER) / 2
 
-            geom = Circles(radius, self.figure_panel.p, sample, hover_color='green')
+            geom = Circles(
+                radius, 
+                self.figure_panel.p, 
+                sample, 
+                hover_color='green', 
+                alias='Spot',
+            )
             geom.sample_type = sample_type
+            
             geom.add_parameter(
                 attr='alpha',
                 static=False,
