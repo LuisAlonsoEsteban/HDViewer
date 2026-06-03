@@ -267,25 +267,49 @@ class Component:
                 )
         self.refresh_figure()
 
+    #def get_hover_tooltips(self):
+    #    items = []
+    #    for param in self.manager.parameters:
+    #        if not param.is_static and param.colname_hovered:
+    #            items.append(f"{param.colname}: @{param.colname}")
+#
+    #    if len(items) > 0:
+    #        return ", ".join(items)
+    #    else:
+    #        return ""
+
     def get_hover_tooltips(self):
         items = []
         for param in self.manager.parameters:
             if not param.is_static and param.colname_hovered:
                 items.append(f"{param.colname}: @{param.colname}")
 
+        # Añadir leiden solo si tiene valores reales (no todos None)
+        if 'leiden' in self.manager.sample.adata.obs.columns:
+            if self.manager.sample.adata.obs['leiden'].notna().any():
+                items.append("Cluster: @leiden")
+
         if len(items) > 0:
             return ", ".join(items)
         else:
-            return ""
+            return "@obs_name"
+
+    def add_hover(self):
+        if self.glyph_renderer:
+            self.hover = HoverTool(
+                tooltips=self.get_hover_tooltips(),
+                renderers=[self.glyph_renderer]
+            )
+            self.figure.add_tools(self.hover)
         
     def update_hover_tooltips(self):
         if self.hover:
             self.hover.tooltips = self.get_hover_tooltips()
 
-    def add_hover(self):
-        if self.glyph_renderer:
-            self.hover = HoverTool(tooltips=[(self.alias, self.get_hover_tooltips())], renderers=[self.glyph_renderer])
-            self.figure.add_tools(self.hover)
+    #def add_hover(self):
+    #    if self.glyph_renderer:
+    #        self.hover = HoverTool(tooltips=[(self.alias, self.get_hover_tooltips())], renderers=[self.glyph_renderer])
+    #        self.figure.add_tools(self.hover)
 
     def set_visibility(self, visible:bool, apply_checkbox=False):
        self.glyph_renderer.visible = visible
@@ -472,6 +496,9 @@ class Component:
 
                 self.add_param_form.colname_input.completions = self.get_colnames()
 
+            self.update_hover_tooltips()
+            self.refresh_hover()
+            
             if hasattr(self, "_metadata_panel"):
                 def _refresh(doc=doc):
                     self._metadata_panel.update_marker_table(self)

@@ -183,7 +183,7 @@ class ClusteringManager:
             colname=self.CLUSTER_COL,
             static=False,
             not_sequenced_val=NOT_SEQUENCED_VAL[f"{self.component.alias.lower()}s"]["color"],
-            colname_hovered=True,
+            colname_hovered=False,
         )
 
         self.component.manager.update_param('alpha', avoid_scaling=True)

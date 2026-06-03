@@ -3,6 +3,7 @@ import geopandas as gpd
 import numpy as np
 import pandas as pd
 from collections import OrderedDict
+import math
 
 class Sample:
 
@@ -159,10 +160,53 @@ class Sample:
         result = self.adata_processed.uns['rank_genes_groups']
         clusters = result['names'].dtype.names
         markers = {}
+        
+        cluster_labels = self.adata_processed.obs['leiden']
+
         for cluster in clusters:
             genes = [result['names'][cluster][i] for i in range(n_genes)]
             scores = [result['scores'][cluster][i] for i in range(n_genes)]
-            markers[cluster] = list(zip(genes, [round(s, 2) for s in scores]))
+            pvals = [result['pvals_adj'][cluster][i] for i in range(n_genes)]
+            
+            # Máscara booleana para separar las células que están dentro y fuera del cluster actual
+            cluster_mask = cluster_labels == cluster
+            logfcs = []
+            
+            for gene in genes:
+                if gene in self.adata_processed.var_names:
+                    # Extraemos la expresión del gen de forma segura (sea matriz densa o dispersa)
+                    expr = self.adata_processed[:, gene].X
+                    if hasattr(expr, 'toarray'):
+                        expr = expr.toarray().flatten()
+                    else:
+                        expr = np.asarray(expr).flatten()
+                    
+                    # Calculamos las medias logarítmicas
+                    mean_in = expr[cluster_mask].mean()
+                    mean_out = expr[~cluster_mask].mean()
+                    
+                    # Como los datos de Scanpy ya están en log1p, aplicamos la resta directa
+                    if mean_in == 0 and mean_out == 0:
+                        l2fc = 0.0
+                    elif mean_out == 0:
+                        # Si fuera del cluster es 0, usamos pseudocuenta de seguridad para evitar división por cero
+                        l2fc = np.log2((mean_in + 1e-6) / 1e-6)
+                    else:
+                        l2fc = mean_in - mean_out
+                        
+                    logfcs.append(round(float(l2fc), 2))
+                else:
+                    logfcs.append(0.0)
+            
+
+            # Empaquetamos los 4 elementos asegurando que todos mantengan tipos numéricos puros (float)
+            markers[cluster] = list(zip(
+                genes, 
+                [round(float(s), 2) for s in scores], 
+                [float(p) for p in pvals], 
+                [float(l) for l in logfcs]
+            ))
+            
         return markers
     
     def get_colnames(self):

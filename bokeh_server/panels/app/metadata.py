@@ -4,6 +4,7 @@ from bokeh.layouts import column, row
 from bokeh.models import ColumnDataSource, Div, TabPanel, Tabs, DataTable, TableColumn, NumberFormatter
 from bokeh.plotting import figure
 from . import Panel
+import math
 
 
 class MetadataPanel(Panel):
@@ -223,12 +224,18 @@ class MetadataPanel(Panel):
             return
         rows_html = ""
         for cluster, gene_list in markers.items():
-            for gene, score in gene_list:
+            for gene, score, pval, logfc in gene_list:
+                # Formatear pval en notación científica
+                pval_str = f"{pval:.2e}" if (pval and pval > 0 and not math.isnan(pval)) else "0.00e+00"
+                # Colorear logFC en rojo si es negativo, verde si positivo
+                logfc_color = "#4ef1a1" if logfc >= 0 else "#f14e4e"
                 rows_html += f"""
                 <tr>
                     <td style='padding:3px 8px;color:#aaa'>{cluster}</td>
                     <td style='padding:3px 8px;color:#fff'>{gene}</td>
-                    <td style='padding:3px 8px;color:#4e9af1'>{round(float(score), 2)}</td>
+                    <td style='padding:3px 8px;color:#4e9af1'>{score}</td>
+                    <td style='padding:3px 8px;color:#aaa'>{pval_str}</td>
+                    <td style='padding:3px 8px;color:{logfc_color}'>{logfc}</td>
                 </tr>"""
         html = f"""
         <div style='padding:10px;overflow-y:auto;max-height:350px'>
@@ -240,6 +247,8 @@ class MetadataPanel(Panel):
                     <th style='padding:3px 8px;color:#888;text-align:left'>Cluster</th>
                     <th style='padding:3px 8px;color:#888;text-align:left'>Gene</th>
                     <th style='padding:3px 8px;color:#888;text-align:left'>Z-Score</th>
+                    <th style='padding:3px 8px;color:#888;text-align:left'>Adj P-val</th>
+                    <th style='padding:3px 8px;color:#888;text-align:left'>Log2FC</th>
                 </tr>
             </thead>
             <tbody>{rows_html}</tbody>
