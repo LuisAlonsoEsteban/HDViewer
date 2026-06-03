@@ -76,7 +76,8 @@ class MetadataPanel(Panel):
             geom._metadata_panel = self
 
         # Tab principal: General Info
-        main_tabs = [self._build_general_tab(geometries)]
+        #main_tabs = [self._build_general_tab(geometries)]
+        main_tabs = []
 
         # Un tab principal por cada geom con subtabs QC y Markers dentro
         for geom in geometries:
@@ -191,6 +192,7 @@ class MetadataPanel(Panel):
                 child=column(inner_tabs, sizing_mode="stretch_width"),
                 title=geom.alias
             ))
+        main_tabs.insert(0, self._build_general_tab(geometries))
 
         if main_tabs:
             self.set_children([Tabs(tabs=main_tabs)])
