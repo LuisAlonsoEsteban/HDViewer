@@ -46,6 +46,7 @@ class SourceManager:
         return dummy_vector.isna().to_numpy()
     
     def add_parameter(self, param):
+        print(f"[parameters lista] {[(p.colname, id(p)) for p in self.parameters if not p.is_static]}")
         existing_param = self.get_param(param.attr)
         if existing_param is not None:
             self.parameters.remove(self.get_param(param.attr))
@@ -69,12 +70,36 @@ class SourceManager:
             if param.is_static:
                 self.source.data[param.attr] = param.get_values()
             else:
+                if param.colname in self.cache.columns:
+                    self.cache.drop(columns=param.colname, inplace=True)
+
                 if param.colname not in self.cache.columns:
-                    colname_data = self.sample.fetch_data(colnames=param.colname, return_coords=False)
-                    self.cache[param.colname] = colname_data[param.colname]
-                self.source.data[param.attr] = param.get_values(self.cache[param.colname].copy())
+                    if param.colname in self.sample.adata.obs.columns:
+                        # Leer de adata.obs y alinear con obs_names del source
+                        obs_series = self.sample.adata.obs[param.colname]
+                        obs_names = pd.Series(self.source.data['obs_name'])
+                        print(f"[obs_names] primeros 3: {obs_names.dropna().head(3).tolist()}")
+                        print(f"[obs_series index] primeros 3: {obs_series.index[:3].tolist()}")
+                        
+                        aligned = obs_names.map(obs_series)
+                        print(f"[aligned] no-NaN: {aligned.dropna().unique()[:5]}")
+                        
+                        self.cache[param.colname] = aligned.values
+                    else:
+                        colname_data = self.sample.fetch_data(
+                            colnames=param.colname, return_coords=False
+                        )
+                        self.cache[param.colname] = colname_data[param.colname]
+
+                valores = param.get_values(
+                    pd.Series(self.cache[param.colname]).copy()
+                )
+                current_data = dict(self.source.data)
+                current_data[param.attr] = valores
+                self.source.data = current_data
         else:
             self.reset()
+
         
     def update_colname(self, old_colname, new_colname):
         for param in self.get_params_by_colname(old_colname):
@@ -101,6 +126,7 @@ class SourceManager:
         return list({param.colname for param in self.parameters if not param.is_static})
 
     def fetch_data(self):
+        print(f"[fetch_data] EJECUTÁNDOSE")
         fetched_data = self.sample.fetch_data(colnames=self.get_colnames())
 
         colnames = self.get_colnames()
@@ -112,7 +138,12 @@ class SourceManager:
             if not param.is_static:
                 if param.colname not in self.cache.columns:
                     self.cache[param.colname] = fetched_data[param.colname]
-                fetched_data[param.attr] = param.get_values(fetched_data[param.colname].copy())
+                col_data = (
+                    self.cache[param.colname]
+                    if param.colname in self.cache.columns
+                    else fetched_data[param.colname]
+                )
+                fetched_data[param.attr] = param.get_values(col_data.copy())
             else:
                 fetched_data[param.attr] = param.get_values()
 
@@ -250,16 +281,21 @@ class DynamicSourceManager(SourceManager):
             self.is_sequenced += new_is_sequenced
 
         for param in self.parameters:
-            if not param.is_static:
+            for param in self.parameters:
+                if not param.is_static:
+                    
+                    # ─── PARCHE DE RESCATE DE CLUSTERS ───────────────────────────
+                    # Si el parámetro que se va a pintar coincide con tus grupos personalizados,
+                    # nos aseguramos de mapear los posibles NaNs o valores vacíos 
+                    # al estado de 'No asignado' para que el mapeador de color los reconozca.
+                    vector_datos = new_data[param.colname].copy()
+                    if param.colname.startswith("Group"):
+                        vector_datos = vector_datos.fillna("No asignado").astype(str)
+                    # ─────────────────────────────────────────────────────────────
 
-                # if param.colname in self.cache.columns:
-                #     self.cache[param.colname] = pd.concat((self.cache[param.colname], new_data[param.colname]), axis=0) # ValueError: cannot reindex on an axis with duplicate labels
-                # else:
-                #     self.cache[param.colname] = new_data[param.colname]
-
-                new_data[param.attr] = param.get_values(new_data[param.colname].copy())
-            else:
-                new_data[param.attr] = param.get_values(is_sequenced_values=new_is_sequenced)
+                    new_data[param.attr] = param.get_values(vector_datos)
+                else:
+                    new_data[param.attr] = param.get_values(is_sequenced_values=new_is_sequenced)
 
         #new_data = new_data.drop(self.get_colnames(), axis=1, inplace=False)
         cols_to_drop = [param.colname for param in self.parameters 

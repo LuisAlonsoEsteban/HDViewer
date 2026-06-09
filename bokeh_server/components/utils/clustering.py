@@ -1,3 +1,4 @@
+import pandas as pd
 import numpy as np
 from bokeh.models import (
     CheckboxGroup,
@@ -12,7 +13,7 @@ from bokeh.layouts import column, row
 from bokeh.palettes import Category20, Category10
 
 from .. import NOT_SEQUENCED_VAL
-
+from ...parameter import CategoricalColor
 
 CLUSTER_PALETTES = [*Category20[20], *Category10[10]]
 
@@ -261,3 +262,31 @@ class ClusteringManager:
         if self.CLUSTER_COL not in obs.columns:
             return 0
         return int((obs[self.CLUSTER_COL].astype(str) == label).sum())
+
+
+    #def apply_colors_to_column(self, colname: str):
+    #    """
+    #    Aplica colores a cualquier columna categórica de adata.obs.
+    #    Mismo flujo que _update_source_colors pero con colname arbitrario.
+    #    """
+    #    from .. import NOT_SEQUENCED_VAL
+#
+    #    self.component.add_parameter(
+    #        attr='color',
+    #        colname=colname,
+    #        static=False,
+    #        not_sequenced_val=NOT_SEQUENCED_VAL[f"{self.component.alias.lower()}s"]["color"],
+    #        colname_hovered=True,
+    #    )
+    #    self.component.manager.update_param('alpha', avoid_scaling=True)
+
+    def apply_colors_to_column(self, colname: str):
+        from .. import NOT_SEQUENCED_VAL
+        self.component.add_parameter(
+            attr='color',
+            colname=colname,
+            static=False,
+            not_sequenced_val=NOT_SEQUENCED_VAL[f"{self.component.alias.lower()}s"]["color"],
+            colname_hovered=True,
+        )
+        self.component.manager.update_param('alpha', avoid_scaling=True)

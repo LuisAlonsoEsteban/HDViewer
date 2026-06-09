@@ -1,7 +1,7 @@
 
 import os
 from pathlib import Path
-
+from .utils.groups import GroupsManager
 import numpy as np
 
 from bokeh.models import (
@@ -80,6 +80,7 @@ class Component:
         self.autocomplete_input = None
 
         self.clustering_manager = ClusteringManager(self)
+        self.groups_manager = GroupsManager(self)
         self.selected_obs_names = set()
         self._selection_listeners = []
         self._suspend_selection_sync = False
@@ -281,10 +282,12 @@ class Component:
     def get_hover_tooltips(self):
         items = []
         for param in self.manager.parameters:
-            if not param.is_static and param.colname_hovered:
+            if not param.is_static and param.colname_hovered and param.colname != 'custom_clusters':
                 items.append(f"{param.colname}: @{param.colname}")
 
         # Añadir leiden solo si tiene valores reales (no todos None)
+        if 'custom_clusters' in self.manager.source.data:
+            items.append("Group: @custom_clusters")
         if 'leiden' in self.manager.sample.adata.obs.columns:
             if self.manager.sample.adata.obs['leiden'].notna().any():
                 items.append("Cluster: @leiden")
@@ -504,6 +507,9 @@ class Component:
                     self._metadata_panel.update_marker_table(self)
                 doc.add_next_tick_callback(_refresh)
 
+        groups_widgets = self.groups_manager.get_widgets(doc)
+        self._all_widgets.extend(groups_widgets)
+
         clustering_widgets = self.clustering_manager.get_widgets(doc, on_run_clustering)
         self._all_widgets.extend(clustering_widgets)
 
@@ -512,6 +518,7 @@ class Component:
             TabPanel(child=column(*general_widgets), title="General"),
             TabPanel(child=column(*color_widgets) if color_widgets else column(Div(text="No color options.")), title="Color"),
             TabPanel(child=column(*clustering_widgets), title="Clustering"),
+            TabPanel(child=column(*groups_widgets), title="Groups"),
         ]
 
         for param in self.manager.parameters:

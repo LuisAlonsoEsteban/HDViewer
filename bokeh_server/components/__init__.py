@@ -1,11 +1,11 @@
 NOT_SEQUENCED_VAL ={
     "spots": {
-        "color": "#000",
+        "color": "#cccccc",
     },
     "bins": {
-        "color": "#000",
+        "color": "#cccccc",
     },
     "cells": {
-        "color": "#000",
+        "color": "#cccccc",
     },
 }

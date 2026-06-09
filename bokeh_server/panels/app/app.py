@@ -214,6 +214,10 @@ class App:
             raise ValueError("The ImageComponent must be loaded first with the 'add_image_component' function.")
 
         self.figure_panel.populate(self.image_component)
+
+        for geom in self.geometries:
+            geom._figure_de_div = self.figure_panel.de_div
+
         self.add_root(self.figure_panel.layout)
 
         self.thumbnail_panel.populate(self.image_component, self.figure_panel.p)

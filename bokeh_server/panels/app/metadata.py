@@ -14,6 +14,7 @@ class MetadataPanel(Panel):
         # Mantener este diccionario para compatibilidad interna de la app
         self._marker_table_sources = {}
         self._marker_divs = {}
+        self._de_divs = {}
 
     def _compute_general_stats(self, geom):
         """Calcula las estadísticas numéricas para la tabla de resumen."""
@@ -79,7 +80,6 @@ class MetadataPanel(Panel):
         # Tab principal: General Info
         #main_tabs = [self._build_general_tab(geometries)]
         main_tabs = []
-
         # Un tab principal por cada geom con subtabs QC y Markers dentro
         for geom in geometries:
             adata = geom.sample.adata
@@ -187,7 +187,7 @@ class MetadataPanel(Panel):
             marker_tab = self._build_marker_tab(geom)
 
             # Subtabs dentro del tab del geom
-            inner_tabs = Tabs(tabs=[qc_tab, marker_tab])
+            inner_tabs = Tabs(tabs=[qc_tab, marker_tab, self._build_de_tab(geom)])
 
             main_tabs.append(TabPanel(
                 child=column(inner_tabs, sizing_mode="stretch_width"),
@@ -255,3 +255,21 @@ class MetadataPanel(Panel):
         </table></div>"""
         self._marker_divs[geom.alias].text = html
         print(f"--- [TABLA ACTUALIZADA] ---")
+    
+    def _build_de_tab(self, geom):
+        de_div = Div(
+            text="<p style='color:#888; font-size:11px; padding:10px;'>"
+                "Create groups and run DE to populate.</p>"
+        )
+        self._de_divs[geom.alias] = de_div
+        return TabPanel(
+            child=column(de_div, sizing_mode="stretch_width"),
+            title="Groups DE"
+        )
+    
+    def update_de_table(self, geom, cname, result_html):
+        print(f"[update_de_table] alias={geom.alias}, in_de_divs={geom.alias in self._de_divs}")
+        if geom.alias in self._de_divs:
+            print(f"[update_de_table] Actualizando div, html len={len(result_html)}")
+            self._de_divs[geom.alias].text = result_html
+            print(f"[update_de_table] Div actualizado")

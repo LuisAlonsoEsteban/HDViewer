@@ -80,8 +80,9 @@ class DynamicParameter(Parameter):
         self.colname_hovered = colname_hovered
 
     def handle_nans(self, series):
-        series = series.copy().astype(object) # Avoid error with categorical values (e.g. leiden clusters) when setting not_sequenced_val
+        series = series.copy().astype(object)
         not_sequenced = series.isna()
+        print(f"[handle_nans] NaN count: {not_sequenced.sum()} / {len(series)}")
         series.loc[not_sequenced] = self.not_sequenced_val
         return series, ~not_sequenced
     
@@ -89,7 +90,21 @@ class DynamicParameter(Parameter):
         pass
 
     def get_values(self, series):
-        return self.apply_filter(*self.handle_nans(series))
+        print(f"[get_values] series unique: {series.dropna().unique()[:5]}")
+        result = self.apply_filter(*self.handle_nans(series))
+        print(
+            "[get_values] result counts:",
+            pd.Series(result).value_counts()
+        )
+        print("GET_VALUES")
+        print("self id =", id(self))
+        print("CLASS =", type(self).__name__)
+        print("SELF ID =", id(self))
+
+        if hasattr(self, "category_colors"):
+            print("category_colors =", self.category_colors)
+        print("series unique =", pd.Series(series).dropna().unique())
+        return result
     
 
 class Scaler(DynamicParameter):
@@ -159,9 +174,13 @@ class CategoricalColor(DynamicParameter):
             self.category_colors[category] = self.PALETTE[idx]
 
     def apply_filter(self, series, sequenced):
+        print(f"[CategoricalColor] series unique: {series.unique()[:5]}")
+        print(f"[CategoricalColor] sequenced sum: {sequenced.sum()} / {len(sequenced)}")
         result_series = series.copy()
         sequenced_series = series[sequenced].astype(str)
         unique_categories = pd.unique(sequenced_series)
         self.ensure_colors(unique_categories)
+        print(f"[CategoricalColor] category_colors: {self.category_colors}")
         result_series.loc[sequenced] = sequenced_series.map(self.category_colors)
+        print(f"[CategoricalColor] result unique: {pd.unique(result_series)[:5]}")
         return result_series.tolist()
