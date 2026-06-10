@@ -34,6 +34,10 @@ class GroupsManager:
         self._color_map = {} 
         self._conditions_div = None
         self._status_div = None
+        self._de_merged = None  # guardamos el DataFrame para el buscador
+        self._de_results = {}   # guardamos results para regenerar
+        self._de_table_div = None  # referencia al Div de la tabla
+        self._last_plots_html = ""
 
     @property
     def sample(self):
@@ -125,7 +129,41 @@ class GroupsManager:
                 name="groups_cluster_controls",
                 children=self._build_cluster_widgets(doc),
             )
-        
+        # --- DE section ---
+        from bokeh.models import TextInput as BokehTextInput
+
+        self._de_table_div = Div(text="", width=380, height=500)
+        de_search_input = BokehTextInput(
+            placeholder="Search gene...",
+            width=380
+        )
+
+        def on_de_search(attr, old, new):
+            if self._de_merged is None or not self._de_results:
+                return
+            
+            if new:
+                filtered = self._de_merged[
+                    self._de_merged['Gene'].str.lower().str.contains(new.lower())
+                ]
+            else:
+                filtered = self._de_merged.head(200)
+            
+            def _update():
+                table_html = self._render_de_table_html(filtered, self._de_results, len(self._de_merged))
+                plots_html = getattr(self, '_last_plots_html', '')
+                
+                full_html = f"""
+                <div style='display:grid;grid-template-columns:380px 1fr;gap:15px;width:100%'>
+                    <div style='overflow-y:auto;max-height:600px'>{table_html}</div>
+                    <div style='overflow-y:auto;max-height:600px'>{plots_html}</div>
+                </div>"""
+                
+                if hasattr(self.component, '_figure_de_div'):
+                    self.component._figure_de_div.text = full_html
+            doc.add_next_tick_callback(_update)
+
+        de_search_input.on_change('value', on_de_search)
 
         # ------------------------------------------------------------------
         # Render helpers
@@ -332,20 +370,33 @@ class GroupsManager:
                         continue
                 if not results:
                     return
+
                 table_html = self._build_multi_de_table(results)
                 plots_html = self._build_multi_plots_html(active, adata_copy, results)
+                self._last_plots_html = plots_html
+
+                print("table len =", len(table_html))
+                print("plots len =", len(plots_html))
+
                 full_html = f"""
-                <div style='display:flex;gap:15px;width:100%;height:600px'>
-                    <div style='flex:0 0 400px;overflow-y:auto'>{table_html}</div>
-                    <div style='flex:1;overflow-y:auto'>{plots_html}</div>
+                <div style='display:grid;grid-template-columns:380px 1fr;gap:15px;width:100%'>
+                    <div style='overflow-y:auto;max-height:600px'>{table_html}</div>
+                    <div style='overflow-y:auto;max-height:600px'>{plots_html}</div>
                 </div>"""
+
+                print(f"[_run_in_thread] full_html len={len(full_html)}")
+
                 def _update():
+                    print("HAS IMG =", "<img" in full_html)
+                    print("HAS BASE64 =", "base64" in full_html)
+                    print(f"[_update] ejecutándose, html len={len(full_html)}")
                     if hasattr(self.component, '_figure_de_div'):
-                        self.component._figure_de_div.text = full_html
-                    if hasattr(self.component, '_metadata_panel'):
-                        self.component._metadata_panel.update_de_table(
-                            self.component, ', '.join(active), full_html
-                        )
+                        self.component._figure_de_div.text = f"""
+                        <div style='display:grid;grid-template-columns:380px 1fr;gap:15px;width:100%'>
+                            <div style='overflow-y:auto;max-height:600px'>{table_html}</div>
+                            <div style='overflow-y:auto;max-height:600px'>{plots_html}</div>
+                        </div>"""
+
                 doc.add_next_tick_callback(_update)
 
             thread = threading.Thread(target=_run_in_thread)
@@ -367,6 +418,7 @@ class GroupsManager:
             self._cluster_layout,
             Div(text="<hr style='border-color:#444'>"),
             run_de_btn,
+            de_search_input,      # ← añadir
         ]
 
     # ------------------------------------------------------------------
@@ -484,8 +536,10 @@ class GroupsManager:
 
         self._rebuild_custom_clusters_col()
 
-        # Crear/reemplazar parámetro color
-        self.component.clustering_manager.apply_colors_to_column(GROUPS_COL)
+        try:
+            self.component.clustering_manager.apply_colors_to_column(GROUPS_COL)
+        except ValueError:
+            self.component.manager.update_param('color')
 
         # Sobrescribir category_colors con nuestro _color_map fijo
         color_param = self.component.manager.get_param('color')
@@ -717,25 +771,24 @@ class GroupsManager:
 
             # Strip plot con jitter
             import numpy as np
-            jitter = 0.15
-            ax.scatter(
-                np.random.uniform(1 - jitter, 1 + jitter, len(in_vals)),
-                in_vals, c='#4ef1a1', s=3, alpha=0.5, linewidths=0
+            parts = ax.violinplot(
+                [expr[in_cluster.values], expr[~in_cluster.values]],
+                positions=[1, 2],
+                showmedians=True,
+                showextrema=False
             )
-            ax.scatter(
-                np.random.uniform(2 - jitter, 2 + jitter, len(out_vals)),
-                out_vals, c='#aaaaaa', s=3, alpha=0.3, linewidths=0
-            )
-            ax.set_title(gene, color='white', fontsize=10)
+            # Color del cluster
+            parts['bodies'][0].set_facecolor(color)
+            parts['bodies'][0].set_alpha(0.7)
+            # Color del resto
+            parts['bodies'][1].set_facecolor('#555555')
+            parts['bodies'][1].set_alpha(0.5)
+            # Línea de mediana
+            parts['cmedians'].set_color('white')
+            parts['cmedians'].set_linewidth(1.5)
+
             ax.set_xticks([1, 2])
-            ax.set_xticklabels([cname, 'Rest'], color='#aaaaaa', fontsize=8)
-            ax.tick_params(colors='#aaaaaa')
-            ax.spines['bottom'].set_color('#444')
-            ax.spines['left'].set_color('#444')
-            ax.spines['top'].set_visible(False)
-            ax.spines['right'].set_visible(False)
-            for label in ax.get_yticklabels():
-                label.set_color('#aaaaaa')
+            ax.set_xticklabels([cname[:8], 'Rest'], color='#aaaaaa', fontsize=7)
 
         plt.tight_layout()
         img2 = fig_to_base64(fig2)
@@ -744,28 +797,39 @@ class GroupsManager:
         <img src='data:image/png;base64,{img1}' style='width:100%;margin-bottom:10px'/>
         <img src='data:image/png;base64,{img2}' style='width:100%;margin-bottom:10px'/>
         """
-    def _build_multi_de_table(self, results: dict) -> str:
-        # Unir todos los genes
+    def _build_multi_de_table(self, results: dict, filter_text: str = "") -> str:
         import pandas as pd
         all_genes = set()
         for df in results.values():
             all_genes.update(df['names'].tolist())
-        
-        # Construir tabla unificada
+
         merged = pd.DataFrame({'Gene': sorted(all_genes)})
         for cname, df in results.items():
             df = df.set_index('names')
-            color = self._color_map.get(cname, '#4ef1a1')
             merged[f'{cname}_lfc'] = merged['Gene'].map(df['logfoldchanges']).round(2)
             merged[f'{cname}_pval'] = merged['Gene'].map(df['pvals_adj'])
-        
-        # Ordenar por score del primer cluster
+
         first = list(results.keys())[0]
         first_df = results[first].set_index('names')
         merged['_sort'] = merged['Gene'].map(first_df['scores']).fillna(0)
         merged = merged.sort_values('_sort', ascending=False).drop(columns='_sort')
 
-        # Headers
+        # Guardar para el buscador
+        self._de_merged = merged
+        self._de_results = results
+
+        # Filtrar si hay texto
+        if filter_text:
+            merged = merged[merged['Gene'].str.lower().str.contains(filter_text.lower())]
+        else:
+            merged = merged.head(200)  # limitar a 50 por defecto
+
+        return self._render_de_table_html(merged, results)
+
+    def _render_de_table_html(self, merged, results, n_total=None) -> str:
+        n_shown = len(merged)
+        if n_total is None:
+            n_total = n_shown
         cluster_headers = ""
         for cname in results.keys():
             color = self._color_map.get(cname, '#4ef1a1')
@@ -773,7 +837,7 @@ class GroupsManager:
                 <th colspan='2' style='padding:5px 10px;color:{color};
                     font-weight:normal;text-align:center;
                     border-bottom:2px solid {color}'>{cname}</th>"""
-        
+
         sub_headers = "".join([
             "<th style='padding:3px 8px;color:#888;text-align:right'>L2FC</th>"
             "<th style='padding:3px 8px;color:#888;text-align:right'>p-adj</th>"
@@ -801,131 +865,333 @@ class GroupsManager:
                 cells += f"""
                     <td style='padding:4px 8px;text-align:right;color:{lfc_color}'>{lfc_str}</td>
                     <td style='padding:4px 8px;text-align:right;color:{pval_color}'>{pval_str}</td>"""
-            rows_html += f"<tr style='border-bottom:1px solid #222'>{cells}</tr>"
+            rows_html += f"<tr class='de-row' data-gene='{row['Gene'].lower()}' style='border-bottom:1px solid #222'>{cells}</tr>"
+
+        n_shown = len(merged)
+        n_total = len(self._de_merged) if self._de_merged is not None else n_shown
+        footer = f"<p style='color:#666;font-size:11px;margin:8px 0 0 0'>Showing {n_shown} of {n_total} genes</p>"
 
         return f"""
-        <div style='font-size:12px;height:100%'>
-            <h4 style='color:#fff;margin:0 0 8px 0;position:sticky;top:0;
-                    background:#000;padding:5px 0'>DE vs Rest</h4>
-            <table style='border-collapse:collapse;width:100%'>
-                <thead style='position:sticky;top:32px;background:#000'>
-                    <tr><th style='padding:5px 10px;color:#888;text-align:left'>Gene</th>
-                        {cluster_headers}</tr>
-                    <tr><th></th>{sub_headers}</tr>
-                </thead>
-                <tbody>{rows_html}</tbody>
-            </table>
+        <div style='font-size:12px'>
+            <h4 style='color:#fff;margin:0 0 8px 0'>DE vs Rest</h4>
+            <input
+                id='gene-search-input'
+                type='text'
+                placeholder='Search gene...'
+                onkeyup='
+                    var q = this.value.toLowerCase();
+                    var rows = this.parentNode.querySelectorAll("tr.de-row");
+                    for (var i=0; i<rows.length; i++) {{
+                        var gene = rows[i].getAttribute("data-gene");
+                        rows[i].style.display = gene.indexOf(q) >= 0 ? "" : "none";
+                    }}
+                '
+                style='width:100%;box-sizing:border-box;margin-bottom:8px;
+                    padding:5px 8px;background:#1a1a2e;color:#fff;
+                    border:1px solid #444;border-radius:4px;font-size:12px'
+            />
+            <div style='overflow-y:auto;max-height:500px'>
+                <table style='border-collapse:collapse;width:100%'>
+                    <thead style='position:sticky;top:0;background:#000'>
+                        <tr>
+                            <th style='padding:5px 10px;color:#888;text-align:left'>Gene</th>
+                            {cluster_headers}
+                        </tr>
+                        <tr><th></th>{sub_headers}</tr>
+                    </thead>
+                    <tbody>{rows_html}</tbody>
+                </table>
+            </div>
+            <p style='color:#666;font-size:11px;margin:4px 0 0 0'>
+                Showing {n_shown} of {n_total} genes
+            </p>
         </div>"""
-
+ 
     def _build_multi_plots_html(self, active_clusters: list, adata, results: dict) -> str:
         import matplotlib
         matplotlib.use('Agg')
         import matplotlib.pyplot as plt
         import io, base64, numpy as np
+        import uuid, os
 
-        def fig_to_base64(fig):
-            buf = io.BytesIO()
-            fig.savefig(buf, format='png', dpi=100, bbox_inches='tight', facecolor='#000000')
-            buf.seek(0)
-            enc = base64.b64encode(buf.read()).decode('utf-8')
+        sample_type = getattr(self.component, 'sample_type', 'spots')
+        print("COMPONENT ALIAS:", getattr(self.component, 'alias', 'UNKNOWN'))
+        print("SAMPLE TYPE:", sample_type)
+        if sample_type is None:
+            raise ValueError(f"Component has no sample_type: {self.component}")
+
+        def fig_to_url(fig):
+            import pathlib
+            import uuid
+            filename = f"de_plot_{uuid.uuid4().hex[:8]}.png"
+            filepath = pathlib.Path("/scratch/tcondegerma/VisiumVisualizer/bokeh_server/static/data") / filename
+            fig.savefig(str(filepath), format='png', dpi=100,
+                        bbox_inches='tight', facecolor='#000000')
             plt.close(fig)
-            return enc
+            return f"/bokeh_server/static/data/{filename}"
 
         obs = adata.obs.copy()
+        n_genes = 5
 
-        # --- Spatial: todos los clusters ---
-        fig1, ax1 = plt.subplots(figsize=(4, 4))
-        ax1.set_facecolor('#000000')
-        # Fondo gris para todos
-        ax1.scatter(
-            obs['pxl_col_in_fullres'], -obs['pxl_row_in_fullres'],
-            c='#333333', s=2, alpha=0.3, linewidths=0
-        )
+        # Recopilar top genes por cluster
+        cluster_genes = {}
         for cname in active_clusters:
-            col_key = f"grp_{cname}"
-            if col_key not in obs.columns:
-                continue
-            mask = obs[col_key].astype(bool)
-            color = self._color_map.get(cname, '#4ef1a1')
-            ax1.scatter(
-                obs.loc[mask, 'pxl_col_in_fullres'],
-                -obs.loc[mask, 'pxl_row_in_fullres'],
-                c=color, s=5, alpha=1.0, linewidths=0, label=cname
-            )
-        ax1.legend(facecolor='#111', labelcolor='white', fontsize=8,
-                loc='lower right', framealpha=0.7)
-        ax1.set_title('Spatial', color='white', fontsize=11)
-        ax1.axis('off')
-        img_spatial = fig_to_base64(fig1)
-
-        # --- Strip plots top genes por cluster ---
-        strips_html = ""
-        for cname in active_clusters:
-            col_key = f"grp_{cname}"
-            if col_key not in obs.columns:
-                continue
-            in_cluster = obs[col_key].astype(bool)
-            color = self._color_map.get(cname, '#4ef1a1')
-
-            # Top 5 genes significativos
-            import scanpy as sc
             if cname not in results:
                 continue
             result = results[cname]
-            top_genes = result[result['pvals_adj'] < 0.05].head(5)['names'].tolist()
-            if not top_genes:
-                top_genes = result.head(5)['names'].tolist()
+            sig = result[(result['pvals_adj'] < 0.05) & (result['logfoldchanges'] > 0)].sort_values('scores', ascending=False)
+            top = sig.head(n_genes)['names'].tolist()
+            if len(top) < n_genes:
+                rest = result[(~result['names'].isin(top)) & (result['logfoldchanges'] > 0)].sort_values('scores', ascending=False)
+                top += rest.head(n_genes - len(top))['names'].tolist()
+            cluster_genes[cname] = top
+        violins_html = ""
 
-            n = len(top_genes)
-            if n == 0:
+        print("ACTIVE CLUSTERS:", active_clusters)
+        print("RESULTS KEYS:", list(results.keys()))
+        print("SAMPLE TYPE:", sample_type)
+
+        # Paleta de colores distintivos para los genes
+        GENE_COLORS = [
+            '#4ef1a1', '#f1a14e', '#4e9af1', '#f14e4e', '#c44ef1',
+            '#f1e44e', '#4ef1e4', '#f14ebc', '#8af14e', '#f17a4e'
+        ]
+
+        for cname in active_clusters:
+            if cname not in cluster_genes or not cluster_genes[cname]:
+                continue
+            col_key = f"grp_{cname}"
+            if col_key not in obs.columns:
                 continue
 
-            fig2, axes = plt.subplots(1, n, figsize=(2.5 * n, 3))
-            if n == 1:
-                axes = [axes]
-            fig2.patch.set_facecolor('#000000')
+            in_cluster = obs[col_key].astype(bool)
+            cluster_color = self._color_map.get(cname, '#4ef1a1')
+            top_genes = cluster_genes[cname]
+            n = len(top_genes)
 
-            for ax, gene in zip(axes, top_genes):
-                ax.set_facecolor('#000000')
-                if gene not in adata.var_names:
+            if sample_type == 'spots':
+                dot_means_in, dot_pct_in = [], []
+                dot_means_out, dot_pct_out = [], []
+                valid_genes = []
+
+                for gene in top_genes:
+                    if gene not in adata.var_names:
+                        continue
+                    idx = list(adata.var_names).index(gene)
+                    expr = adata.X[:, idx]
+                    if hasattr(expr, 'toarray'):
+                        expr = expr.toarray().flatten()
+                    else:
+                        expr = np.asarray(expr).flatten()
+                    in_vals = np.log1p(expr[in_cluster.values])
+                    out_vals = np.log1p(expr[~in_cluster.values])
+                    dot_means_in.append(np.nanmean(in_vals))
+                    dot_means_out.append(np.nanmean(out_vals))
+                    dot_pct_in.append(np.mean(in_vals > 0) * 100)
+                    dot_pct_out.append(np.mean(out_vals > 0) * 100)
+                    valid_genes.append(gene)
+
+                if not valid_genes:
                     continue
-                idx = list(adata.var_names).index(gene)
-                expr = adata.X[:, idx]
-                if hasattr(expr, 'toarray'):
-                    expr = expr.toarray().flatten()
-                else:
-                    expr = expr.flatten()
 
-                jitter = 0.15
-                ax.scatter(
-                    np.random.uniform(1-jitter, 1+jitter, in_cluster.sum()),
-                    expr[in_cluster.values],
-                    c=color, s=3, alpha=0.6, linewidths=0
-                )
-                ax.scatter(
-                    np.random.uniform(2-jitter, 2+jitter, (~in_cluster).sum()),
-                    expr[~in_cluster.values],
-                    c='#555555', s=2, alpha=0.3, linewidths=0
-                )
-                ax.set_title(gene, color='white', fontsize=9)
-                ax.set_xticks([1, 2])
-                ax.set_xticklabels([cname[:8], 'Rest'], color='#aaaaaa', fontsize=7)
-                ax.tick_params(colors='#aaaaaa')
+                lfc_map = dict(zip(results[cname]['names'], results[cname]['logfoldchanges']))
+                lfc_values = [lfc_map.get(g, 0) for g in valid_genes]
+                order = np.argsort([lfc_map.get(g, 0) for g in valid_genes])[::-1]
+                dot_means_in  = [lfc_values[i]  for i in order]
+                dot_means_out = [lfc_values[i] for i in order]
+                dot_pct_in    = [dot_pct_in[i]    for i in order]
+                dot_pct_out   = [dot_pct_out[i]   for i in order]
+                valid_genes   = [valid_genes[i]   for i in order]
+                lfc_values    = [lfc_values[i]    for i in order]
+                n_valid = len(valid_genes)
+                gene_colors = [GENE_COLORS[i % len(GENE_COLORS)] for i in range(n_valid)]
+
+                fig_h = max(3.0, 0.3 * n_valid + 2.0)
+                fig, ax = plt.subplots(figsize=(max(7, 0.9 * n_valid + 3), 5))
+                fig.patch.set_facecolor('#000000')
+                ax.set_facecolor('#0a0a0a')
+
+                y_pos = np.arange(n_valid)
+                max_size = 400
+
+                # Banda de fondo alternada por gen — ahora en X
+                for i, x in enumerate(y_pos):
+                    bg = '#141414' if i % 2 == 0 else '#0a0a0a'
+                    ax.axvspan(x - 0.5, x + 0.5, color=bg, zorder=0)
+
+                # Línea horizontal en y=0
+                ax.axhline(0, color='#333333', linewidth=0.8, zorder=1)
+
+                # Puntos
+                for i, (gene, gc) in enumerate(zip(valid_genes, gene_colors)):
+                    x = y_pos[i]
+                    s_in = max_size * (dot_pct_in[i] / 100)
+                    s_out = max_size * (dot_pct_out[i] / 100)
+
+                    if lfc_values[i] > 0 or dot_pct_out[i] > 0:
+                        ax.scatter(
+                            x - 0.18, lfc_values[i],
+                            s=max(s_out, 15), c='#444444',
+                            alpha=0.7, linewidths=0.8,
+                            edgecolors='#888888', zorder=3
+                        )
+                        ax.plot(
+                            [x - 0.18, x + 0.18],
+                            [lfc_values[i], lfc_values[i]],
+                            color='#333333', linewidth=0.6, zorder=2
+                        )
+                    # Punto cluster
+                    ax.scatter(
+                        x + 0.18, lfc_values[i],
+                        s=max(s_in, 15), c=gc,
+                        alpha=0.9, linewidths=0.8,
+                        edgecolors='white', zorder=4
+                    )
+
+                ax.set_xticks(y_pos)
+                ax.set_xticklabels(valid_genes, fontsize=12, rotation=30, ha='right')
+                for tick, gc in zip(ax.get_xticklabels(), gene_colors):
+                    tick.set_color(gc)
+
+                ax.set_ylabel('Log2 Fold Change', color='white', fontsize=11)
+                ax.set_xlabel('')
+                ax.tick_params(colors='white', labelsize=10)
+                ax.set_ylim(bottom=-0.05)
+                ax.set_xlim(-0.6, n_valid - 0.4)
+
                 for spine in ['bottom', 'left']:
-                    ax.spines[spine].set_color('#444')
+                    ax.spines[spine].set_color('#333')
                 for spine in ['top', 'right']:
                     ax.spines[spine].set_visible(False)
                 for label in ax.get_yticklabels():
-                    label.set_color('#aaaaaa')
+                    label.set_color('white')
 
-            plt.tight_layout()
-            img_strip = fig_to_base64(fig2)
-            strips_html += f"""
-            <p style='color:#aaa;font-size:11px;margin:8px 0 4px 0'>
-                <span style='color:{color}'>●</span> {cname} — top genes
-            </p>
-            <img src='data:image/png;base64,{img_strip}' style='width:100%'/>"""
+                # Leyenda grupo (cluster vs rest)
+                from matplotlib.lines import Line2D
+                legend_elements = [
+                    Line2D([0], [0], marker='o', color='w', markerfacecolor='#aaaaaa',
+                        markersize=8, label=f'{cname} (colored)', linestyle='None'),
+                    Line2D([0], [0], marker='o', color='w', markerfacecolor='#444444',
+                        markersize=6, label='Rest', linestyle='None',
+                        markeredgecolor='#888888'),
+                ]
+        
+                leg1 = ax.legend(
+                    handles=legend_elements,
+                    loc='upper left', bbox_to_anchor=(0.9, 0.99),
+                    fontsize=10, framealpha=0.3, labelcolor='white',
+                    facecolor='#111111', edgecolor='#444444',
+                    title='Group', title_fontsize=10,
+                    borderaxespad=0
+                )
+                plt.setp(leg1.get_title(), color='#aaaaaa')
+                ax.add_artist(leg1)
 
-        return f"""
-        <img src='data:image/png;base64,{img_spatial}' style='width:100%;margin-bottom:12px'/>
-        {strips_html}"""
+                # Leyenda tamaño de puntos
+                pct_levels = [25, 50, 100]
+                size_handles = [
+                    plt.scatter([], [], s=max_size * p / 100,
+                                c='#888888', alpha=0.7,
+                                edgecolors='white', linewidths=0.5,
+                                label=f'{p}%')
+                    for p in pct_levels
+                ]
+                
+                leg2 = ax.legend(
+                    handles=size_handles,
+                    title='% expressing', title_fontsize=10,
+                    fontsize=10, loc='upper left', bbox_to_anchor=(1.02, 0.5),
+                    framealpha=0.3, labelcolor='white',
+                    facecolor='#111111', edgecolor='#444444',
+                    handletextpad=0.3, borderpad=0.6,
+                    borderaxespad=0
+                )
+                plt.setp(leg2.get_title(), color='#aaaaaa')
+
+                plt.tight_layout(pad=1.2)
+                img_url = fig_to_url(fig)
+                violins_html += f"""
+                <div style='margin-bottom:16px'>
+                    <p style='color:#aaa;font-size:11px;margin:0 0 4px 0'>
+                        <span style='color:{cluster_color}'>●</span>
+                        <b style='color:{cluster_color}'>{cname}</b> — top {n_valid} genes
+                    </p>
+                    <div style='overflow-x:auto;width:100%'>
+                        <img src='{img_url}' style='width:500px;max-width:none;display:block'/>
+                    </div>
+                </div>"""
+
+            else:
+                # --- Violin para bins y cells ---
+                import pandas as pd
+                import seaborn as sns
+
+                fig_w = max(2.5 * n, 5)
+                fig, axes = plt.subplots(1, n, figsize=(fig_w, 3.5))
+                if n == 1:
+                    axes = [axes]
+                fig.patch.set_facecolor('#000000')
+
+                for ax, gene in zip(axes, top_genes):
+                    ax.set_facecolor('#111111')
+                    if gene not in adata.var_names:
+                        continue
+                    idx = list(adata.var_names).index(gene)
+                    expr = adata.X[:, idx]
+                    if hasattr(expr, 'toarray'):
+                        expr = expr.toarray().flatten()
+                    else:
+                        expr = np.asarray(expr).flatten()
+                    in_vals = np.log1p(expr[in_cluster.values])
+                    out_vals = np.log1p(expr[~in_cluster.values])
+
+                    in_nz = in_vals[in_vals > 0]
+                    out_nz = out_vals[out_vals > 0]
+                    if len(in_nz) < 3:
+                        in_nz = in_vals
+                    if len(out_nz) < 3:
+                        out_nz = out_vals
+
+                    df_v = pd.DataFrame({
+                        'Expression': np.concatenate([in_nz, out_nz]),
+                        'Group': [cname[:8]] * len(in_nz) + ['Rest'] * len(out_nz)
+                    })
+                    sns.violinplot(
+                        data=df_v, x='Group', y='Expression', ax=ax,
+                        cut=0, inner='quartile',
+                        hue='Group', legend=False,
+                        palette={cname[:8]: cluster_color, 'Rest': '#555555'},
+                        order=[cname[:8], 'Rest'],
+                    )
+                    ymax = np.nanmax([np.nanmean(in_vals), np.nanmean(out_vals)])
+                    if np.isnan(ymax) or ymax <= 0:
+                        ymax = 1
+                    ax.set_ylim(0, ymax * 1.4)
+                    ax.set_title(gene, color='white', fontsize=9)
+                    ax.set_xlabel('')
+                    ax.tick_params(colors='#aaaaaa', labelsize=10)
+                    for spine in ['bottom', 'left']:
+                        ax.spines[spine].set_color('#444')
+                    for spine in ['top', 'right']:
+                        ax.spines[spine].set_visible(False)
+                    for label in ax.get_xticklabels() + ax.get_yticklabels():
+                        label.set_color('#aaaaaa')
+
+                plt.tight_layout()
+                img_url = fig_to_url(fig)
+                img_w = max(250 * n, 500)
+                violins_html += f"""
+                <div style='margin-bottom:16px'>
+                    <p style='color:#aaa;font-size:11px;margin:0 0 4px 0'>
+                        <span style='color:{cluster_color}'>●</span>
+                        <b style='color:{cluster_color}'>{cname}</b> — top {n} genes
+                    </p>
+                    <div style='overflow-x:auto;width:100%'>
+                        <img src='{img_url}' style='width:{img_w}px;max-width:none;display:block'/>
+                    </div>
+                </div>"""
+
+        if not violins_html:
+            violins_html = "<p style='color:#888;font-size:12px'>No results to display.</p>"
+
+        return violins_html

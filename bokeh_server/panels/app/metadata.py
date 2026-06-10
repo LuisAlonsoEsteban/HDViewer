@@ -271,5 +271,23 @@ class MetadataPanel(Panel):
         print(f"[update_de_table] alias={geom.alias}, in_de_divs={geom.alias in self._de_divs}")
         if geom.alias in self._de_divs:
             print(f"[update_de_table] Actualizando div, html len={len(result_html)}")
-            self._de_divs[geom.alias].text = result_html
+            #self._de_divs[geom.alias].text = result_html
+            #result_html = """
+            #<div style="
+            #background:red;
+            #height:400px;
+            #width:100%;
+            #font-size:50px;
+            #color:white">
+            #PLOT TEST
+            #</div>
+            #"""
+            self._de_divs[geom.alias].text = """
+            <h1 style="color:red">HELLO</h1>
+            <div style="background:red;height:300px;width:300px">
+            TEST
+            </div>
+            """
+
+            print(type(self._de_divs[geom.alias]))
             print(f"[update_de_table] Div actualizado")
