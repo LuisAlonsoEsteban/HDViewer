@@ -51,7 +51,10 @@ class Sample:
             col = self.adata.obs[colname]
             if hasattr(col, 'cat'):
                 col = col.cat.as_ordered()
-            return col.min(), col.max()
+            numeric = pd.to_numeric(col, errors='coerce')
+        if numeric.notna().any():
+            return numeric.min(), numeric.max()
+        return 0.0, 1.0
     
     def crop_geom(self, left, right, top, bottom):
         return self.gdf.cx[left:right, bottom:top].copy()
@@ -485,7 +488,17 @@ class Bins(Sample):
                     },
                     index=cropped_gdf.index,
                 )
-                grouped[colname] = value_frame.groupby(["grid_x", "grid_y"], sort=False)[colname].sum(min_count=1)
+                _grp = value_frame.groupby(["grid_x", "grid_y"], sort=False)[colname]
+                _is_cat = (
+                    colname in cropped_adata.obs.columns
+                    and str(cropped_adata.obs[colname].dtype) in ("category", "object")
+                )
+                if _is_cat:
+                    grouped[colname] = _grp.agg(
+                        lambda s: s.value_counts().idxmax() if len(s.value_counts()) else np.nan
+                    )
+                else:
+                    grouped[colname] = _grp.sum(min_count=1)
 
         grouped.reset_index(drop=True, inplace=True)
         grouped.index = grouped["obs_name"]

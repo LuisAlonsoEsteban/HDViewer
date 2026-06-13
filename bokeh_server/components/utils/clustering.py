@@ -239,7 +239,16 @@ class ClusteringManager:
 
         self._checkbox_group.on_change("active", _on_checkbox_change)
 
-        return [self._checkbox_group]
+        from bokeh.models import Button
+        select_all_btn = Button(label="Select all / Deselect all", button_type="default", name="cluster_select_all")
+        def _on_select_all():
+            n = len(self._cluster_labels)
+            if len(self._checkbox_group.active) == n:
+                self._checkbox_group.active = []
+            else:
+                self._checkbox_group.active = list(range(n))
+        select_all_btn.on_click(_on_select_all)
+        return [select_all_btn, self._checkbox_group]
 
     def _rebuild_cluster_widgets(self, doc):
         """Replace the children of _cluster_layout in-place."""

@@ -162,6 +162,10 @@ class SourceManager:
         if param.is_static:
             self.source.data[param.attr] = param.update(*args, **kwargs)
         else:
+            if param.colname not in self.cache.columns:
+                if kwargs.get('avoid_scaling') and hasattr(param, 'avoid_scaling'):
+                    param.avoid_scaling = True
+                return
             self.source.data[param.attr] = param.update(self.cache[param.colname].copy(), *args, **kwargs)
         if self.component is not None:
             self.component.apply_selected_obs_names()
@@ -238,7 +242,16 @@ class DynamicSourceManager(SourceManager):
             else:
                 self.source.data[param.attr] = param.get_values()
         else:
-            raise ValueError(f"A parameter for attribute '{param.attr}' is already present.")
+            self.parameters = [p for p in self.parameters if p.attr != param.attr]
+            self.parameters.append(param)
+            if param.is_static:
+                param.set_is_sequenced(self.is_sequenced)
+            else:
+                param.min_counts, param.max_counts = self.sample.get_range(param.colname)
+            if not param.is_static or self.is_empty:
+                self.clear_sources()
+            else:
+                self.source.data[param.attr] = param.get_values()
         
     def get_nan_vector(self):
         colnames = self.get_colnames()

@@ -535,37 +535,33 @@ class GroupsManager:
             print(f"[GroupsManager] {cname}: {mask.sum()} spots")
 
         self._rebuild_custom_clusters_col()
-
         try:
             self.component.clustering_manager.apply_colors_to_column(GROUPS_COL)
         except ValueError:
+            color_param = self.component.manager.get_param('color')
+            if color_param is not None:
+                color_param.colname = GROUPS_COL
             self.component.manager.update_param('color')
-
         # Sobrescribir category_colors con nuestro _color_map fijo
         color_param = self.component.manager.get_param('color')
         if color_param is not None and hasattr(color_param, 'category_colors'):
             color_param.category_colors = dict(self._color_map)
-
-            # Recalcular source con los colores correctos
-            if GROUPS_COL in self.component.manager.cache.columns:
-                self.component.manager.cache.drop(columns=[GROUPS_COL], inplace=True)
-
+            if hasattr(self.component, 'loader'):
+                self.component.manager.update_param('alpha', avoid_scaling=True)
+                self.component.loader.force_reload()
+                return
             obs_series = self.sample.adata.obs[GROUPS_COL]
             obs_names = pd.Series(self.component.manager.source.data['obs_name'])
             aligned = obs_names.map(obs_series)
-            self.component.manager.cache[GROUPS_COL] = aligned.values
-
-            print(f"[DEBUG custom_clusters] unique en adata.obs: {self.sample.adata.obs[GROUPS_COL].dropna().unique()}")
-            print(f"[DEBUG aligned] unique: {pd.Series(aligned).dropna().unique()}")
-
+            if GROUPS_COL not in self.component.manager.cache.columns:
+                self.component.manager.cache[GROUPS_COL] = aligned.values
             new_colors = color_param.get_values(
                 pd.Series(self.component.manager.cache[GROUPS_COL]).copy()
             )
             data = dict(self.component.manager.source.data)
             data['color'] = new_colors
-            data['custom_clusters'] = list(aligned.fillna('—').values)
+            data['custom_clusters'] = ['—' if pd.isna(c) else c for c in aligned]
             self.component.manager.source.data = data
-
         # VALIDACIÓN — quitar después
         for cname in self._clusters:
             col_key = f"grp_{cname}"
@@ -584,7 +580,7 @@ class GroupsManager:
                 mask = adata.obs[col_key].astype(bool)
                 col[mask] = cname  # último sobreescribe
 
-        adata.obs[GROUPS_COL] = col
+        adata.obs[GROUPS_COL] = col.astype('category')
     # ------------------------------------------------------------------
     # Build boolean mask from conditions
     # ------------------------------------------------------------------

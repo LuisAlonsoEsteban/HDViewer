@@ -113,8 +113,11 @@ class Scaler(DynamicParameter):
         super().__init__(*args, **kwargs)
         self.minv = minv
         self.maxv = maxv
+        self.avoid_scaling = False
 
     def scale_values(self, values):
+        if self.avoid_scaling:
+            return [1.0] * len(values)
         try:
             values_array = pd.to_numeric(values, errors="raise").to_numpy(dtype=float, copy=False)
         except (ValueError, TypeError):
@@ -140,6 +143,7 @@ class Scaler(DynamicParameter):
             return self.scale_values(series)
     
     def update(self, series, new_minv=None, new_maxv=None, avoid_scaling=False):
+        self.avoid_scaling = avoid_scaling
         if avoid_scaling:
             self.minv = self.maxv
         else:
