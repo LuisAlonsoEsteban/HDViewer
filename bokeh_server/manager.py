@@ -320,8 +320,14 @@ class DynamicSourceManager(SourceManager):
         if self.component is not None:
             self.component.apply_selected_obs_names()
 
-            self.component._view = self.view_filter.tolist()
-            self.component.change_glyph_view()
+            self.component.update_hover_tooltips()
+            cm = getattr(self.component, "clustering_manager", None)
+            if (cm is not None and getattr(cm, "is_clustered", False)
+                    and len(cm._active_clusters) < len(cm._cluster_labels)):
+                cm._apply_visibility_mask()
+            else:
+                self.component._view = self.view_filter.tolist()
+                self.component.change_glyph_view()
 
 
     def fetch_data(self):

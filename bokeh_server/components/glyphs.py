@@ -282,15 +282,16 @@ class Component:
     def get_hover_tooltips(self):
         items = []
         for param in self.manager.parameters:
-            if not param.is_static and param.colname_hovered and param.colname != 'custom_clusters':
+            if (not param.is_static and param.colname_hovered
+                    and param.colname not in ('custom_clusters', 'leiden')
+                    and param.attr != 'alpha'):
                 items.append(f"{param.colname}: @{param.colname}")
 
         # Añadir leiden solo si tiene valores reales (no todos None)
         if 'custom_clusters' in self.manager.source.data:
             items.append("Group: @custom_clusters")
-        if 'leiden' in self.manager.sample.adata.obs.columns:
-            if self.manager.sample.adata.obs['leiden'].notna().any():
-                items.append("Cluster: @leiden")
+        if 'leiden' in self.manager.source.data:
+            items.append("Cluster: @leiden")
 
         if len(items) > 0:
             return ", ".join(items)

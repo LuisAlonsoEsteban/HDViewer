@@ -405,6 +405,9 @@ class GroupsManager:
 
         run_de_btn.on_click(on_run_de)
 
+        _alias = getattr(self.component, "alias", None)
+        _geom_name = (str(_alias) + "s") if _alias else "N/A"
+        _geom_label_div = Div(text="<b style='color:#888888'>Viewing:</b> " + _geom_name)
         return [
             Div(text="<b style='color:#888888'>Build conditions</b>"),
             condition_row,
@@ -418,7 +421,7 @@ class GroupsManager:
             self._cluster_layout,
             Div(text="<hr style='border-color:#444'>"),
             run_de_btn,
-            de_search_input,      # ← añadir
+            _geom_label_div,
         ]
 
     # ------------------------------------------------------------------
