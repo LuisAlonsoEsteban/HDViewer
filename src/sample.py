@@ -87,33 +87,6 @@ class Sample:
         else:
             raise ValueError(f"'{colname}' not found in adata")
          
-    #def get_value(self, adata=None, gdf=None, colname=None):
-    #    if gdf is None:
-    #        gdf = self.gdf
-#
-    #    if adata is None:
-    #        adata = self.adata
-#
-    #    if colname in gdf.columns:
-    #        return gdf[colname].values.tolist()
-#
-    #    elif self.has_adata():            
-    #        value_df = self.get_adata_vector(adata, colname)
-    #        value_df[self.on] = value_df.index.astype(gdf[self.on].dtype)
-    #        
-    #        # ← AÑADE ESTO TEMPORALMENTE
-    #        print(f"[get_value] colname={colname}")
-    #        print(f"  value_df index dtype: {value_df.index.dtype}")
-    #        print(f"  gdf[self.on] dtype: {gdf[self.on].dtype}")
-    #        print(f"  value_df[self.on] sample: {value_df[self.on].head(3).tolist()}")
-    #        print(f"  gdf[self.on] sample: {gdf[self.on].head(3).tolist()}")
-    #        print(f"  value_df unique non-null: {value_df[colname].dropna().unique()[:5]}")
-    #        
-    #        merged_gdf = gdf.reset_index().merge(value_df, on=self.on, how='left').set_index('index')
-    #        print(f"  merged result unique: {merged_gdf[colname].dropna().unique()[:5]}")
-    #        return merged_gdf[colname]
-    #    else:
-    #        raise ValueError(f"'{colname}' not found in geometries, and AnnData not available")
 
     def get_value(self, adata=None, gdf=None, colname=None):
         if gdf is None:

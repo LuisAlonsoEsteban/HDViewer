@@ -128,7 +128,10 @@ class SourceManager:
     def fetch_data(self):
         print(f"[fetch_data] EJECUTÁNDOSE")
         fetched_data = self.sample.fetch_data(colnames=self.get_colnames())
-
+        print("\n--- FETCH DATA DEBUG ---")
+        print("fetched_data shape:", fetched_data.shape)
+        print("TIPO DE DATO:", type(self.sample))
+        print("columns:", fetched_data.columns)
         colnames = self.get_colnames()
         if len(colnames) > 0:
             self.is_sequenced.clear()
@@ -315,6 +318,20 @@ class DynamicSourceManager(SourceManager):
                 if not param.is_static and not param.colname_hovered]
         new_data = new_data.drop(cols_to_drop, axis=1, inplace=False)
         
+        # Reconciliar columnas con el esquema del source (p.ej. cells no trae width/height)
+        existing_cols = set(self.source.data.keys())
+        present_cols  = set(new_data.columns)
+
+        # Columnas que el source espera pero new_data no trae → rellenar con NaN
+        for missing in existing_cols - present_cols:
+            new_data[missing] = np.nan
+
+        # Columnas extra que el source no conoce → descartar (evita el error inverso)
+        extra = present_cols - existing_cols
+        if extra:
+            new_data = new_data.drop(columns=list(extra), inplace=False)
+
+        self.source.stream(new_data.to_dict(orient='list'))
         self.source.stream(new_data.to_dict(orient='list'))
 
         if self.component is not None:

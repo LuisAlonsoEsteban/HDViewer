@@ -211,15 +211,23 @@ class StartupController:
                 output = func()
                 if sample_type:
                     if output is not None:
-                        # TODO: Check if output is correct
-                        self.app.add_sample(*output, b2s=self.b2s, sample_type=sample_type)
+                        def update_doc():
+                            self.app.add_sample(
+                                *output,
+                                b2s=self.b2s,
+                                sample_type=sample_type
+                            )
+                        print("OUTPUT FROM FUNC:", type(output))
+                        print("OUTPUT LEN:", len(output) if output else None)
+                        self.doc.add_next_tick_callback(update_doc)
             except Exception:
                 print(traceback.format_exc())
             finally:
                 if sample_type in self.tasks.keys():
                     self.tasks[sample_type] = True
                 self._check_all_done()
-
+        # En startup.py, después de crear b2s, añade este print:
+        
         threading.Thread(target=wrapper).start()
 
     def generate_tiles(self, base_dir):
@@ -232,7 +240,8 @@ class StartupController:
             self.image_processor = ImageProcessor(
                 self.dataset.img,
                 base_dir / "tiles",
-                base_dir / "StarDist"
+                base_dir / "StarDist",
+                um_per_px = 16.0 / self.dataset.pixels_per_bin
             )
         
             self.app.add_image_component(self.image_processor)
@@ -275,7 +284,7 @@ class StartupController:
             tile_scale_yfactor=self.image_processor.scale_yfactor,
             progress_callback=on_progress
         )
-
+        print("DEBUG pixels_per_bin:", self.b2s.converter.visiumHD.pixels_per_bin)
         self.app.add_sample(self.b2s.bin_squares, self.b2s.adata_hd, b2s=self.b2s, sample_type="bins")
 
     def ensure_b2s(self):
@@ -308,7 +317,6 @@ class StartupController:
                 self.update_progress(self.cells_progress, pct)
 
             cells_gdf = self.image_processor.get_cells_gdf(
-                                   # self.image_processor.segment_image()[1],
                                     self.image_processor.segment_image(min_overlap=320)[1], 
                                     progress_callback=on_progress
                                 )

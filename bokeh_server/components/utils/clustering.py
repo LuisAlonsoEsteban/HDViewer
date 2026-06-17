@@ -188,15 +188,47 @@ class ClusteringManager:
         )
 
         self.component.manager.update_param('alpha', avoid_scaling=True)
-        if not hasattr(self.component, 'loader'):
-            self.component.manager.fetch_data()
-        self.component.update_hover_tooltips()
 
+        # Bins (lazy loader): recargar por tiles. NO inyectar el source a mano,
+        # eso desincroniza source.data con self.indexes y revienta remove_further_data.
+        if hasattr(self.component, 'loader'):
+            self.component.loader.force_reload()
+            self.component.update_hover_tooltips()
+            return
+
+        print(f"[CLUSTER COLORS] alias={self.component.alias} "
+              f"loader={hasattr(self.component, 'loader')} "
+              f"obs_in_source={len(self.component.manager.source.data.get('obs_name', []))}")
+
+        # Cells: la inyección manual no cuela el cluster (obs_name vacío / no casa).
+        # Re-fetch del viewport -> pasa por get_value y alinea adata.obs con el gdf,
+        # igual que hace apply_colors_to_column para componentes sin loader.
+        if self.component.alias.lower() == 'cell':
+            # Cells son TILED (manager.source vacío). Igual que groups:
+            # el color param ya está puesto y leiden está en adata.obs;
+            # solo forzamos el re-render de los tiles vía change_glyph_view.
+            gdf = self.component.manager.sample.gdf
+            self.component._view = [True] * len(gdf)
+            self.component.change_glyph_view()
+            self.component.update_hover_tooltips()
+            return
+
+        color_param = self.component.manager.get_param('color')
+        if color_param is not None:
+            obs_series = self.component.manager.sample.adata.obs[self.CLUSTER_COL]
+            obs_names = pd.Series(self.component.manager.source.data['obs_name'])
+            aligned = obs_names.map(obs_series)
+            new_colors = color_param.get_values(aligned.copy())
+            data = dict(self.component.manager.source.data)
+            data['color'] = new_colors
+            self.component.manager.source.data = data
+
+        self.component.update_hover_tooltips()
     def _apply_visibility_mask(self):
         import numpy as np
         import pandas as pd
         mgr = self.component.manager
-        if self.CLUSTER_COL in mgr.source.data:
+        if self.CLUSTER_COL in mgr.source.data and len(mgr.source.data[self.CLUSTER_COL]) > 0:
             cluster_ids = pd.Series(mgr.source.data[self.CLUSTER_COL])
         else:
             cluster_ids = mgr.sample.get_value(colname=self.CLUSTER_COL)
@@ -208,6 +240,10 @@ class ClusteringManager:
         visible = np.asarray(visible.tolist(), dtype=bool)
         if hasattr(mgr, "view_filter"):
             mgr.view_filter = visible.copy()
+        print("[VIEW] len visible =", len(visible),
+              "| True =", int(visible.sum()),
+              "| len source x =", len(mgr.source.data.get('x', [])),
+              "| CLUSTER_COL in source =", self.CLUSTER_COL in mgr.source.data)
         self.component._view = visible.tolist()
         self.component.change_glyph_view()
 

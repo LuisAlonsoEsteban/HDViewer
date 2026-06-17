@@ -1162,9 +1162,14 @@ class GroupsManager:
                         palette={cname[:8]: cluster_color, 'Rest': '#555555'},
                         order=[cname[:8], 'Rest'],
                     )
-                    ymax = np.nanmax([np.nanmean(in_vals), np.nanmean(out_vals)])
+                    #ymax = np.nanmax([np.nanmean(in_vals), np.nanmean(out_vals)])
+                    #if np.isnan(ymax) or ymax <= 0:
+                    #    ymax = 1
+                    all_vals = np.concatenate([in_nz, out_nz])
+                    ymax = np.nanpercentile(all_vals, 95) if len(all_vals) > 0 else 1.0
                     if np.isnan(ymax) or ymax <= 0:
-                        ymax = 1
+                        ymax = 1.0
+                    ax.set_ylim(0, ymax * 1.3)
                     ax.set_ylim(0, ymax * 1.4)
                     ax.set_title(gene, color='white', fontsize=9)
                     ax.set_xlabel('')

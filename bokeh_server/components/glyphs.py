@@ -127,6 +127,7 @@ class Component:
         if self.lazy_loading and self.glyph_renderer is not None:
             loader = LazyLoader(self.manager, self.figure)
             loader.add_range_callback(self, doc)
+            #self.loader = loader 
 
     def refresh_widgets_layout(self, doc):
         widgets_layout = doc.get_model_by_name(self.widgets_name)
