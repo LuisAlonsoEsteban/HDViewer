@@ -8,7 +8,7 @@ from bokeh.models import (
 from bokeh.layouts import column, row
 
 from bokeh.models import Button, Div, Select
-
+from bokeh.models import RadioButtonGroup
 OPERATORS = [">", "<", ">=", "<=", "=="]
 
 # Columna fija en adata.obs, igual que 'leiden'
@@ -120,6 +120,8 @@ class GroupsManager:
             button_type="danger",
             width=160
         )
+
+        de_mode = RadioButtonGroup(labels=["vs Rest", "Entre clusters"], active=0)
 
         self._status_div = Div(text="", width=380)
 
@@ -333,46 +335,86 @@ class GroupsManager:
             active = list(self._active_clusters)
             if not active:
                 return
+
+            mode = de_mode.active
             if hasattr(self.component, '_figure_de_div'):
                 self.component._figure_de_div.text = (
                     "<p style='color:#aaa;font-size:11px'>Running DE...</p>"
                 )
             import threading
             def _run_in_thread():
-                adata_copy = self.sample.adata.copy()
-                sc.pp.log1p(adata_copy)
+                if getattr(self, '_de_adata', None) is None:
+                    _a = self.sample.adata.copy()
+                    sc.pp.filter_genes(_a, min_cells=3)
+                    sc.pp.log1p(_a)  # elimino genes casi vacíos
+                    self._de_adata = _a
+                adata_copy = self._de_adata
+                # refrescar columnas de clusters (pueden haberse creado/borrado)
+                for _c in self.sample.adata.obs.columns:
+                    if _c.startswith('grp_') or _c == GROUPS_COL:
+                        adata_copy.obs[_c] = self.sample.adata.obs[_c]
                 results = {}
-                for cname in active:
-                    col_key = f"grp_{cname}"
-                    if col_key not in adata_copy.obs.columns:
-                        continue
-                    in_cluster = adata_copy.obs[col_key].astype(bool)
-                    n_in = in_cluster.sum()
-                    n_out = (~in_cluster).sum()
-                    if n_out == 0:
-                        print(f"[DE] {cname}: todos los spots en cluster, saltando")
-                        continue
-                    if n_in < 3:
-                        print(f"[DE] {cname}: muy pocos spots ({n_in}), saltando")
-                        continue
-                    adata_copy.obs['_de_group'] = adata_copy.obs[col_key].astype(bool).map(
-                        {True: cname, False: 'Rest'}
-                    ).astype(str)
-                    try:
-                        sc.tl.rank_genes_groups(
-                            adata_copy, groupby='_de_group',
-                            groups=[cname], reference='Rest',
-                            method='wilcoxon', n_genes=adata_copy.n_vars,
-                        )
-                        results[cname] = sc.get.rank_genes_groups_df(adata_copy, group=cname)
-                    except Exception as e:
-                        print(f"[DE] Error en {cname}: {e}")
-                        continue
+                plot_adata = adata_copy
+                if mode == 0:
+                    for cname in active:
+                        col_key = f"grp_{cname}"
+                        if col_key not in adata_copy.obs.columns:
+                            continue
+                        in_cluster = adata_copy.obs[col_key].astype(bool)
+                        n_in = in_cluster.sum()
+                        n_out = (~in_cluster).sum()
+                        if n_out == 0:
+                            print(f"[DE] {cname}: todos los spots en cluster, saltando")
+                            continue
+                        if n_in < 3:
+                            print(f"[DE] {cname}: muy pocos spots ({n_in}), saltando")
+                            continue
+                        adata_copy.obs['_de_group'] = adata_copy.obs[col_key].astype(bool).map(
+                            {True: cname, False: 'Rest'}
+                        ).astype(str)
+                        try:
+                            sc.tl.rank_genes_groups(
+                                adata_copy, groupby='_de_group',
+                                groups=[cname], reference='Rest',
+                                method='wilcoxon', 
+                            )
+                            results[cname] = sc.get.rank_genes_groups_df(adata_copy, group=cname)
+                        except Exception as e:
+                            print(f"[DE] Error en {cname}: {e}")
+                            continue
+                else:
+                    # --- Entre clusters seleccionados ---
+                    obs_grp = adata_copy.obs[GROUPS_COL].astype(str)
+                    in_sel = adata_copy.obs[GROUPS_COL].notna() & obs_grp.isin(active)
+                    sub = adata_copy[in_sel.values].copy()
+                    sub.obs['_de_group'] = sub.obs[GROUPS_COL].astype(str)
+                    plot_adata = sub
+
+                    counts = sub.obs['_de_group'].value_counts()
+                    usable = [c for c in active if counts.get(c, 0) >= 3]
+                    if len(usable) < 2:
+                        print("[DE] Se necesitan al menos 2 clusters con ≥3 bins para comparar entre ellos")
+                        return
+
+                    sc.tl.rank_genes_groups(
+                        sub, groupby='_de_group',
+                        groups=usable, reference='rest',
+                        method='wilcoxon',
+                    )
+                    for cname in usable:
+                        results[cname] = sc.get.rank_genes_groups_df(sub, group=cname)
                 if not results:
                     return
 
+                if mode != 0:
+                    _keys = list(results.keys())
+                    self._de_header = (f"DE: {_keys[0]} vs {_keys[1]}"
+                                       if len(_keys) == 2
+                                       else "DE entre clusters seleccionados")
+                else:
+                    self._de_header = "DE vs Rest"
                 table_html = self._build_multi_de_table(results)
-                plots_html = self._build_multi_plots_html(active, adata_copy, results)
+                plots_html = self._build_multi_plots_html(active, plot_adata, results, mode)
                 self._last_plots_html = plots_html
 
                 print("table len =", len(table_html))
@@ -420,6 +462,7 @@ class GroupsManager:
             Div(text="<b style='color:#888888'>Created clusters</b>"),
             self._cluster_layout,
             Div(text="<hr style='border-color:#444'>"),
+            de_mode,
             run_de_btn,
             _geom_label_div,
         ]
@@ -544,7 +587,7 @@ class GroupsManager:
             color_param = self.component.manager.get_param('color')
             if color_param is not None:
                 color_param.colname = GROUPS_COL
-            self.component.manager.update_param('color')
+                self.component.manager.update_param('color')
         # Sobrescribir category_colors con nuestro _color_map fijo
         color_param = self.component.manager.get_param('color')
         if color_param is not None and hasattr(color_param, 'category_colors'):
@@ -556,8 +599,8 @@ class GroupsManager:
             obs_series = self.sample.adata.obs[GROUPS_COL]
             obs_names = pd.Series(self.component.manager.source.data['obs_name'])
             aligned = obs_names.map(obs_series)
-            if GROUPS_COL not in self.component.manager.cache.columns:
-                self.component.manager.cache[GROUPS_COL] = aligned.values
+            #if GROUPS_COL not in self.component.manager.cache.columns:
+            self.component.manager.cache[GROUPS_COL] = aligned.values
             new_colors = color_param.get_values(
                 pd.Series(self.component.manager.cache[GROUPS_COL]).copy()
             )
@@ -565,6 +608,7 @@ class GroupsManager:
             data['color'] = new_colors
             data['custom_clusters'] = ['—' if pd.isna(c) else c for c in aligned]
             self.component.manager.source.data = data
+            self.component.manager.fetch_data()
         # VALIDACIÓN — quitar después
         for cname in self._clusters:
             col_key = f"grp_{cname}"
@@ -787,7 +831,7 @@ class GroupsManager:
             parts['cmedians'].set_linewidth(1.5)
 
             ax.set_xticks([1, 2])
-            ax.set_xticklabels([cname[:8], 'Rest'], color='#aaaaaa', fontsize=7)
+            ax.set_xticklabels([cname, 'Rest'], color='#aaaaaa', fontsize=7)
 
         plt.tight_layout()
         img2 = fig_to_base64(fig2)
@@ -872,7 +916,7 @@ class GroupsManager:
 
         return f"""
         <div style='font-size:12px'>
-            <h4 style='color:#fff;margin:0 0 8px 0'>DE vs Rest</h4>
+            <h4 style='color:#fff;margin:0 0 8px 0'>{getattr(self, '_de_header', 'DE vs Rest')}</h4>
             <input
                 id='gene-search-input'
                 type='text'
@@ -906,7 +950,7 @@ class GroupsManager:
             </p>
         </div>"""
  
-    def _build_multi_plots_html(self, active_clusters: list, adata, results: dict) -> str:
+    def _build_multi_plots_html(self, active_clusters: list, adata, results: dict, mode: int = 0) -> str:
         import matplotlib
         matplotlib.use('Agg')
         import matplotlib.pyplot as plt
@@ -922,12 +966,12 @@ class GroupsManager:
         def fig_to_url(fig):
             import pathlib
             import uuid
-            filename = f"de_plot_{uuid.uuid4().hex[:8]}.png"
+            filename = f"de_plot_{uuid.uuid4().hex}.png"
             filepath = pathlib.Path("/scratch/tcondegerma/VisiumVisualizer/bokeh_server/static/data") / filename
             fig.savefig(str(filepath), format='png', dpi=100,
                         bbox_inches='tight', facecolor='#000000')
             plt.close(fig)
-            return f"/bokeh_server/static/data/{filename}"
+            return f"/bokeh_server/static/data/{filename}?t={uuid.uuid4().hex[:6]}"
 
         obs = adata.obs.copy()
         n_genes = 5
@@ -959,11 +1003,17 @@ class GroupsManager:
         for cname in active_clusters:
             if cname not in cluster_genes or not cluster_genes[cname]:
                 continue
-            col_key = f"grp_{cname}"
-            if col_key not in obs.columns:
-                continue
-
-            in_cluster = obs[col_key].astype(bool)
+            if mode != 0 and '_de_group' in obs.columns:
+                in_cluster = (obs['_de_group'].astype(str) == cname)
+                _others = [c for c in active_clusters if c != cname]
+                rest_label = " + ".join(_others) if _others else "Otros"
+            else:
+                col_key = f"grp_{cname}"
+                if col_key not in obs.columns:
+                    continue
+                in_cluster = obs[col_key].astype(bool)
+                rest_label = "Rest"
+            print(f"[VIOLIN DEBUG] cname={cname} mode={mode} has_de_group={'_de_group' in obs.columns} rest_label={rest_label!r}")
             cluster_color = self._color_map.get(cname, '#4ef1a1')
             top_genes = cluster_genes[cname]
             n = len(top_genes)
@@ -1054,7 +1104,9 @@ class GroupsManager:
 
                 ax.set_ylabel('Log2 Fold Change', color='white', fontsize=11)
                 ax.set_xlabel('')
-                ax.tick_params(colors='white', labelsize=10)
+                ax.tick_params(colors='white', labelsize=7)
+                ax.tick_params(axis='x', labelsize=7)
+                plt.setp(ax.get_xticklabels(), rotation=20, ha='right')
                 ax.set_ylim(bottom=-0.05)
                 ax.set_xlim(-0.6, n_valid - 0.4)
 
@@ -1071,7 +1123,7 @@ class GroupsManager:
                     Line2D([0], [0], marker='o', color='w', markerfacecolor='#aaaaaa',
                         markersize=8, label=f'{cname} (colored)', linestyle='None'),
                     Line2D([0], [0], marker='o', color='w', markerfacecolor='#444444',
-                        markersize=6, label='Rest', linestyle='None',
+                        markersize=6, label=rest_label, linestyle='None',
                         markeredgecolor='#888888'),
                 ]
         
@@ -1153,15 +1205,16 @@ class GroupsManager:
 
                     df_v = pd.DataFrame({
                         'Expression': np.concatenate([in_nz, out_nz]),
-                        'Group': [cname[:8]] * len(in_nz) + ['Rest'] * len(out_nz)
+                        'Group': [cname] * len(in_nz) + [rest_label] * len(out_nz)
                     })
                     sns.violinplot(
                         data=df_v, x='Group', y='Expression', ax=ax,
                         cut=0, inner='quartile',
                         hue='Group', legend=False,
-                        palette={cname[:8]: cluster_color, 'Rest': '#555555'},
-                        order=[cname[:8], 'Rest'],
+                        palette={cname: cluster_color, rest_label: '#555555'},
+                        order=[cname, rest_label],
                     )
+                    print('DF GROUPS:', list(df_v['Group'].unique()))
                     #ymax = np.nanmax([np.nanmean(in_vals), np.nanmean(out_vals)])
                     #if np.isnan(ymax) or ymax <= 0:
                     #    ymax = 1

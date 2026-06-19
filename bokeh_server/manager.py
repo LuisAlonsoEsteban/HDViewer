@@ -296,22 +296,22 @@ class DynamicSourceManager(SourceManager):
             new_is_sequenced = (~new_data[colnames[0]].isna()).to_numpy().tolist()
             self.is_sequenced += new_is_sequenced
 
+        
         for param in self.parameters:
-            for param in self.parameters:
-                if not param.is_static:
-                    
-                    # ─── PARCHE DE RESCATE DE CLUSTERS ───────────────────────────
-                    # Si el parámetro que se va a pintar coincide con tus grupos personalizados,
-                    # nos aseguramos de mapear los posibles NaNs o valores vacíos 
-                    # al estado de 'No asignado' para que el mapeador de color los reconozca.
-                    vector_datos = new_data[param.colname].copy()
-                    if param.colname.startswith("Group"):
-                        vector_datos = vector_datos.fillna("No asignado").astype(str)
-                    # ─────────────────────────────────────────────────────────────
+            if not param.is_static:
+                
+                # ─── PARCHE DE RESCATE DE CLUSTERS ───────────────────────────
+                # Si el parámetro que se va a pintar coincide con tus grupos personalizados,
+                # nos aseguramos de mapear los posibles NaNs o valores vacíos 
+                # al estado de 'No asignado' para que el mapeador de color los reconozca.
+                vector_datos = new_data[param.colname].copy()
+                if param.colname.startswith("Group"):
+                    vector_datos = vector_datos.fillna("No asignado").astype(str)
+                # ─────────────────────────────────────────────────────────────
 
-                    new_data[param.attr] = param.get_values(vector_datos)
-                else:
-                    new_data[param.attr] = param.get_values(is_sequenced_values=new_is_sequenced)
+                new_data[param.attr] = param.get_values(vector_datos)
+            else:
+                new_data[param.attr] = param.get_values(is_sequenced_values=new_is_sequenced)
 
         #new_data = new_data.drop(self.get_colnames(), axis=1, inplace=False)
         cols_to_drop = [param.colname for param in self.parameters 
@@ -331,7 +331,6 @@ class DynamicSourceManager(SourceManager):
         if extra:
             new_data = new_data.drop(columns=list(extra), inplace=False)
 
-        self.source.stream(new_data.to_dict(orient='list'))
         self.source.stream(new_data.to_dict(orient='list'))
 
         if self.component is not None:
