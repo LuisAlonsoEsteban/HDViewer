@@ -1,0 +1,60 @@
+========================================
+  VisiumHD Benchmark
+  Job ID   : 3739878
+  Node     : atlas-253
+  Start    : 2026-06-23 23:01:15
+========================================
+
+--- Python ---
+Python 3.8.20
+
+[benchmark] Logging to: /scratch/tcondegerma/VisiumVisualizer/benchmarks/results/benchmark_20260623_230115.csv
+============================================================
+  VisiumHD Benchmark — 20260623_230115
+  Host: atlas-253
+  Data: /scratch/tcondegerma/data/Visium_HD_Mouse_Small_Intestine
+============================================================
+
+[load_2um] Cargando datos Visium HD (bins=2µm)...
+  ✓ load_2um (bins=2µm): 31.07 s
+
+[load_8um] Cargando datos Visium HD (bins=8µm)...
+  ✓ load_8um (bins=8µm): 7.96 s
+
+[load_16um] Cargando datos Visium HD (bins=16µm)...
+  ✓ load_16um (bins=16µm): 6.20 s
+
+[bins2spots_2um] Generando spots V2 desde bins (2µm)...
+  ✓ bins2spots_2um (bins=2µm): 32.72 s
+
+[bins2spots_8um] Generando spots V2 desde bins (8µm)...
+  ✓ bins2spots_8um (bins=8µm): 3.28 s
+
+[stardist_segmentation] Segmentación StarDist (desde caché)...
+Loaded labels and polys from disk.
+DEBUG n_cells: 131254
+DEBUG diám crudo px (mediana): 18.3067626953125
+DEBUG diám en µm (×um_per_px): 9.15338134765625
+  ✓ stardist_segmentation: 11.60 s
+
+[preprocessing_16um] Preprocesando (normalize→PCA→neighbors, bins=16µm)...
+  ✓ preprocessing_16um (bins=16µm): 65.65 s
+
+[leiden_r0.5] Clustering Leiden (r=0.5, bins=16µm)...
+  ✓ leiden_r0.5 (bins=16µm) (r=0.5): 83.95 s
+
+[leiden_r1.0] Clustering Leiden (r=1.0, bins=16µm)...
+  ✓ leiden_r1.0 (bins=16µm) (r=1.0): 105.45 s
+
+[leiden_r2.0] Clustering Leiden (r=2.0, bins=16µm)...
+  ✓ leiden_r2.0 (bins=16µm) (r=2.0): 148.51 s
+
+============================================================
+  Benchmark completado. Resultados en:
+  /scratch/tcondegerma/VisiumVisualizer/benchmarks/results/benchmark_20260623_230115.csv
+============================================================
+
+========================================
+  Fin: 2026-06-23 23:09:42
+  Exit code: 0
+========================================

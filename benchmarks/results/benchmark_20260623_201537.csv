@@ -1,0 +1,17 @@
+timestamp,step,bins_size_um,resolution,duration_s,n_obs,n_vars,n_clusters,n_hvgs,ram_before_mb,ram_after_mb,peak_ram_mb,hostname,notes
+2026-06-23T20:15:38,load_2um,2,,0,,,,,,,,atlas-253,"ERROR: Traceback (most recent call last):
+  File ""benchmarks/benchmark_visiumhd.py"", line 302, in main
+    ds, adata = bench_load(log, bins_size=bs)
+ModuleNotFoundError: No module named 'scanpy'"
+2026-06-23T20:15:38,load_8um,8,,0,,,,,,,,atlas-253,"ERROR: Traceback (most recent call last):
+  File ""benchmarks/benchmark_visiumhd.py"", line 302, in main
+    ds, adata = bench_load(log, bins_size=bs)
+ModuleNotFoundError: No module named 'scanpy'"
+2026-06-23T20:15:38,load_16um,16,,0,,,,,,,,atlas-253,"ERROR: Traceback (most recent call last):
+  File ""benchmarks/benchmark_visiumhd.py"", line 302, in main
+    ds, adata = bench_load(log, bins_size=bs)
+ModuleNotFoundError: No module named 'scanpy'"
+2026-06-23T20:15:40,stardist_segmentation,,,0,,,,,,,,atlas-253,"ERROR: Traceback (most recent call last):
+  File ""benchmarks/benchmark_visiumhd.py"", line 339, in main
+    bench_segmentation(log, img)
+ImportError: cannot import name 'soft_unicode' from 'markupsafe' (/scicomp/EasyBuild/CentOS/7.4.1708/Skylake/software/Anaconda3/2020.11/lib/python3.8/site-packages/markupsafe/__init__.py)"

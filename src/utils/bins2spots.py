@@ -1,6 +1,8 @@
 
 import pandas as pd
 import geopandas as gpd
+import numpy as np
+import shapely
 
 from shapely.geometry import Point
 
@@ -59,19 +61,10 @@ class Bins2Spots:
         return self.converter.visiumHD.get_rotation(self.df_tissue_positions, rad=rad)
 
     def create_bin_squares(self, subset=False):
-        geometry = []
-        total_steps = self.df_tissue_positions.shape[0]
-        for i, (x,y) in tqdm(enumerate(zip(self.df_tissue_positions['pxl_col_in_fullres'], self.df_tissue_positions['pxl_row_in_fullres']))):
-            geometry.append(
-                create_square(
-                    Point(x * self.tile_scale_xfactor, y * self.tile_scale_yfactor), 
-                    self.converter.visiumHD.pixels_per_bin
-                )
-            )
-
-            if self.progress_callback is not None:
-                self.progress_callback(0, i, total_steps)
-
+        half = self.converter.visiumHD.pixels_per_bin / 2
+        x = self.df_tissue_positions['pxl_col_in_fullres'].values * self.tile_scale_xfactor
+        y = self.df_tissue_positions['pxl_row_in_fullres'].values * self.tile_scale_yfactor
+        geometry = shapely.box(x - half, y - half, x + half, y + half)
         self._bin_squares = gpd.GeoDataFrame(self.df_tissue_positions, geometry=geometry)
         return self._bin_squares[self._bin_squares["in_tissue"]] if subset else self._bin_squares
 
@@ -112,17 +105,60 @@ class Bins2Spots:
         return self._spot_polygons
     
     def convert(self, normalize=True):
-        pooler = Pooler(
-            self.bin_squares, 
-            self.adata_hd, 
-            self.spot_polygons,
-            keep_cols=['array_row', 'array_col', 'pxl_row_in_fullres','pxl_col_in_fullres']
+        from scipy.spatial import cKDTree
+
+        spot_gdf = self.spot_polygons
+        radius_px = self.converter.get_pixels(self.converter.visiumV2.SPOT_DIAMETER / 2)
+
+        # spot and bin centers in pixel space — no geometries needed
+        spot_centers = np.column_stack([
+            spot_gdf['pxl_col_in_fullres'].values * self.tile_scale_xfactor,
+            spot_gdf['pxl_row_in_fullres'].values * self.tile_scale_yfactor,
+        ])
+        bin_centers = np.column_stack([
+            self.df_tissue_positions['pxl_col_in_fullres'].values * self.tile_scale_xfactor,
+            self.df_tissue_positions['pxl_row_in_fullres'].values * self.tile_scale_yfactor,
+        ])
+
+        # for each bin, find nearest spot; keep only those within the spot radius
+        tree = cKDTree(spot_centers)
+        distances, spot_idx = tree.query(bin_centers, k=1)
+        in_spot = distances <= radius_px
+
+        # df_tissue_positions index = barcode (same as adata.obs_names)
+        barcodes = self.df_tissue_positions.index.values
+        in_spot_barcodes = barcodes[in_spot]
+        in_spot_assignments = spot_idx[in_spot]  # row index into spot_gdf
+
+        obs_mask = self.adata_hd.obs_names.isin(in_spot_barcodes)
+        filtered = self.adata_hd[obs_mask, :]
+
+        barcode_to_spot = pd.Series(in_spot_assignments, index=in_spot_barcodes)
+        aligned_spot_idx = barcode_to_spot[filtered.obs_names].values
+
+        # aggregate: indicator (n_bins × n_spots)^T @ counts → (n_spots × n_genes)
+        n_spots = len(spot_gdf)
+        counts = filtered.X if 'counts' not in filtered.layers else filtered.layers['counts']
+        if not sparse.issparse(counts):
+            counts = sparse.csr_matrix(counts)
+
+        indicator = sparse.csr_matrix(
+            (np.ones(len(aligned_spot_idx), dtype=np.float32),
+             (np.arange(len(aligned_spot_idx)), aligned_spot_idx)),
+            shape=(len(aligned_spot_idx), n_spots),
         )
-        
-        self.adata_v2 = pooler.run(predicate='intersects')
+        summed = (indicator.T @ counts).tocsr()
+
+        keep_cols = ['array_row', 'array_col', 'pxl_row_in_fullres', 'pxl_col_in_fullres']
+        obs_df = spot_gdf[keep_cols].copy()
+        obs_df.index = spot_gdf['index'].astype(str)
+
+        self.adata_v2 = sc.AnnData(X=summed, obs=obs_df, var=filtered.var)
+        self.adata_v2.var_names_make_unique()
+        self.adata_v2.obsm['spatial'] = obs_df[['array_row', 'array_col']].values
 
         if normalize:
             sc.pp.normalize_total(self.adata_hd, target_sum=1e4)
             sc.pp.normalize_total(self.adata_v2, target_sum=1e4)
-        
-        return self.adata_v2 
+
+        return self.adata_v2

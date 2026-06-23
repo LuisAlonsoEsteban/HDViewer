@@ -1,0 +1,7 @@
+timestamp,step,bins_size_um,resolution,duration_s,n_obs,n_vars,n_clusters,n_hvgs,ram_before_mb,ram_after_mb,peak_ram_mb,hostname,notes
+2026-06-23T22:59:12,load_2um,2,,33.988,5479660,19059,,,181.5,6156.0,6156.0,atlas-332,h5+parquet read
+2026-06-23T22:59:21,load_8um,8,,9.333,351817,19059,,,6156.0,8424.2,8424.2,atlas-332,h5+parquet read
+2026-06-23T22:59:29,load_16um,16,,7.333,91033,19059,,,8424.2,10364.2,10364.2,atlas-332,h5+parquet read
+2026-06-23T23:00:06,bins2spots_2um,2,,37.106,5159,19059,,,9699.4,14088.0,14088.0,atlas-332,create_bin_squares + sjoin + aggregate
+2026-06-23T23:00:12,bins2spots_8um,8,,3.399,5159,19059,,,12964.6,12915.0,12964.6,atlas-332,create_bin_squares + sjoin + aggregate
+2026-06-23T23:00:24,stardist_segmentation,,,11.176,131254,,,,12875.2,12891.5,12891.5,atlas-332,from_cache=True

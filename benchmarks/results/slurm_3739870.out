@@ -1,0 +1,82 @@
+========================================
+  VisiumHD Benchmark
+  Job ID   : 3739870
+  Node     : atlas-253
+  Start    : 2026-06-23 20:15:36
+========================================
+
+--- Python ---
+Python 3.8.5
+
+[benchmark] Logging to: /scratch/tcondegerma/VisiumVisualizer/benchmarks/results/benchmark_20260623_201537.csv
+============================================================
+  VisiumHD Benchmark — 20260623_201537
+  Host: atlas-253
+  Data: /scratch/tcondegerma/data/Visium_HD_Mouse_Small_Intestine
+============================================================
+  ✗ Fallo cargando 2µm:
+Traceback (most recent call last):
+  File "benchmarks/benchmark_visiumhd.py", line 302, in main
+    ds, adata = bench_load(log, bins_size=bs)
+  File "benchmarks/benchmark_visiumhd.py", line 127, in bench_load
+    from load_data import DataSet
+  File "/scratch/tcondegerma/VisiumVisualizer/src/load_data.py", line 6, in <module>
+    import scanpy as sc
+ModuleNotFoundError: No module named 'scanpy'
+
+  ✓ load_2um (bins=2µm): 0.00 s
+  ✗ Fallo cargando 8µm:
+Traceback (most recent call last):
+  File "benchmarks/benchmark_visiumhd.py", line 302, in main
+    ds, adata = bench_load(log, bins_size=bs)
+  File "benchmarks/benchmark_visiumhd.py", line 127, in bench_load
+    from load_data import DataSet
+  File "/scratch/tcondegerma/VisiumVisualizer/src/load_data.py", line 6, in <module>
+    import scanpy as sc
+ModuleNotFoundError: No module named 'scanpy'
+
+  ✓ load_8um (bins=8µm): 0.00 s
+  ✗ Fallo cargando 16µm:
+Traceback (most recent call last):
+  File "benchmarks/benchmark_visiumhd.py", line 302, in main
+    ds, adata = bench_load(log, bins_size=bs)
+  File "benchmarks/benchmark_visiumhd.py", line 127, in bench_load
+    from load_data import DataSet
+  File "/scratch/tcondegerma/VisiumVisualizer/src/load_data.py", line 6, in <module>
+    import scanpy as sc
+ModuleNotFoundError: No module named 'scanpy'
+
+  ✓ load_16um (bins=16µm): 0.00 s
+  ✗ Fallo segmentación:
+Traceback (most recent call last):
+  File "benchmarks/benchmark_visiumhd.py", line 339, in main
+    bench_segmentation(log, img)
+  File "benchmarks/benchmark_visiumhd.py", line 182, in bench_segmentation
+    from image import ImageProcessor
+  File "/scratch/tcondegerma/VisiumVisualizer/src/image.py", line 5, in <module>
+    from flask import Flask, send_file, abort
+  File "/scicomp/EasyBuild/CentOS/7.4.1708/Skylake/software/Anaconda3/2020.11/lib/python3.8/site-packages/flask/__init__.py", line 14, in <module>
+    from jinja2 import escape
+  File "/scicomp/EasyBuild/CentOS/7.4.1708/Skylake/software/Anaconda3/2020.11/lib/python3.8/site-packages/jinja2/__init__.py", line 12, in <module>
+    from .environment import Environment
+  File "/scicomp/EasyBuild/CentOS/7.4.1708/Skylake/software/Anaconda3/2020.11/lib/python3.8/site-packages/jinja2/environment.py", line 25, in <module>
+    from .defaults import BLOCK_END_STRING
+  File "/scicomp/EasyBuild/CentOS/7.4.1708/Skylake/software/Anaconda3/2020.11/lib/python3.8/site-packages/jinja2/defaults.py", line 3, in <module>
+    from .filters import FILTERS as DEFAULT_FILTERS  # noqa: F401
+  File "/scicomp/EasyBuild/CentOS/7.4.1708/Skylake/software/Anaconda3/2020.11/lib/python3.8/site-packages/jinja2/filters.py", line 13, in <module>
+    from markupsafe import soft_unicode
+ImportError: cannot import name 'soft_unicode' from 'markupsafe' (/scicomp/EasyBuild/CentOS/7.4.1708/Skylake/software/Anaconda3/2020.11/lib/python3.8/site-packages/markupsafe/__init__.py)
+
+  ✓ stardist_segmentation: 0.00 s
+
+  ✗ Sin datos 16µm — saltando preprocesamiento y clustering.
+
+============================================================
+  Benchmark completado. Resultados en:
+  /scratch/tcondegerma/VisiumVisualizer/benchmarks/results/benchmark_20260623_201537.csv
+============================================================
+
+========================================
+  Fin: 2026-06-23 20:15:41
+  Exit code: 0
+========================================

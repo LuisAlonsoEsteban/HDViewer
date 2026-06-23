@@ -1,0 +1,11 @@
+timestamp,step,bins_size_um,resolution,duration_s,n_obs,n_vars,n_clusters,n_hvgs,ram_before_mb,ram_after_mb,peak_ram_mb,hostname,notes
+2026-06-23T20:37:50,load_2um,2,,32.32,5479660,19059,,,181.5,6187.7,6187.7,atlas-253,h5+parquet read
+2026-06-23T20:37:58,load_8um,8,,8.519,351817,19059,,,6187.7,8480.4,8480.4,atlas-253,h5+parquet read
+2026-06-23T20:38:05,load_16um,16,,6.631,91033,19059,,,8480.4,10409.6,10409.6,atlas-253,h5+parquet read
+2026-06-23T20:45:42,bins2spots_2um,2,,453.591,2966,19059,,,9699.6,16153.9,16153.9,atlas-253,create_bin_squares + sjoin + aggregate
+2026-06-23T20:46:19,bins2spots_8um,8,,33.895,3003,19059,,,15033.0,14527.2,15033.0,atlas-253,create_bin_squares + sjoin + aggregate
+2026-06-23T20:46:34,stardist_segmentation,,,12.214,131254,,,,14493.4,16471.7,16471.7,atlas-253,from_cache=True
+2026-06-23T20:48:32,preprocessing_16um,16,,117.705,91033,19059,,3214,14493.1,15124.6,15124.6,atlas-253,filter_genes+normalize+log1p+hvg+scale+pca+neighbors
+2026-06-23T20:49:41,leiden_r0.5,16,0.5,69.517,91033,19059,14,,15124.6,15125.9,15125.9,atlas-253,leiden+rank_genes_groups(wilcoxon)
+2026-06-23T20:51:10,leiden_r1.0,16,1.0,89.029,91033,19059,20,,15126.0,15126.5,15126.5,atlas-253,leiden+rank_genes_groups(wilcoxon)
+2026-06-23T20:53:01,leiden_r2.0,16,2.0,110.229,91033,19059,42,,15126.5,15126.8,15126.8,atlas-253,leiden+rank_genes_groups(wilcoxon)
