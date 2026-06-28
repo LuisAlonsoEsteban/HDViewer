@@ -6,7 +6,6 @@
 #SBATCH --cpus-per-task=2
 #SBATCH --mem=24G
 #SBATCH --qos=regular
-#SBATCH --nodelist=atlas-253
 
 echo "========================================"
 echo "  VisiumHD Benchmark"

@@ -19,7 +19,7 @@ class EmbeddingPanel(Panel):
         self.components = {}
         self._syncing = False
         self._component_views = {}
-        self.tabs = Tabs(tabs=[], sizing_mode="stretch_both")
+        self.tabs = Tabs(tabs=[])
 
         self.set_children([self.tabs])
 

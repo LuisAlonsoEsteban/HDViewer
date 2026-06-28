@@ -80,10 +80,10 @@ class ImageComponent:
                                     """)
         self.alpha_slider.js_on_change('value', self.update_img_alpha)
         return self.alpha_slider
-    
+
     def generate_thumbnail(self):
         thumb_p = figure(
-            sizing_mode='stretch_width',
+            sizing_mode='scale_width',
             tooltips="Thumbnail overview", 
             x_range=(0, self.image_tiles.max_dim), 
             y_range=(0, self.image_tiles.max_dim),

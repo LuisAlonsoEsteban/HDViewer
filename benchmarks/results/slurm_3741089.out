@@ -1,0 +1,69 @@
+========================================
+  VisiumHD Benchmark
+  Job ID   : 3741089
+  Node     : atlas-253
+  Start    : 2026-06-28 19:33:52
+========================================
+
+--- Python ---
+Python 3.8.20
+
+[benchmark] Logging to: /scratch/tcondegerma/VisiumVisualizer/benchmarks/results/benchmark_20260628_193352.csv
+============================================================
+  VisiumHD Benchmark — 20260628_193352
+  Host: atlas-253
+  Data: /scratch/tcondegerma/data/Visium_HD_Mouse_Small_Intestine
+============================================================
+
+[load_2um] Cargando datos Visium HD (bins=2µm)...
+  ✓ load_2um (bins=2µm): 36.37 s
+
+[load_8um] Cargando datos Visium HD (bins=8µm)...
+  ✓ load_8um (bins=8µm): 9.71 s
+
+[load_16um] Cargando datos Visium HD (bins=16µm)...
+  ✓ load_16um (bins=16µm): 7.14 s
+
+[bins2spots_2um] Generando spots V2 desde bins (2µm)...
+  ✓ bins2spots_2um (bins=2µm): 73.61 s
+
+[bins2spots_8um] Generando spots V2 desde bins (8µm)...
+  ✓ bins2spots_8um (bins=8µm): 10.74 s
+
+[stardist_segmentation] Segmentación StarDist (desde caché)...
+Loaded labels and polys from disk.
+DEBUG n_cells: 131254
+DEBUG diám crudo px (mediana): 18.3067626953125
+DEBUG diám en µm (×um_per_px): 9.15338134765625
+  ✓ stardist_segmentation: 12.77 s
+
+[preprocessing_16um] Preprocesando (normalize→PCA→neighbors, bins=16µm)...
+  ✓ preprocessing_16um (bins=16µm): 142.94 s
+
+[leiden_r0.5] Clustering Leiden (r=0.5, bins=16µm)...
+  ✓ leiden_r0.5 (bins=16µm) (r=0.5): 105.66 s
+
+[leiden_r1.0] Clustering Leiden (r=1.0, bins=16µm)...
+  ✓ leiden_r1.0 (bins=16µm) (r=1.0): 131.82 s
+
+[leiden_r2.0] Clustering Leiden (r=2.0, bins=16µm)...
+  ✓ leiden_r2.0 (bins=16µm) (r=2.0): 205.25 s
+
+[de_prepare] Preparando AnnData para DE (copy+filter_genes+log1p)...
+  ✓ de_prepare (bins=16µm): 1.60 s
+
+[de_vs_rest] DE de cluster '0' vs Rest...
+  ✓ de_vs_rest (bins=16µm) (r=1.0): 262.68 s
+
+[de_between_clusters] DE entre clusters '0' y '1'...
+  ✓ de_between_clusters (bins=16µm) (r=1.0): 49.58 s
+
+============================================================
+  Benchmark completado. Resultados en:
+  /scratch/tcondegerma/VisiumVisualizer/benchmarks/results/benchmark_20260628_193352.csv
+============================================================
+
+========================================
+  Fin: 2026-06-28 19:51:34
+  Exit code: 0
+========================================

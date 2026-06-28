@@ -81,6 +81,9 @@ class GroupsManager(DEMixin):
         run_de_btn           = Button(label="▶ Run DE", button_type="primary", width=120)
 
         self._status_div = Div(text="", width=380)
+        # Mensajes de estado/aviso del DE (Running DE..., bloqueos, sin resultados).
+        # Va debajo del botón Run DE en el layout.
+        self._de_status_div = Div(text="", width=380)
 
         if self._cluster_layout is None:
             self._cluster_layout = column(
@@ -221,8 +224,23 @@ class GroupsManager(DEMixin):
 
         def on_run_de():
             active = list(self._active_clusters)
-            if active:
-                self._run_de_thread(active, de_mode.active, doc)
+            if not active:
+                self._de_status_div.text = (
+                    "<p style='color:red;font-size:11px'>"
+                    "Select at least one cluster first.</p>"
+                )
+                return
+            # "Entre clusters" (de_mode.active == 1) compara clusters entre sí:
+            # con menos de 2 seleccionados no hay comparación posible y el hilo
+            # de DE se quedaba colgado en "Running DE...". Bloquear aquí.
+            if de_mode.active == 1 and len(active) < 2:
+                self._de_status_div.text = (
+                    "<p style='color:red;font-size:11px'>"
+                    "\"Entre clusters\" needs at least 2 selected clusters.</p>"
+                )
+                return
+            self._de_status_div.text = ""
+            self._run_de_thread(active, de_mode.active, doc)
 
         add_condition_btn.on_click(on_add_condition)
         clear_conditions_btn.on_click(on_clear_conditions)
@@ -255,6 +273,7 @@ class GroupsManager(DEMixin):
             Div(text="<hr style='border-color:#444'>"),
             de_mode,
             run_de_btn,
+            self._de_status_div,
             _geom_label_div,
         ]
 

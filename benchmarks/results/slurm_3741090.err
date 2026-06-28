@@ -1,0 +1,368 @@
+/scratch/tcondegerma/conda-envs/tfm/lib/python3.8/site-packages/anndata/_core/anndata.py:1840: UserWarning: Variable names are not unique. To make them unique, call `.var_names_make_unique`.
+  utils.warn_names_duplicates("var")
+/scratch/tcondegerma/conda-envs/tfm/lib/python3.8/site-packages/anndata/_core/anndata.py:1840: UserWarning: Variable names are not unique. To make them unique, call `.var_names_make_unique`.
+  utils.warn_names_duplicates("var")
+/scratch/tcondegerma/conda-envs/tfm/lib/python3.8/site-packages/anndata/_core/anndata.py:1840: UserWarning: Variable names are not unique. To make them unique, call `.var_names_make_unique`.
+  utils.warn_names_duplicates("var")
+/scratch/tcondegerma/conda-envs/tfm/lib/python3.8/site-packages/anndata/_core/anndata.py:1840: UserWarning: Variable names are not unique. To make them unique, call `.var_names_make_unique`.
+  utils.warn_names_duplicates("var")
+/scratch/tcondegerma/conda-envs/tfm/lib/python3.8/site-packages/anndata/_core/anndata.py:1840: UserWarning: Variable names are not unique. To make them unique, call `.var_names_make_unique`.
+  utils.warn_names_duplicates("var")
+/scratch/tcondegerma/conda-envs/tfm/lib/python3.8/site-packages/anndata/_core/anndata.py:1840: UserWarning: Variable names are not unique. To make them unique, call `.var_names_make_unique`.
+  utils.warn_names_duplicates("var")
+0it [00:00, ?it/s]25it [00:00, 249.72it/s]51it [00:00, 253.29it/s]77it [00:00, 254.47it/s]77it [00:00, 253.16it/s]
+/scratch/tcondegerma/conda-envs/tfm/lib/python3.8/site-packages/anndata/_core/anndata.py:121: ImplicitModificationWarning: Transforming to str index.
+  warnings.warn("Transforming to str index.", ImplicitModificationWarning)
+0it [00:00, ?it/s]26it [00:00, 252.16it/s]52it [00:00, 252.27it/s]77it [00:00, 252.15it/s]
+/scratch/tcondegerma/conda-envs/tfm/lib/python3.8/site-packages/anndata/_core/anndata.py:121: ImplicitModificationWarning: Transforming to str index.
+  warnings.warn("Transforming to str index.", ImplicitModificationWarning)
+0it [00:00, ?it/s]1285it [00:00, 12842.48it/s]2574it [00:00, 12867.17it/s]3861it [00:00, 12804.40it/s]5147it [00:00, 12825.94it/s]6434it [00:00, 12838.43it/s]7718it [00:00, 12829.87it/s]9007it [00:00, 12848.94it/s]10298it [00:00, 12867.89it/s]11585it [00:00, 12866.18it/s]12872it [00:01, 12859.14it/s]14161it [00:01, 12867.74it/s]15452it [00:01, 12880.05it/s]16741it [00:01, 12868.55it/s]18029it [00:01, 12870.42it/s]19322it [00:01, 12887.43it/s]20611it [00:01, 12872.50it/s]21904it [00:01, 12889.05it/s]23193it [00:01, 12886.64it/s]24484it [00:01, 12892.03it/s]25776it [00:02, 12899.09it/s]27066it [00:02, 12837.87it/s]28350it [00:02, 12832.06it/s]29634it [00:02, 12833.47it/s]30922it [00:02, 12847.02it/s]32212it [00:02, 12862.58it/s]33501it [00:02, 12868.13it/s]34793it [00:02, 12881.52it/s]36082it [00:02, 12880.51it/s]37371it [00:02, 12862.23it/s]38658it [00:03, 12860.79it/s]39946it [00:03, 12864.34it/s]41233it [00:03, 12816.32it/s]42522it [00:03, 12837.91it/s]43810it [00:03, 12848.24it/s]45098it [00:03, 12855.47it/s]46384it [00:03, 12845.31it/s]47669it [00:03, 12845.49it/s]48955it [00:03, 12847.14it/s]50241it [00:03, 12850.05it/s]51527it [00:04, 12850.16it/s]52816it [00:04, 12860.47it/s]54103it [00:04, 12842.79it/s]55388it [00:04, 12816.25it/s]56675it [00:04, 12829.94it/s]57965it [00:04, 12850.42it/s]59254it [00:04, 12859.99it/s]60541it [00:04, 12845.18it/s]61826it [00:04, 12823.52it/s]63109it [00:04, 12811.85it/s]64396it [00:05, 12826.24it/s]65682it [00:05, 12835.29it/s]66970it [00:05, 12846.87it/s]68258it [00:05, 12855.93it/s]69544it [00:05, 12796.15it/s]70829it [00:05, 12809.96it/s]72114it [00:05, 12820.30it/s]73397it [00:05, 12807.39it/s]74683it [00:05, 12821.83it/s]75975it [00:05, 12850.11it/s]77261it [00:06, 12851.62it/s]78549it [00:06, 12857.13it/s]79835it [00:06, 12850.54it/s]81124it [00:06, 12859.82it/s]82410it [00:06, 12852.08it/s]83696it [00:06, 12778.41it/s]84980it [00:06, 12796.63it/s]86262it [00:06, 12802.44it/s]87544it [00:06, 12806.91it/s]88829it [00:06, 12818.16it/s]90117it [00:07, 12836.17it/s]91404it [00:07, 12843.38it/s]92689it [00:07, 12839.87it/s]93977it [00:07, 12850.47it/s]95267it [00:07, 12862.55it/s]96554it [00:07, 12858.64it/s]97840it [00:07, 12777.08it/s]99125it [00:07, 12796.83it/s]100408it [00:07, 12804.80it/s]101694it [00:07, 12819.07it/s]102978it [00:08, 12825.04it/s]104261it [00:08, 12816.51it/s]105548it [00:08, 12830.85it/s]106834it [00:08, 12837.76it/s]108118it [00:08, 12828.53it/s]109401it [00:08, 12820.77it/s]110688it [00:08, 12834.25it/s]111972it [00:08, 12779.11it/s]113256it [00:08, 12796.96it/s]114540it [00:08, 12808.72it/s]115825it [00:09, 12819.56it/s]117113it [00:09, 12836.46it/s]118399it [00:09, 12842.54it/s]119684it [00:09, 12835.76it/s]120968it [00:09, 12818.94it/s]122253it [00:09, 12825.56it/s]123542it [00:09, 12842.80it/s]124827it [00:09, 12843.71it/s]126112it [00:09, 12774.19it/s]127395it [00:09, 12787.78it/s]128676it [00:10, 12792.55it/s]129956it [00:10, 12791.80it/s]131236it [00:10, 12788.52it/s]131254it [00:10, 12835.30it/s]
+/scratch/tcondegerma/conda-envs/tfm/lib/python3.8/site-packages/numba/np/ufunc/parallel.py:371: NumbaWarning: The TBB threading layer requires TBB version 2021 update 6 or later i.e., TBB_INTERFACE_VERSION >= 12060. Found TBB_INTERFACE_VERSION = 12050. The TBB threading layer is disabled.
+  warnings.warn(problem)
+/scratch/tcondegerma/conda-envs/tfm/lib/python3.8/site-packages/scanpy/tools/_rank_genes_groups.py:422: RuntimeWarning: invalid value encountered in log2
+  self.stats[group_name, 'logfoldchanges'] = np.log2(
+/scratch/tcondegerma/conda-envs/tfm/lib/python3.8/site-packages/scanpy/tools/_rank_genes_groups.py:422: RuntimeWarning: invalid value encountered in log2
+  self.stats[group_name, 'logfoldchanges'] = np.log2(
+/scratch/tcondegerma/conda-envs/tfm/lib/python3.8/site-packages/scanpy/tools/_rank_genes_groups.py:422: RuntimeWarning: invalid value encountered in log2
+  self.stats[group_name, 'logfoldchanges'] = np.log2(
+/scratch/tcondegerma/conda-envs/tfm/lib/python3.8/site-packages/scanpy/tools/_rank_genes_groups.py:422: RuntimeWarning: invalid value encountered in log2
+  self.stats[group_name, 'logfoldchanges'] = np.log2(
+/scratch/tcondegerma/conda-envs/tfm/lib/python3.8/site-packages/scanpy/tools/_rank_genes_groups.py:422: RuntimeWarning: invalid value encountered in log2
+  self.stats[group_name, 'logfoldchanges'] = np.log2(
+/scratch/tcondegerma/conda-envs/tfm/lib/python3.8/site-packages/scanpy/tools/_rank_genes_groups.py:422: RuntimeWarning: invalid value encountered in log2
+  self.stats[group_name, 'logfoldchanges'] = np.log2(
+/scratch/tcondegerma/conda-envs/tfm/lib/python3.8/site-packages/scanpy/tools/_rank_genes_groups.py:422: RuntimeWarning: invalid value encountered in log2
+  self.stats[group_name, 'logfoldchanges'] = np.log2(
+/scratch/tcondegerma/conda-envs/tfm/lib/python3.8/site-packages/scanpy/tools/_rank_genes_groups.py:422: RuntimeWarning: invalid value encountered in log2
+  self.stats[group_name, 'logfoldchanges'] = np.log2(
+/scratch/tcondegerma/conda-envs/tfm/lib/python3.8/site-packages/scanpy/tools/_rank_genes_groups.py:422: RuntimeWarning: invalid value encountered in log2
+  self.stats[group_name, 'logfoldchanges'] = np.log2(
+/scratch/tcondegerma/conda-envs/tfm/lib/python3.8/site-packages/scanpy/tools/_rank_genes_groups.py:422: RuntimeWarning: invalid value encountered in log2
+  self.stats[group_name, 'logfoldchanges'] = np.log2(
+/scratch/tcondegerma/conda-envs/tfm/lib/python3.8/site-packages/scanpy/tools/_rank_genes_groups.py:422: RuntimeWarning: invalid value encountered in log2
+  self.stats[group_name, 'logfoldchanges'] = np.log2(
+/scratch/tcondegerma/conda-envs/tfm/lib/python3.8/site-packages/scanpy/tools/_rank_genes_groups.py:422: RuntimeWarning: invalid value encountered in log2
+  self.stats[group_name, 'logfoldchanges'] = np.log2(
+/scratch/tcondegerma/conda-envs/tfm/lib/python3.8/site-packages/scanpy/tools/_rank_genes_groups.py:422: RuntimeWarning: invalid value encountered in log2
+  self.stats[group_name, 'logfoldchanges'] = np.log2(
+/scratch/tcondegerma/conda-envs/tfm/lib/python3.8/site-packages/scanpy/tools/_rank_genes_groups.py:422: RuntimeWarning: invalid value encountered in log2
+  self.stats[group_name, 'logfoldchanges'] = np.log2(
+/scratch/tcondegerma/conda-envs/tfm/lib/python3.8/site-packages/scanpy/tools/_rank_genes_groups.py:422: RuntimeWarning: invalid value encountered in log2
+  self.stats[group_name, 'logfoldchanges'] = np.log2(
+/scratch/tcondegerma/conda-envs/tfm/lib/python3.8/site-packages/scanpy/tools/_rank_genes_groups.py:422: RuntimeWarning: invalid value encountered in log2
+  self.stats[group_name, 'logfoldchanges'] = np.log2(
+/scratch/tcondegerma/conda-envs/tfm/lib/python3.8/site-packages/scanpy/tools/_rank_genes_groups.py:422: RuntimeWarning: invalid value encountered in log2
+  self.stats[group_name, 'logfoldchanges'] = np.log2(
+/scratch/tcondegerma/conda-envs/tfm/lib/python3.8/site-packages/scanpy/tools/_rank_genes_groups.py:422: RuntimeWarning: invalid value encountered in log2
+  self.stats[group_name, 'logfoldchanges'] = np.log2(
+/scratch/tcondegerma/conda-envs/tfm/lib/python3.8/site-packages/scanpy/tools/_rank_genes_groups.py:422: RuntimeWarning: invalid value encountered in log2
+  self.stats[group_name, 'logfoldchanges'] = np.log2(
+/scratch/tcondegerma/conda-envs/tfm/lib/python3.8/site-packages/scanpy/tools/_rank_genes_groups.py:422: RuntimeWarning: invalid value encountered in log2
+  self.stats[group_name, 'logfoldchanges'] = np.log2(
+/scratch/tcondegerma/conda-envs/tfm/lib/python3.8/site-packages/scanpy/tools/_rank_genes_groups.py:422: RuntimeWarning: invalid value encountered in log2
+  self.stats[group_name, 'logfoldchanges'] = np.log2(
+/scratch/tcondegerma/conda-envs/tfm/lib/python3.8/site-packages/scanpy/tools/_rank_genes_groups.py:422: RuntimeWarning: invalid value encountered in log2
+  self.stats[group_name, 'logfoldchanges'] = np.log2(
+/scratch/tcondegerma/conda-envs/tfm/lib/python3.8/site-packages/scanpy/tools/_rank_genes_groups.py:422: RuntimeWarning: invalid value encountered in log2
+  self.stats[group_name, 'logfoldchanges'] = np.log2(
+/scratch/tcondegerma/conda-envs/tfm/lib/python3.8/site-packages/scanpy/tools/_rank_genes_groups.py:422: RuntimeWarning: invalid value encountered in log2
+  self.stats[group_name, 'logfoldchanges'] = np.log2(
+/scratch/tcondegerma/conda-envs/tfm/lib/python3.8/site-packages/scanpy/tools/_rank_genes_groups.py:422: RuntimeWarning: invalid value encountered in log2
+  self.stats[group_name, 'logfoldchanges'] = np.log2(
+/scratch/tcondegerma/conda-envs/tfm/lib/python3.8/site-packages/scanpy/tools/_rank_genes_groups.py:422: RuntimeWarning: invalid value encountered in log2
+  self.stats[group_name, 'logfoldchanges'] = np.log2(
+/scratch/tcondegerma/conda-envs/tfm/lib/python3.8/site-packages/scanpy/tools/_rank_genes_groups.py:422: RuntimeWarning: invalid value encountered in log2
+  self.stats[group_name, 'logfoldchanges'] = np.log2(
+/scratch/tcondegerma/conda-envs/tfm/lib/python3.8/site-packages/scanpy/tools/_rank_genes_groups.py:422: RuntimeWarning: invalid value encountered in log2
+  self.stats[group_name, 'logfoldchanges'] = np.log2(
+/scratch/tcondegerma/conda-envs/tfm/lib/python3.8/site-packages/scanpy/tools/_rank_genes_groups.py:422: RuntimeWarning: invalid value encountered in log2
+  self.stats[group_name, 'logfoldchanges'] = np.log2(
+/scratch/tcondegerma/conda-envs/tfm/lib/python3.8/site-packages/scanpy/tools/_rank_genes_groups.py:422: RuntimeWarning: invalid value encountered in log2
+  self.stats[group_name, 'logfoldchanges'] = np.log2(
+/scratch/tcondegerma/conda-envs/tfm/lib/python3.8/site-packages/scanpy/tools/_rank_genes_groups.py:422: RuntimeWarning: invalid value encountered in log2
+  self.stats[group_name, 'logfoldchanges'] = np.log2(
+/scratch/tcondegerma/conda-envs/tfm/lib/python3.8/site-packages/scanpy/tools/_rank_genes_groups.py:422: RuntimeWarning: invalid value encountered in log2
+  self.stats[group_name, 'logfoldchanges'] = np.log2(
+/scratch/tcondegerma/conda-envs/tfm/lib/python3.8/site-packages/scanpy/tools/_rank_genes_groups.py:422: RuntimeWarning: invalid value encountered in log2
+  self.stats[group_name, 'logfoldchanges'] = np.log2(
+/scratch/tcondegerma/conda-envs/tfm/lib/python3.8/site-packages/scanpy/tools/_rank_genes_groups.py:422: RuntimeWarning: invalid value encountered in log2
+  self.stats[group_name, 'logfoldchanges'] = np.log2(
+/scratch/tcondegerma/conda-envs/tfm/lib/python3.8/site-packages/scanpy/tools/_rank_genes_groups.py:422: RuntimeWarning: invalid value encountered in log2
+  self.stats[group_name, 'logfoldchanges'] = np.log2(
+/scratch/tcondegerma/conda-envs/tfm/lib/python3.8/site-packages/scanpy/tools/_rank_genes_groups.py:422: RuntimeWarning: invalid value encountered in log2
+  self.stats[group_name, 'logfoldchanges'] = np.log2(
+/scratch/tcondegerma/conda-envs/tfm/lib/python3.8/site-packages/scanpy/tools/_rank_genes_groups.py:422: RuntimeWarning: invalid value encountered in log2
+  self.stats[group_name, 'logfoldchanges'] = np.log2(
+/scratch/tcondegerma/conda-envs/tfm/lib/python3.8/site-packages/scanpy/tools/_rank_genes_groups.py:422: RuntimeWarning: invalid value encountered in log2
+  self.stats[group_name, 'logfoldchanges'] = np.log2(
+/scratch/tcondegerma/conda-envs/tfm/lib/python3.8/site-packages/scanpy/tools/_rank_genes_groups.py:422: RuntimeWarning: invalid value encountered in log2
+  self.stats[group_name, 'logfoldchanges'] = np.log2(
+/scratch/tcondegerma/conda-envs/tfm/lib/python3.8/site-packages/scanpy/tools/_rank_genes_groups.py:422: RuntimeWarning: invalid value encountered in log2
+  self.stats[group_name, 'logfoldchanges'] = np.log2(
+/scratch/tcondegerma/conda-envs/tfm/lib/python3.8/site-packages/scanpy/tools/_rank_genes_groups.py:422: RuntimeWarning: invalid value encountered in log2
+  self.stats[group_name, 'logfoldchanges'] = np.log2(
+/scratch/tcondegerma/conda-envs/tfm/lib/python3.8/site-packages/scanpy/tools/_rank_genes_groups.py:422: RuntimeWarning: invalid value encountered in log2
+  self.stats[group_name, 'logfoldchanges'] = np.log2(
+/scratch/tcondegerma/conda-envs/tfm/lib/python3.8/site-packages/scanpy/tools/_rank_genes_groups.py:422: RuntimeWarning: invalid value encountered in log2
+  self.stats[group_name, 'logfoldchanges'] = np.log2(
+/scratch/tcondegerma/conda-envs/tfm/lib/python3.8/site-packages/scanpy/tools/_rank_genes_groups.py:422: RuntimeWarning: invalid value encountered in log2
+  self.stats[group_name, 'logfoldchanges'] = np.log2(
+/scratch/tcondegerma/conda-envs/tfm/lib/python3.8/site-packages/scanpy/tools/_rank_genes_groups.py:422: RuntimeWarning: invalid value encountered in log2
+  self.stats[group_name, 'logfoldchanges'] = np.log2(
+/scratch/tcondegerma/conda-envs/tfm/lib/python3.8/site-packages/scanpy/tools/_rank_genes_groups.py:422: RuntimeWarning: invalid value encountered in log2
+  self.stats[group_name, 'logfoldchanges'] = np.log2(
+/scratch/tcondegerma/conda-envs/tfm/lib/python3.8/site-packages/scanpy/tools/_rank_genes_groups.py:422: RuntimeWarning: invalid value encountered in log2
+  self.stats[group_name, 'logfoldchanges'] = np.log2(
+/scratch/tcondegerma/conda-envs/tfm/lib/python3.8/site-packages/scanpy/tools/_rank_genes_groups.py:422: RuntimeWarning: invalid value encountered in log2
+  self.stats[group_name, 'logfoldchanges'] = np.log2(
+/scratch/tcondegerma/conda-envs/tfm/lib/python3.8/site-packages/scanpy/tools/_rank_genes_groups.py:422: RuntimeWarning: invalid value encountered in log2
+  self.stats[group_name, 'logfoldchanges'] = np.log2(
+/scratch/tcondegerma/conda-envs/tfm/lib/python3.8/site-packages/scanpy/tools/_rank_genes_groups.py:422: RuntimeWarning: invalid value encountered in log2
+  self.stats[group_name, 'logfoldchanges'] = np.log2(
+/scratch/tcondegerma/conda-envs/tfm/lib/python3.8/site-packages/scanpy/tools/_rank_genes_groups.py:422: RuntimeWarning: invalid value encountered in log2
+  self.stats[group_name, 'logfoldchanges'] = np.log2(
+/scratch/tcondegerma/conda-envs/tfm/lib/python3.8/site-packages/scanpy/tools/_rank_genes_groups.py:422: RuntimeWarning: invalid value encountered in log2
+  self.stats[group_name, 'logfoldchanges'] = np.log2(
+/scratch/tcondegerma/conda-envs/tfm/lib/python3.8/site-packages/scanpy/tools/_rank_genes_groups.py:422: RuntimeWarning: invalid value encountered in log2
+  self.stats[group_name, 'logfoldchanges'] = np.log2(
+/scratch/tcondegerma/conda-envs/tfm/lib/python3.8/site-packages/scanpy/tools/_rank_genes_groups.py:422: RuntimeWarning: invalid value encountered in log2
+  self.stats[group_name, 'logfoldchanges'] = np.log2(
+/scratch/tcondegerma/conda-envs/tfm/lib/python3.8/site-packages/scanpy/tools/_rank_genes_groups.py:396: PerformanceWarning: DataFrame is highly fragmented.  This is usually the result of calling `frame.insert` many times, which has poor performance.  Consider joining all columns at once using pd.concat(axis=1) instead. To get a de-fragmented frame, use `newframe = frame.copy()`
+  self.stats[group_name, 'names'] = self.var_names[global_indices]
+/scratch/tcondegerma/conda-envs/tfm/lib/python3.8/site-packages/scanpy/tools/_rank_genes_groups.py:398: PerformanceWarning: DataFrame is highly fragmented.  This is usually the result of calling `frame.insert` many times, which has poor performance.  Consider joining all columns at once using pd.concat(axis=1) instead. To get a de-fragmented frame, use `newframe = frame.copy()`
+  self.stats[group_name, 'scores'] = scores[global_indices]
+/scratch/tcondegerma/conda-envs/tfm/lib/python3.8/site-packages/scanpy/tools/_rank_genes_groups.py:401: PerformanceWarning: DataFrame is highly fragmented.  This is usually the result of calling `frame.insert` many times, which has poor performance.  Consider joining all columns at once using pd.concat(axis=1) instead. To get a de-fragmented frame, use `newframe = frame.copy()`
+  self.stats[group_name, 'pvals'] = pvals[global_indices]
+/scratch/tcondegerma/conda-envs/tfm/lib/python3.8/site-packages/scanpy/tools/_rank_genes_groups.py:411: PerformanceWarning: DataFrame is highly fragmented.  This is usually the result of calling `frame.insert` many times, which has poor performance.  Consider joining all columns at once using pd.concat(axis=1) instead. To get a de-fragmented frame, use `newframe = frame.copy()`
+  self.stats[group_name, 'pvals_adj'] = pvals_adj[global_indices]
+/scratch/tcondegerma/conda-envs/tfm/lib/python3.8/site-packages/scanpy/tools/_rank_genes_groups.py:422: RuntimeWarning: invalid value encountered in log2
+  self.stats[group_name, 'logfoldchanges'] = np.log2(
+/scratch/tcondegerma/conda-envs/tfm/lib/python3.8/site-packages/scanpy/tools/_rank_genes_groups.py:422: PerformanceWarning: DataFrame is highly fragmented.  This is usually the result of calling `frame.insert` many times, which has poor performance.  Consider joining all columns at once using pd.concat(axis=1) instead. To get a de-fragmented frame, use `newframe = frame.copy()`
+  self.stats[group_name, 'logfoldchanges'] = np.log2(
+/scratch/tcondegerma/conda-envs/tfm/lib/python3.8/site-packages/scanpy/tools/_rank_genes_groups.py:396: PerformanceWarning: DataFrame is highly fragmented.  This is usually the result of calling `frame.insert` many times, which has poor performance.  Consider joining all columns at once using pd.concat(axis=1) instead. To get a de-fragmented frame, use `newframe = frame.copy()`
+  self.stats[group_name, 'names'] = self.var_names[global_indices]
+/scratch/tcondegerma/conda-envs/tfm/lib/python3.8/site-packages/scanpy/tools/_rank_genes_groups.py:398: PerformanceWarning: DataFrame is highly fragmented.  This is usually the result of calling `frame.insert` many times, which has poor performance.  Consider joining all columns at once using pd.concat(axis=1) instead. To get a de-fragmented frame, use `newframe = frame.copy()`
+  self.stats[group_name, 'scores'] = scores[global_indices]
+/scratch/tcondegerma/conda-envs/tfm/lib/python3.8/site-packages/scanpy/tools/_rank_genes_groups.py:401: PerformanceWarning: DataFrame is highly fragmented.  This is usually the result of calling `frame.insert` many times, which has poor performance.  Consider joining all columns at once using pd.concat(axis=1) instead. To get a de-fragmented frame, use `newframe = frame.copy()`
+  self.stats[group_name, 'pvals'] = pvals[global_indices]
+/scratch/tcondegerma/conda-envs/tfm/lib/python3.8/site-packages/scanpy/tools/_rank_genes_groups.py:411: PerformanceWarning: DataFrame is highly fragmented.  This is usually the result of calling `frame.insert` many times, which has poor performance.  Consider joining all columns at once using pd.concat(axis=1) instead. To get a de-fragmented frame, use `newframe = frame.copy()`
+  self.stats[group_name, 'pvals_adj'] = pvals_adj[global_indices]
+/scratch/tcondegerma/conda-envs/tfm/lib/python3.8/site-packages/scanpy/tools/_rank_genes_groups.py:422: RuntimeWarning: invalid value encountered in log2
+  self.stats[group_name, 'logfoldchanges'] = np.log2(
+/scratch/tcondegerma/conda-envs/tfm/lib/python3.8/site-packages/scanpy/tools/_rank_genes_groups.py:422: PerformanceWarning: DataFrame is highly fragmented.  This is usually the result of calling `frame.insert` many times, which has poor performance.  Consider joining all columns at once using pd.concat(axis=1) instead. To get a de-fragmented frame, use `newframe = frame.copy()`
+  self.stats[group_name, 'logfoldchanges'] = np.log2(
+/scratch/tcondegerma/conda-envs/tfm/lib/python3.8/site-packages/scanpy/tools/_rank_genes_groups.py:396: PerformanceWarning: DataFrame is highly fragmented.  This is usually the result of calling `frame.insert` many times, which has poor performance.  Consider joining all columns at once using pd.concat(axis=1) instead. To get a de-fragmented frame, use `newframe = frame.copy()`
+  self.stats[group_name, 'names'] = self.var_names[global_indices]
+/scratch/tcondegerma/conda-envs/tfm/lib/python3.8/site-packages/scanpy/tools/_rank_genes_groups.py:398: PerformanceWarning: DataFrame is highly fragmented.  This is usually the result of calling `frame.insert` many times, which has poor performance.  Consider joining all columns at once using pd.concat(axis=1) instead. To get a de-fragmented frame, use `newframe = frame.copy()`
+  self.stats[group_name, 'scores'] = scores[global_indices]
+/scratch/tcondegerma/conda-envs/tfm/lib/python3.8/site-packages/scanpy/tools/_rank_genes_groups.py:401: PerformanceWarning: DataFrame is highly fragmented.  This is usually the result of calling `frame.insert` many times, which has poor performance.  Consider joining all columns at once using pd.concat(axis=1) instead. To get a de-fragmented frame, use `newframe = frame.copy()`
+  self.stats[group_name, 'pvals'] = pvals[global_indices]
+/scratch/tcondegerma/conda-envs/tfm/lib/python3.8/site-packages/scanpy/tools/_rank_genes_groups.py:411: PerformanceWarning: DataFrame is highly fragmented.  This is usually the result of calling `frame.insert` many times, which has poor performance.  Consider joining all columns at once using pd.concat(axis=1) instead. To get a de-fragmented frame, use `newframe = frame.copy()`
+  self.stats[group_name, 'pvals_adj'] = pvals_adj[global_indices]
+/scratch/tcondegerma/conda-envs/tfm/lib/python3.8/site-packages/scanpy/tools/_rank_genes_groups.py:422: RuntimeWarning: invalid value encountered in log2
+  self.stats[group_name, 'logfoldchanges'] = np.log2(
+/scratch/tcondegerma/conda-envs/tfm/lib/python3.8/site-packages/scanpy/tools/_rank_genes_groups.py:422: PerformanceWarning: DataFrame is highly fragmented.  This is usually the result of calling `frame.insert` many times, which has poor performance.  Consider joining all columns at once using pd.concat(axis=1) instead. To get a de-fragmented frame, use `newframe = frame.copy()`
+  self.stats[group_name, 'logfoldchanges'] = np.log2(
+/scratch/tcondegerma/conda-envs/tfm/lib/python3.8/site-packages/scanpy/tools/_rank_genes_groups.py:396: PerformanceWarning: DataFrame is highly fragmented.  This is usually the result of calling `frame.insert` many times, which has poor performance.  Consider joining all columns at once using pd.concat(axis=1) instead. To get a de-fragmented frame, use `newframe = frame.copy()`
+  self.stats[group_name, 'names'] = self.var_names[global_indices]
+/scratch/tcondegerma/conda-envs/tfm/lib/python3.8/site-packages/scanpy/tools/_rank_genes_groups.py:398: PerformanceWarning: DataFrame is highly fragmented.  This is usually the result of calling `frame.insert` many times, which has poor performance.  Consider joining all columns at once using pd.concat(axis=1) instead. To get a de-fragmented frame, use `newframe = frame.copy()`
+  self.stats[group_name, 'scores'] = scores[global_indices]
+/scratch/tcondegerma/conda-envs/tfm/lib/python3.8/site-packages/scanpy/tools/_rank_genes_groups.py:401: PerformanceWarning: DataFrame is highly fragmented.  This is usually the result of calling `frame.insert` many times, which has poor performance.  Consider joining all columns at once using pd.concat(axis=1) instead. To get a de-fragmented frame, use `newframe = frame.copy()`
+  self.stats[group_name, 'pvals'] = pvals[global_indices]
+/scratch/tcondegerma/conda-envs/tfm/lib/python3.8/site-packages/scanpy/tools/_rank_genes_groups.py:411: PerformanceWarning: DataFrame is highly fragmented.  This is usually the result of calling `frame.insert` many times, which has poor performance.  Consider joining all columns at once using pd.concat(axis=1) instead. To get a de-fragmented frame, use `newframe = frame.copy()`
+  self.stats[group_name, 'pvals_adj'] = pvals_adj[global_indices]
+/scratch/tcondegerma/conda-envs/tfm/lib/python3.8/site-packages/scanpy/tools/_rank_genes_groups.py:422: RuntimeWarning: invalid value encountered in log2
+  self.stats[group_name, 'logfoldchanges'] = np.log2(
+/scratch/tcondegerma/conda-envs/tfm/lib/python3.8/site-packages/scanpy/tools/_rank_genes_groups.py:422: PerformanceWarning: DataFrame is highly fragmented.  This is usually the result of calling `frame.insert` many times, which has poor performance.  Consider joining all columns at once using pd.concat(axis=1) instead. To get a de-fragmented frame, use `newframe = frame.copy()`
+  self.stats[group_name, 'logfoldchanges'] = np.log2(
+/scratch/tcondegerma/conda-envs/tfm/lib/python3.8/site-packages/scanpy/tools/_rank_genes_groups.py:396: PerformanceWarning: DataFrame is highly fragmented.  This is usually the result of calling `frame.insert` many times, which has poor performance.  Consider joining all columns at once using pd.concat(axis=1) instead. To get a de-fragmented frame, use `newframe = frame.copy()`
+  self.stats[group_name, 'names'] = self.var_names[global_indices]
+/scratch/tcondegerma/conda-envs/tfm/lib/python3.8/site-packages/scanpy/tools/_rank_genes_groups.py:398: PerformanceWarning: DataFrame is highly fragmented.  This is usually the result of calling `frame.insert` many times, which has poor performance.  Consider joining all columns at once using pd.concat(axis=1) instead. To get a de-fragmented frame, use `newframe = frame.copy()`
+  self.stats[group_name, 'scores'] = scores[global_indices]
+/scratch/tcondegerma/conda-envs/tfm/lib/python3.8/site-packages/scanpy/tools/_rank_genes_groups.py:401: PerformanceWarning: DataFrame is highly fragmented.  This is usually the result of calling `frame.insert` many times, which has poor performance.  Consider joining all columns at once using pd.concat(axis=1) instead. To get a de-fragmented frame, use `newframe = frame.copy()`
+  self.stats[group_name, 'pvals'] = pvals[global_indices]
+/scratch/tcondegerma/conda-envs/tfm/lib/python3.8/site-packages/scanpy/tools/_rank_genes_groups.py:411: PerformanceWarning: DataFrame is highly fragmented.  This is usually the result of calling `frame.insert` many times, which has poor performance.  Consider joining all columns at once using pd.concat(axis=1) instead. To get a de-fragmented frame, use `newframe = frame.copy()`
+  self.stats[group_name, 'pvals_adj'] = pvals_adj[global_indices]
+/scratch/tcondegerma/conda-envs/tfm/lib/python3.8/site-packages/scanpy/tools/_rank_genes_groups.py:422: RuntimeWarning: invalid value encountered in log2
+  self.stats[group_name, 'logfoldchanges'] = np.log2(
+/scratch/tcondegerma/conda-envs/tfm/lib/python3.8/site-packages/scanpy/tools/_rank_genes_groups.py:422: PerformanceWarning: DataFrame is highly fragmented.  This is usually the result of calling `frame.insert` many times, which has poor performance.  Consider joining all columns at once using pd.concat(axis=1) instead. To get a de-fragmented frame, use `newframe = frame.copy()`
+  self.stats[group_name, 'logfoldchanges'] = np.log2(
+/scratch/tcondegerma/conda-envs/tfm/lib/python3.8/site-packages/scanpy/tools/_rank_genes_groups.py:396: PerformanceWarning: DataFrame is highly fragmented.  This is usually the result of calling `frame.insert` many times, which has poor performance.  Consider joining all columns at once using pd.concat(axis=1) instead. To get a de-fragmented frame, use `newframe = frame.copy()`
+  self.stats[group_name, 'names'] = self.var_names[global_indices]
+/scratch/tcondegerma/conda-envs/tfm/lib/python3.8/site-packages/scanpy/tools/_rank_genes_groups.py:398: PerformanceWarning: DataFrame is highly fragmented.  This is usually the result of calling `frame.insert` many times, which has poor performance.  Consider joining all columns at once using pd.concat(axis=1) instead. To get a de-fragmented frame, use `newframe = frame.copy()`
+  self.stats[group_name, 'scores'] = scores[global_indices]
+/scratch/tcondegerma/conda-envs/tfm/lib/python3.8/site-packages/scanpy/tools/_rank_genes_groups.py:401: PerformanceWarning: DataFrame is highly fragmented.  This is usually the result of calling `frame.insert` many times, which has poor performance.  Consider joining all columns at once using pd.concat(axis=1) instead. To get a de-fragmented frame, use `newframe = frame.copy()`
+  self.stats[group_name, 'pvals'] = pvals[global_indices]
+/scratch/tcondegerma/conda-envs/tfm/lib/python3.8/site-packages/scanpy/tools/_rank_genes_groups.py:411: PerformanceWarning: DataFrame is highly fragmented.  This is usually the result of calling `frame.insert` many times, which has poor performance.  Consider joining all columns at once using pd.concat(axis=1) instead. To get a de-fragmented frame, use `newframe = frame.copy()`
+  self.stats[group_name, 'pvals_adj'] = pvals_adj[global_indices]
+/scratch/tcondegerma/conda-envs/tfm/lib/python3.8/site-packages/scanpy/tools/_rank_genes_groups.py:422: RuntimeWarning: invalid value encountered in log2
+  self.stats[group_name, 'logfoldchanges'] = np.log2(
+/scratch/tcondegerma/conda-envs/tfm/lib/python3.8/site-packages/scanpy/tools/_rank_genes_groups.py:422: PerformanceWarning: DataFrame is highly fragmented.  This is usually the result of calling `frame.insert` many times, which has poor performance.  Consider joining all columns at once using pd.concat(axis=1) instead. To get a de-fragmented frame, use `newframe = frame.copy()`
+  self.stats[group_name, 'logfoldchanges'] = np.log2(
+/scratch/tcondegerma/conda-envs/tfm/lib/python3.8/site-packages/scanpy/tools/_rank_genes_groups.py:396: PerformanceWarning: DataFrame is highly fragmented.  This is usually the result of calling `frame.insert` many times, which has poor performance.  Consider joining all columns at once using pd.concat(axis=1) instead. To get a de-fragmented frame, use `newframe = frame.copy()`
+  self.stats[group_name, 'names'] = self.var_names[global_indices]
+/scratch/tcondegerma/conda-envs/tfm/lib/python3.8/site-packages/scanpy/tools/_rank_genes_groups.py:398: PerformanceWarning: DataFrame is highly fragmented.  This is usually the result of calling `frame.insert` many times, which has poor performance.  Consider joining all columns at once using pd.concat(axis=1) instead. To get a de-fragmented frame, use `newframe = frame.copy()`
+  self.stats[group_name, 'scores'] = scores[global_indices]
+/scratch/tcondegerma/conda-envs/tfm/lib/python3.8/site-packages/scanpy/tools/_rank_genes_groups.py:401: PerformanceWarning: DataFrame is highly fragmented.  This is usually the result of calling `frame.insert` many times, which has poor performance.  Consider joining all columns at once using pd.concat(axis=1) instead. To get a de-fragmented frame, use `newframe = frame.copy()`
+  self.stats[group_name, 'pvals'] = pvals[global_indices]
+/scratch/tcondegerma/conda-envs/tfm/lib/python3.8/site-packages/scanpy/tools/_rank_genes_groups.py:411: PerformanceWarning: DataFrame is highly fragmented.  This is usually the result of calling `frame.insert` many times, which has poor performance.  Consider joining all columns at once using pd.concat(axis=1) instead. To get a de-fragmented frame, use `newframe = frame.copy()`
+  self.stats[group_name, 'pvals_adj'] = pvals_adj[global_indices]
+/scratch/tcondegerma/conda-envs/tfm/lib/python3.8/site-packages/scanpy/tools/_rank_genes_groups.py:422: RuntimeWarning: invalid value encountered in log2
+  self.stats[group_name, 'logfoldchanges'] = np.log2(
+/scratch/tcondegerma/conda-envs/tfm/lib/python3.8/site-packages/scanpy/tools/_rank_genes_groups.py:422: PerformanceWarning: DataFrame is highly fragmented.  This is usually the result of calling `frame.insert` many times, which has poor performance.  Consider joining all columns at once using pd.concat(axis=1) instead. To get a de-fragmented frame, use `newframe = frame.copy()`
+  self.stats[group_name, 'logfoldchanges'] = np.log2(
+/scratch/tcondegerma/conda-envs/tfm/lib/python3.8/site-packages/scanpy/tools/_rank_genes_groups.py:396: PerformanceWarning: DataFrame is highly fragmented.  This is usually the result of calling `frame.insert` many times, which has poor performance.  Consider joining all columns at once using pd.concat(axis=1) instead. To get a de-fragmented frame, use `newframe = frame.copy()`
+  self.stats[group_name, 'names'] = self.var_names[global_indices]
+/scratch/tcondegerma/conda-envs/tfm/lib/python3.8/site-packages/scanpy/tools/_rank_genes_groups.py:398: PerformanceWarning: DataFrame is highly fragmented.  This is usually the result of calling `frame.insert` many times, which has poor performance.  Consider joining all columns at once using pd.concat(axis=1) instead. To get a de-fragmented frame, use `newframe = frame.copy()`
+  self.stats[group_name, 'scores'] = scores[global_indices]
+/scratch/tcondegerma/conda-envs/tfm/lib/python3.8/site-packages/scanpy/tools/_rank_genes_groups.py:401: PerformanceWarning: DataFrame is highly fragmented.  This is usually the result of calling `frame.insert` many times, which has poor performance.  Consider joining all columns at once using pd.concat(axis=1) instead. To get a de-fragmented frame, use `newframe = frame.copy()`
+  self.stats[group_name, 'pvals'] = pvals[global_indices]
+/scratch/tcondegerma/conda-envs/tfm/lib/python3.8/site-packages/scanpy/tools/_rank_genes_groups.py:411: PerformanceWarning: DataFrame is highly fragmented.  This is usually the result of calling `frame.insert` many times, which has poor performance.  Consider joining all columns at once using pd.concat(axis=1) instead. To get a de-fragmented frame, use `newframe = frame.copy()`
+  self.stats[group_name, 'pvals_adj'] = pvals_adj[global_indices]
+/scratch/tcondegerma/conda-envs/tfm/lib/python3.8/site-packages/scanpy/tools/_rank_genes_groups.py:422: RuntimeWarning: invalid value encountered in log2
+  self.stats[group_name, 'logfoldchanges'] = np.log2(
+/scratch/tcondegerma/conda-envs/tfm/lib/python3.8/site-packages/scanpy/tools/_rank_genes_groups.py:422: PerformanceWarning: DataFrame is highly fragmented.  This is usually the result of calling `frame.insert` many times, which has poor performance.  Consider joining all columns at once using pd.concat(axis=1) instead. To get a de-fragmented frame, use `newframe = frame.copy()`
+  self.stats[group_name, 'logfoldchanges'] = np.log2(
+/scratch/tcondegerma/conda-envs/tfm/lib/python3.8/site-packages/scanpy/tools/_rank_genes_groups.py:396: PerformanceWarning: DataFrame is highly fragmented.  This is usually the result of calling `frame.insert` many times, which has poor performance.  Consider joining all columns at once using pd.concat(axis=1) instead. To get a de-fragmented frame, use `newframe = frame.copy()`
+  self.stats[group_name, 'names'] = self.var_names[global_indices]
+/scratch/tcondegerma/conda-envs/tfm/lib/python3.8/site-packages/scanpy/tools/_rank_genes_groups.py:398: PerformanceWarning: DataFrame is highly fragmented.  This is usually the result of calling `frame.insert` many times, which has poor performance.  Consider joining all columns at once using pd.concat(axis=1) instead. To get a de-fragmented frame, use `newframe = frame.copy()`
+  self.stats[group_name, 'scores'] = scores[global_indices]
+/scratch/tcondegerma/conda-envs/tfm/lib/python3.8/site-packages/scanpy/tools/_rank_genes_groups.py:401: PerformanceWarning: DataFrame is highly fragmented.  This is usually the result of calling `frame.insert` many times, which has poor performance.  Consider joining all columns at once using pd.concat(axis=1) instead. To get a de-fragmented frame, use `newframe = frame.copy()`
+  self.stats[group_name, 'pvals'] = pvals[global_indices]
+/scratch/tcondegerma/conda-envs/tfm/lib/python3.8/site-packages/scanpy/tools/_rank_genes_groups.py:411: PerformanceWarning: DataFrame is highly fragmented.  This is usually the result of calling `frame.insert` many times, which has poor performance.  Consider joining all columns at once using pd.concat(axis=1) instead. To get a de-fragmented frame, use `newframe = frame.copy()`
+  self.stats[group_name, 'pvals_adj'] = pvals_adj[global_indices]
+/scratch/tcondegerma/conda-envs/tfm/lib/python3.8/site-packages/scanpy/tools/_rank_genes_groups.py:422: RuntimeWarning: invalid value encountered in log2
+  self.stats[group_name, 'logfoldchanges'] = np.log2(
+/scratch/tcondegerma/conda-envs/tfm/lib/python3.8/site-packages/scanpy/tools/_rank_genes_groups.py:422: PerformanceWarning: DataFrame is highly fragmented.  This is usually the result of calling `frame.insert` many times, which has poor performance.  Consider joining all columns at once using pd.concat(axis=1) instead. To get a de-fragmented frame, use `newframe = frame.copy()`
+  self.stats[group_name, 'logfoldchanges'] = np.log2(
+/scratch/tcondegerma/conda-envs/tfm/lib/python3.8/site-packages/scanpy/tools/_rank_genes_groups.py:396: PerformanceWarning: DataFrame is highly fragmented.  This is usually the result of calling `frame.insert` many times, which has poor performance.  Consider joining all columns at once using pd.concat(axis=1) instead. To get a de-fragmented frame, use `newframe = frame.copy()`
+  self.stats[group_name, 'names'] = self.var_names[global_indices]
+/scratch/tcondegerma/conda-envs/tfm/lib/python3.8/site-packages/scanpy/tools/_rank_genes_groups.py:398: PerformanceWarning: DataFrame is highly fragmented.  This is usually the result of calling `frame.insert` many times, which has poor performance.  Consider joining all columns at once using pd.concat(axis=1) instead. To get a de-fragmented frame, use `newframe = frame.copy()`
+  self.stats[group_name, 'scores'] = scores[global_indices]
+/scratch/tcondegerma/conda-envs/tfm/lib/python3.8/site-packages/scanpy/tools/_rank_genes_groups.py:401: PerformanceWarning: DataFrame is highly fragmented.  This is usually the result of calling `frame.insert` many times, which has poor performance.  Consider joining all columns at once using pd.concat(axis=1) instead. To get a de-fragmented frame, use `newframe = frame.copy()`
+  self.stats[group_name, 'pvals'] = pvals[global_indices]
+/scratch/tcondegerma/conda-envs/tfm/lib/python3.8/site-packages/scanpy/tools/_rank_genes_groups.py:411: PerformanceWarning: DataFrame is highly fragmented.  This is usually the result of calling `frame.insert` many times, which has poor performance.  Consider joining all columns at once using pd.concat(axis=1) instead. To get a de-fragmented frame, use `newframe = frame.copy()`
+  self.stats[group_name, 'pvals_adj'] = pvals_adj[global_indices]
+/scratch/tcondegerma/conda-envs/tfm/lib/python3.8/site-packages/scanpy/tools/_rank_genes_groups.py:422: RuntimeWarning: invalid value encountered in log2
+  self.stats[group_name, 'logfoldchanges'] = np.log2(
+/scratch/tcondegerma/conda-envs/tfm/lib/python3.8/site-packages/scanpy/tools/_rank_genes_groups.py:422: PerformanceWarning: DataFrame is highly fragmented.  This is usually the result of calling `frame.insert` many times, which has poor performance.  Consider joining all columns at once using pd.concat(axis=1) instead. To get a de-fragmented frame, use `newframe = frame.copy()`
+  self.stats[group_name, 'logfoldchanges'] = np.log2(
+/scratch/tcondegerma/conda-envs/tfm/lib/python3.8/site-packages/scanpy/tools/_rank_genes_groups.py:396: PerformanceWarning: DataFrame is highly fragmented.  This is usually the result of calling `frame.insert` many times, which has poor performance.  Consider joining all columns at once using pd.concat(axis=1) instead. To get a de-fragmented frame, use `newframe = frame.copy()`
+  self.stats[group_name, 'names'] = self.var_names[global_indices]
+/scratch/tcondegerma/conda-envs/tfm/lib/python3.8/site-packages/scanpy/tools/_rank_genes_groups.py:398: PerformanceWarning: DataFrame is highly fragmented.  This is usually the result of calling `frame.insert` many times, which has poor performance.  Consider joining all columns at once using pd.concat(axis=1) instead. To get a de-fragmented frame, use `newframe = frame.copy()`
+  self.stats[group_name, 'scores'] = scores[global_indices]
+/scratch/tcondegerma/conda-envs/tfm/lib/python3.8/site-packages/scanpy/tools/_rank_genes_groups.py:401: PerformanceWarning: DataFrame is highly fragmented.  This is usually the result of calling `frame.insert` many times, which has poor performance.  Consider joining all columns at once using pd.concat(axis=1) instead. To get a de-fragmented frame, use `newframe = frame.copy()`
+  self.stats[group_name, 'pvals'] = pvals[global_indices]
+/scratch/tcondegerma/conda-envs/tfm/lib/python3.8/site-packages/scanpy/tools/_rank_genes_groups.py:411: PerformanceWarning: DataFrame is highly fragmented.  This is usually the result of calling `frame.insert` many times, which has poor performance.  Consider joining all columns at once using pd.concat(axis=1) instead. To get a de-fragmented frame, use `newframe = frame.copy()`
+  self.stats[group_name, 'pvals_adj'] = pvals_adj[global_indices]
+/scratch/tcondegerma/conda-envs/tfm/lib/python3.8/site-packages/scanpy/tools/_rank_genes_groups.py:422: RuntimeWarning: invalid value encountered in log2
+  self.stats[group_name, 'logfoldchanges'] = np.log2(
+/scratch/tcondegerma/conda-envs/tfm/lib/python3.8/site-packages/scanpy/tools/_rank_genes_groups.py:422: PerformanceWarning: DataFrame is highly fragmented.  This is usually the result of calling `frame.insert` many times, which has poor performance.  Consider joining all columns at once using pd.concat(axis=1) instead. To get a de-fragmented frame, use `newframe = frame.copy()`
+  self.stats[group_name, 'logfoldchanges'] = np.log2(
+/scratch/tcondegerma/conda-envs/tfm/lib/python3.8/site-packages/scanpy/tools/_rank_genes_groups.py:396: PerformanceWarning: DataFrame is highly fragmented.  This is usually the result of calling `frame.insert` many times, which has poor performance.  Consider joining all columns at once using pd.concat(axis=1) instead. To get a de-fragmented frame, use `newframe = frame.copy()`
+  self.stats[group_name, 'names'] = self.var_names[global_indices]
+/scratch/tcondegerma/conda-envs/tfm/lib/python3.8/site-packages/scanpy/tools/_rank_genes_groups.py:398: PerformanceWarning: DataFrame is highly fragmented.  This is usually the result of calling `frame.insert` many times, which has poor performance.  Consider joining all columns at once using pd.concat(axis=1) instead. To get a de-fragmented frame, use `newframe = frame.copy()`
+  self.stats[group_name, 'scores'] = scores[global_indices]
+/scratch/tcondegerma/conda-envs/tfm/lib/python3.8/site-packages/scanpy/tools/_rank_genes_groups.py:401: PerformanceWarning: DataFrame is highly fragmented.  This is usually the result of calling `frame.insert` many times, which has poor performance.  Consider joining all columns at once using pd.concat(axis=1) instead. To get a de-fragmented frame, use `newframe = frame.copy()`
+  self.stats[group_name, 'pvals'] = pvals[global_indices]
+/scratch/tcondegerma/conda-envs/tfm/lib/python3.8/site-packages/scanpy/tools/_rank_genes_groups.py:411: PerformanceWarning: DataFrame is highly fragmented.  This is usually the result of calling `frame.insert` many times, which has poor performance.  Consider joining all columns at once using pd.concat(axis=1) instead. To get a de-fragmented frame, use `newframe = frame.copy()`
+  self.stats[group_name, 'pvals_adj'] = pvals_adj[global_indices]
+/scratch/tcondegerma/conda-envs/tfm/lib/python3.8/site-packages/scanpy/tools/_rank_genes_groups.py:422: RuntimeWarning: invalid value encountered in log2
+  self.stats[group_name, 'logfoldchanges'] = np.log2(
+/scratch/tcondegerma/conda-envs/tfm/lib/python3.8/site-packages/scanpy/tools/_rank_genes_groups.py:422: PerformanceWarning: DataFrame is highly fragmented.  This is usually the result of calling `frame.insert` many times, which has poor performance.  Consider joining all columns at once using pd.concat(axis=1) instead. To get a de-fragmented frame, use `newframe = frame.copy()`
+  self.stats[group_name, 'logfoldchanges'] = np.log2(
+/scratch/tcondegerma/conda-envs/tfm/lib/python3.8/site-packages/scanpy/tools/_rank_genes_groups.py:396: PerformanceWarning: DataFrame is highly fragmented.  This is usually the result of calling `frame.insert` many times, which has poor performance.  Consider joining all columns at once using pd.concat(axis=1) instead. To get a de-fragmented frame, use `newframe = frame.copy()`
+  self.stats[group_name, 'names'] = self.var_names[global_indices]
+/scratch/tcondegerma/conda-envs/tfm/lib/python3.8/site-packages/scanpy/tools/_rank_genes_groups.py:398: PerformanceWarning: DataFrame is highly fragmented.  This is usually the result of calling `frame.insert` many times, which has poor performance.  Consider joining all columns at once using pd.concat(axis=1) instead. To get a de-fragmented frame, use `newframe = frame.copy()`
+  self.stats[group_name, 'scores'] = scores[global_indices]
+/scratch/tcondegerma/conda-envs/tfm/lib/python3.8/site-packages/scanpy/tools/_rank_genes_groups.py:401: PerformanceWarning: DataFrame is highly fragmented.  This is usually the result of calling `frame.insert` many times, which has poor performance.  Consider joining all columns at once using pd.concat(axis=1) instead. To get a de-fragmented frame, use `newframe = frame.copy()`
+  self.stats[group_name, 'pvals'] = pvals[global_indices]
+/scratch/tcondegerma/conda-envs/tfm/lib/python3.8/site-packages/scanpy/tools/_rank_genes_groups.py:411: PerformanceWarning: DataFrame is highly fragmented.  This is usually the result of calling `frame.insert` many times, which has poor performance.  Consider joining all columns at once using pd.concat(axis=1) instead. To get a de-fragmented frame, use `newframe = frame.copy()`
+  self.stats[group_name, 'pvals_adj'] = pvals_adj[global_indices]
+/scratch/tcondegerma/conda-envs/tfm/lib/python3.8/site-packages/scanpy/tools/_rank_genes_groups.py:422: RuntimeWarning: invalid value encountered in log2
+  self.stats[group_name, 'logfoldchanges'] = np.log2(
+/scratch/tcondegerma/conda-envs/tfm/lib/python3.8/site-packages/scanpy/tools/_rank_genes_groups.py:422: PerformanceWarning: DataFrame is highly fragmented.  This is usually the result of calling `frame.insert` many times, which has poor performance.  Consider joining all columns at once using pd.concat(axis=1) instead. To get a de-fragmented frame, use `newframe = frame.copy()`
+  self.stats[group_name, 'logfoldchanges'] = np.log2(
+/scratch/tcondegerma/conda-envs/tfm/lib/python3.8/site-packages/scanpy/tools/_rank_genes_groups.py:396: PerformanceWarning: DataFrame is highly fragmented.  This is usually the result of calling `frame.insert` many times, which has poor performance.  Consider joining all columns at once using pd.concat(axis=1) instead. To get a de-fragmented frame, use `newframe = frame.copy()`
+  self.stats[group_name, 'names'] = self.var_names[global_indices]
+/scratch/tcondegerma/conda-envs/tfm/lib/python3.8/site-packages/scanpy/tools/_rank_genes_groups.py:398: PerformanceWarning: DataFrame is highly fragmented.  This is usually the result of calling `frame.insert` many times, which has poor performance.  Consider joining all columns at once using pd.concat(axis=1) instead. To get a de-fragmented frame, use `newframe = frame.copy()`
+  self.stats[group_name, 'scores'] = scores[global_indices]
+/scratch/tcondegerma/conda-envs/tfm/lib/python3.8/site-packages/scanpy/tools/_rank_genes_groups.py:401: PerformanceWarning: DataFrame is highly fragmented.  This is usually the result of calling `frame.insert` many times, which has poor performance.  Consider joining all columns at once using pd.concat(axis=1) instead. To get a de-fragmented frame, use `newframe = frame.copy()`
+  self.stats[group_name, 'pvals'] = pvals[global_indices]
+/scratch/tcondegerma/conda-envs/tfm/lib/python3.8/site-packages/scanpy/tools/_rank_genes_groups.py:411: PerformanceWarning: DataFrame is highly fragmented.  This is usually the result of calling `frame.insert` many times, which has poor performance.  Consider joining all columns at once using pd.concat(axis=1) instead. To get a de-fragmented frame, use `newframe = frame.copy()`
+  self.stats[group_name, 'pvals_adj'] = pvals_adj[global_indices]
+/scratch/tcondegerma/conda-envs/tfm/lib/python3.8/site-packages/scanpy/tools/_rank_genes_groups.py:422: RuntimeWarning: invalid value encountered in log2
+  self.stats[group_name, 'logfoldchanges'] = np.log2(
+/scratch/tcondegerma/conda-envs/tfm/lib/python3.8/site-packages/scanpy/tools/_rank_genes_groups.py:422: PerformanceWarning: DataFrame is highly fragmented.  This is usually the result of calling `frame.insert` many times, which has poor performance.  Consider joining all columns at once using pd.concat(axis=1) instead. To get a de-fragmented frame, use `newframe = frame.copy()`
+  self.stats[group_name, 'logfoldchanges'] = np.log2(
+/scratch/tcondegerma/conda-envs/tfm/lib/python3.8/site-packages/scanpy/tools/_rank_genes_groups.py:396: PerformanceWarning: DataFrame is highly fragmented.  This is usually the result of calling `frame.insert` many times, which has poor performance.  Consider joining all columns at once using pd.concat(axis=1) instead. To get a de-fragmented frame, use `newframe = frame.copy()`
+  self.stats[group_name, 'names'] = self.var_names[global_indices]
+/scratch/tcondegerma/conda-envs/tfm/lib/python3.8/site-packages/scanpy/tools/_rank_genes_groups.py:398: PerformanceWarning: DataFrame is highly fragmented.  This is usually the result of calling `frame.insert` many times, which has poor performance.  Consider joining all columns at once using pd.concat(axis=1) instead. To get a de-fragmented frame, use `newframe = frame.copy()`
+  self.stats[group_name, 'scores'] = scores[global_indices]
+/scratch/tcondegerma/conda-envs/tfm/lib/python3.8/site-packages/scanpy/tools/_rank_genes_groups.py:401: PerformanceWarning: DataFrame is highly fragmented.  This is usually the result of calling `frame.insert` many times, which has poor performance.  Consider joining all columns at once using pd.concat(axis=1) instead. To get a de-fragmented frame, use `newframe = frame.copy()`
+  self.stats[group_name, 'pvals'] = pvals[global_indices]
+/scratch/tcondegerma/conda-envs/tfm/lib/python3.8/site-packages/scanpy/tools/_rank_genes_groups.py:411: PerformanceWarning: DataFrame is highly fragmented.  This is usually the result of calling `frame.insert` many times, which has poor performance.  Consider joining all columns at once using pd.concat(axis=1) instead. To get a de-fragmented frame, use `newframe = frame.copy()`
+  self.stats[group_name, 'pvals_adj'] = pvals_adj[global_indices]
+/scratch/tcondegerma/conda-envs/tfm/lib/python3.8/site-packages/scanpy/tools/_rank_genes_groups.py:422: RuntimeWarning: invalid value encountered in log2
+  self.stats[group_name, 'logfoldchanges'] = np.log2(
+/scratch/tcondegerma/conda-envs/tfm/lib/python3.8/site-packages/scanpy/tools/_rank_genes_groups.py:422: PerformanceWarning: DataFrame is highly fragmented.  This is usually the result of calling `frame.insert` many times, which has poor performance.  Consider joining all columns at once using pd.concat(axis=1) instead. To get a de-fragmented frame, use `newframe = frame.copy()`
+  self.stats[group_name, 'logfoldchanges'] = np.log2(
+/scratch/tcondegerma/conda-envs/tfm/lib/python3.8/site-packages/scanpy/tools/_rank_genes_groups.py:396: PerformanceWarning: DataFrame is highly fragmented.  This is usually the result of calling `frame.insert` many times, which has poor performance.  Consider joining all columns at once using pd.concat(axis=1) instead. To get a de-fragmented frame, use `newframe = frame.copy()`
+  self.stats[group_name, 'names'] = self.var_names[global_indices]
+/scratch/tcondegerma/conda-envs/tfm/lib/python3.8/site-packages/scanpy/tools/_rank_genes_groups.py:398: PerformanceWarning: DataFrame is highly fragmented.  This is usually the result of calling `frame.insert` many times, which has poor performance.  Consider joining all columns at once using pd.concat(axis=1) instead. To get a de-fragmented frame, use `newframe = frame.copy()`
+  self.stats[group_name, 'scores'] = scores[global_indices]
+/scratch/tcondegerma/conda-envs/tfm/lib/python3.8/site-packages/scanpy/tools/_rank_genes_groups.py:401: PerformanceWarning: DataFrame is highly fragmented.  This is usually the result of calling `frame.insert` many times, which has poor performance.  Consider joining all columns at once using pd.concat(axis=1) instead. To get a de-fragmented frame, use `newframe = frame.copy()`
+  self.stats[group_name, 'pvals'] = pvals[global_indices]
+/scratch/tcondegerma/conda-envs/tfm/lib/python3.8/site-packages/scanpy/tools/_rank_genes_groups.py:411: PerformanceWarning: DataFrame is highly fragmented.  This is usually the result of calling `frame.insert` many times, which has poor performance.  Consider joining all columns at once using pd.concat(axis=1) instead. To get a de-fragmented frame, use `newframe = frame.copy()`
+  self.stats[group_name, 'pvals_adj'] = pvals_adj[global_indices]
+/scratch/tcondegerma/conda-envs/tfm/lib/python3.8/site-packages/scanpy/tools/_rank_genes_groups.py:422: RuntimeWarning: invalid value encountered in log2
+  self.stats[group_name, 'logfoldchanges'] = np.log2(
+/scratch/tcondegerma/conda-envs/tfm/lib/python3.8/site-packages/scanpy/tools/_rank_genes_groups.py:422: PerformanceWarning: DataFrame is highly fragmented.  This is usually the result of calling `frame.insert` many times, which has poor performance.  Consider joining all columns at once using pd.concat(axis=1) instead. To get a de-fragmented frame, use `newframe = frame.copy()`
+  self.stats[group_name, 'logfoldchanges'] = np.log2(
+/scratch/tcondegerma/conda-envs/tfm/lib/python3.8/site-packages/scanpy/tools/_rank_genes_groups.py:396: PerformanceWarning: DataFrame is highly fragmented.  This is usually the result of calling `frame.insert` many times, which has poor performance.  Consider joining all columns at once using pd.concat(axis=1) instead. To get a de-fragmented frame, use `newframe = frame.copy()`
+  self.stats[group_name, 'names'] = self.var_names[global_indices]
+/scratch/tcondegerma/conda-envs/tfm/lib/python3.8/site-packages/scanpy/tools/_rank_genes_groups.py:398: PerformanceWarning: DataFrame is highly fragmented.  This is usually the result of calling `frame.insert` many times, which has poor performance.  Consider joining all columns at once using pd.concat(axis=1) instead. To get a de-fragmented frame, use `newframe = frame.copy()`
+  self.stats[group_name, 'scores'] = scores[global_indices]
+/scratch/tcondegerma/conda-envs/tfm/lib/python3.8/site-packages/scanpy/tools/_rank_genes_groups.py:401: PerformanceWarning: DataFrame is highly fragmented.  This is usually the result of calling `frame.insert` many times, which has poor performance.  Consider joining all columns at once using pd.concat(axis=1) instead. To get a de-fragmented frame, use `newframe = frame.copy()`
+  self.stats[group_name, 'pvals'] = pvals[global_indices]
+/scratch/tcondegerma/conda-envs/tfm/lib/python3.8/site-packages/scanpy/tools/_rank_genes_groups.py:411: PerformanceWarning: DataFrame is highly fragmented.  This is usually the result of calling `frame.insert` many times, which has poor performance.  Consider joining all columns at once using pd.concat(axis=1) instead. To get a de-fragmented frame, use `newframe = frame.copy()`
+  self.stats[group_name, 'pvals_adj'] = pvals_adj[global_indices]
+/scratch/tcondegerma/conda-envs/tfm/lib/python3.8/site-packages/scanpy/tools/_rank_genes_groups.py:422: RuntimeWarning: invalid value encountered in log2
+  self.stats[group_name, 'logfoldchanges'] = np.log2(
+/scratch/tcondegerma/conda-envs/tfm/lib/python3.8/site-packages/scanpy/tools/_rank_genes_groups.py:422: PerformanceWarning: DataFrame is highly fragmented.  This is usually the result of calling `frame.insert` many times, which has poor performance.  Consider joining all columns at once using pd.concat(axis=1) instead. To get a de-fragmented frame, use `newframe = frame.copy()`
+  self.stats[group_name, 'logfoldchanges'] = np.log2(
+/scratch/tcondegerma/conda-envs/tfm/lib/python3.8/site-packages/scanpy/tools/_rank_genes_groups.py:396: PerformanceWarning: DataFrame is highly fragmented.  This is usually the result of calling `frame.insert` many times, which has poor performance.  Consider joining all columns at once using pd.concat(axis=1) instead. To get a de-fragmented frame, use `newframe = frame.copy()`
+  self.stats[group_name, 'names'] = self.var_names[global_indices]
+/scratch/tcondegerma/conda-envs/tfm/lib/python3.8/site-packages/scanpy/tools/_rank_genes_groups.py:398: PerformanceWarning: DataFrame is highly fragmented.  This is usually the result of calling `frame.insert` many times, which has poor performance.  Consider joining all columns at once using pd.concat(axis=1) instead. To get a de-fragmented frame, use `newframe = frame.copy()`
+  self.stats[group_name, 'scores'] = scores[global_indices]
+/scratch/tcondegerma/conda-envs/tfm/lib/python3.8/site-packages/scanpy/tools/_rank_genes_groups.py:401: PerformanceWarning: DataFrame is highly fragmented.  This is usually the result of calling `frame.insert` many times, which has poor performance.  Consider joining all columns at once using pd.concat(axis=1) instead. To get a de-fragmented frame, use `newframe = frame.copy()`
+  self.stats[group_name, 'pvals'] = pvals[global_indices]
+/scratch/tcondegerma/conda-envs/tfm/lib/python3.8/site-packages/scanpy/tools/_rank_genes_groups.py:411: PerformanceWarning: DataFrame is highly fragmented.  This is usually the result of calling `frame.insert` many times, which has poor performance.  Consider joining all columns at once using pd.concat(axis=1) instead. To get a de-fragmented frame, use `newframe = frame.copy()`
+  self.stats[group_name, 'pvals_adj'] = pvals_adj[global_indices]
+/scratch/tcondegerma/conda-envs/tfm/lib/python3.8/site-packages/scanpy/tools/_rank_genes_groups.py:422: RuntimeWarning: invalid value encountered in log2
+  self.stats[group_name, 'logfoldchanges'] = np.log2(
+/scratch/tcondegerma/conda-envs/tfm/lib/python3.8/site-packages/scanpy/tools/_rank_genes_groups.py:422: PerformanceWarning: DataFrame is highly fragmented.  This is usually the result of calling `frame.insert` many times, which has poor performance.  Consider joining all columns at once using pd.concat(axis=1) instead. To get a de-fragmented frame, use `newframe = frame.copy()`
+  self.stats[group_name, 'logfoldchanges'] = np.log2(
+	Command being timed: "python benchmarks/benchmark_visiumhd.py"
+	User time (seconds): 824.53
+	System time (seconds): 95.07
+	Percent of CPU this job got: 101%
+	Elapsed (wall clock) time (h:mm:ss or m:ss): 15:10.31
+	Average shared text size (kbytes): 0
+	Average unshared data size (kbytes): 0
+	Average stack size (kbytes): 0
+	Average total size (kbytes): 0
+	Maximum resident set size (kbytes): 18865648
+	Average resident set size (kbytes): 0
+	Major (requiring I/O) page faults: 4042
+	Minor (reclaiming a frame) page faults: 54709734
+	Voluntary context switches: 252809
+	Involuntary context switches: 160857
+	Swaps: 0
+	File system inputs: 16062149
+	File system outputs: 133
+	Socket messages sent: 0
+	Socket messages received: 0
+	Signals delivered: 0
+	Page size (bytes): 4096
+	Exit status: 0

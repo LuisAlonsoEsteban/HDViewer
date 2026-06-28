@@ -113,10 +113,12 @@ class App:
             print("BINS -> pixels_per_bin:", b2s.converter.visiumHD.pixels_per_bin)
             print("BINS -> bounds:", polygons.total_bounds if hasattr(polygons, "total_bounds") else "no bounds")
             sample = Bins(
-                polygons, 
-                adata, 
-                on='index', 
-                pixels_per_bin=b2s.converter.visiumHD.pixels_per_bin
+                polygons,
+                adata,
+                on='index',
+                pixels_per_bin=b2s.converter.visiumHD.pixels_per_bin,
+                tile_scale_xfactor=b2s.tile_scale_xfactor,
+                tile_scale_yfactor=b2s.tile_scale_yfactor,
             )
 
             # width = sample.pixels_per_bin * b2s.tile_scale_xfactor
@@ -195,9 +197,10 @@ class App:
 
         # Reconstruir metadata si la app ya está construida
         if hasattr(self, '_app_built') and self._app_built:
-            self.doc.add_next_tick_callback(
-                lambda: self.metadata_panel.populate(self.geometries)
-            )
+            def _update(g=geom):
+                self.add_root(g.get_widgets_layout(self.doc))
+                self.metadata_panel.populate(self.geometries)
+            self.doc.add_next_tick_callback(_update)
         self.embedding_panel.set_components(self.geometries)
 
         # If the image is lowres, adjust the width and height to the max of geometries
@@ -219,7 +222,9 @@ class App:
                         self.figure_panel.p.y_range = Range1d(y, y+h)
 
     def add_root(self, layout):
+        print(f"[add_root] name={layout.name}")
         placeholder = self.doc.select_one({"name": layout.name})
+        print(f"[add_root] placeholder found={placeholder is not None}")
         if hasattr(placeholder, "children"):
             if hasattr(layout, "children"):
                 placeholder.children = layout.children

@@ -26,10 +26,19 @@ class DEMixin:
     # ------------------------------------------------------------------
 
     def _run_de_thread(self, active: list, mode: int, doc) -> None:
-        if hasattr(self.component, '_figure_de_div'):
-            self.component._figure_de_div.text = (
-                "<p style='color:#aaa;font-size:11px'>Running DE...</p>"
-            )
+        def _set_de_message(msg: str, color: str = "#aaa") -> None:
+            # Todos los avisos/estado del DE van al _de_status_div, debajo del botón
+            # Run DE (mismo sitio que los mensajes de bloqueo de on_run_de). Se
+            # actualiza vía next tick para que sea seguro también desde el hilo y no
+            # dejar la UI colgada en "Running DE..." cuando no hay resultados.
+            if hasattr(self, '_de_status_div'):
+                def _u():
+                    self._de_status_div.text = (
+                        f"<p style='color:{color};font-size:11px'>{msg}</p>"
+                    )
+                doc.add_next_tick_callback(_u)
+
+        _set_de_message("Running DE...")
 
         def _run():
             if getattr(self, '_de_adata', None) is None:
@@ -76,6 +85,11 @@ class DEMixin:
                 counts = sub.obs['_de_group'].value_counts()
                 usable = [c for c in active if counts.get(c, 0) >= 3]
                 if len(usable) < 2:
+                    _set_de_message(
+                        "DE entre clusters necesita al menos 2 clusters con "
+                        "≥3 spots cada uno.",
+                        color="red",
+                    )
                     return
 
                 sc.tl.rank_genes_groups(
@@ -87,6 +101,9 @@ class DEMixin:
                     results[cname] = sc.get.rank_genes_groups_df(sub, group=cname)
 
             if not results:
+                _set_de_message(
+                    "DE sin resultados para la selección actual.", color="red"
+                )
                 return
 
             _keys = list(results.keys())
@@ -103,6 +120,8 @@ class DEMixin:
             self._last_plots_html = plots_html
 
             def _update():
+                if hasattr(self, '_de_status_div'):
+                    self._de_status_div.text = ""
                 if hasattr(self.component, '_figure_de_div'):
                     self.component._figure_de_div.text = f"""
                     <div style='display:grid;grid-template-columns:380px 1fr;gap:15px;width:100%'>

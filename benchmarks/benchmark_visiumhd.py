@@ -5,6 +5,10 @@ Benchmark VisiumVisualizer vs Loupe Browser — puntos clave:
   3. Segmentación celular StarDist
   4. Preprocesamiento (normalización, PCA, vecinos) — 16 µm
   5. Clustering Leiden a 3 resoluciones distintas — 16 µm
+  6. DE (rank_genes_groups wilcoxon) — 16 µm:
+       a. preparación del AnnData de DE (copy+filter_genes+log1p)
+       b. 1 cluster vs resto
+       c. 2 clusters entre ellos
 
 Salida: benchmarks/results/benchmark_<timestamp>.csv
 """
@@ -14,12 +18,24 @@ import os
 import csv
 import socket
 import traceback
+import warnings
 from contextlib import contextmanager
 from datetime import datetime
 from pathlib import Path
 
 import time
 import psutil
+
+# ---------------------------------------------------------------------------
+# Silenciar warnings internos (no errores) de scanpy en los pasos de DE:
+#   - log2 sobre genes con media 0 → logfoldchanges inf/nan (no usamos esos valores)
+#   - PerformanceWarning de pandas por inserción de columnas en rank_genes_groups
+# Son inofensivos para el benchmark; los filtramos para no ensuciar el .err.
+# ---------------------------------------------------------------------------
+warnings.filterwarnings(
+    "ignore", message="(invalid value|divide by zero) encountered in log2"
+)
+warnings.filterwarnings("ignore", message="DataFrame is highly fragmented")
 
 # ---------------------------------------------------------------------------
 # Paths
@@ -34,6 +50,7 @@ SEGM_PATH  = DATA_ROOT / "StarDist"
 
 CLUSTERING_BIN_SIZE = 16          # µm — resolución usada para clustering
 LEIDEN_RESOLUTIONS  = [0.5, 1.0, 2.0]
+DE_RESOLUTION       = 1.0          # resolución por defecto de la app (slider)
 
 RESULTS_DIR = REPO_ROOT / "benchmarks" / "results"
 RESULTS_DIR.mkdir(parents=True, exist_ok=True)
@@ -43,7 +60,7 @@ RESULTS_DIR.mkdir(parents=True, exist_ok=True)
 # ---------------------------------------------------------------------------
 CSV_FIELDS = [
     "timestamp", "step", "bins_size_um", "resolution",
-    "duration_s",
+    "duration_min",
     "n_obs", "n_vars", "n_clusters", "n_hvgs",
     "ram_before_mb", "ram_after_mb", "peak_ram_mb",
     "hostname", "notes",
@@ -75,7 +92,7 @@ class BenchmarkLogger:
             "step":         step,
             "bins_size_um": bins_size_um,
             "resolution":   resolution,
-            "duration_s":   round(duration_s, 3),
+            "duration_min": round(duration_s / 60, 3),
             "n_obs":        n_obs,
             "n_vars":       n_vars,
             "n_clusters":   n_clusters,
@@ -90,7 +107,7 @@ class BenchmarkLogger:
         self._fh.flush()
         tag = f"{step}" + (f" (bins={bins_size_um}µm)" if bins_size_um else "") \
                         + (f" (r={resolution})"        if resolution    else "")
-        print(f"  ✓ {tag}: {duration_s:.2f} s")
+        print(f"  ✓ {tag}: {duration_s / 60:.2f} min")
 
     def close(self):
         self._fh.close()
@@ -278,6 +295,109 @@ def bench_clustering(log: BenchmarkLogger, sample, resolution: float, bins_size:
     )
 
 
+def bench_de_prepare(log: BenchmarkLogger, sample, bins_size: int):
+    """Prepara el AnnData de DE (igual que _run_de_thread la primera vez):
+    copy + filter_genes(min_cells=3) + log1p. Se cachea y reutiliza en cada DE."""
+    import scanpy as sc
+
+    step = "de_prepare"
+    print(f"\n[{step}] Preparando AnnData para DE (copy+filter_genes+log1p)...")
+
+    with timed_step() as h:
+        de_adata = sample.adata.copy()
+        sc.pp.filter_genes(de_adata, min_cells=3)
+        sc.pp.log1p(de_adata)
+
+    log.record(
+        step          = step,
+        duration_s    = h.elapsed,
+        bins_size_um  = bins_size,
+        n_obs         = de_adata.n_obs,
+        n_vars        = de_adata.n_vars,
+        ram_before_mb = h.ram_before,
+        ram_after_mb  = h.ram_after,
+        peak_ram_mb   = h.peak_ram,
+        notes         = "copy+filter_genes(min_cells=3)+log1p",
+    )
+    return de_adata
+
+
+def bench_de_vs_rest(log: BenchmarkLogger, de_adata, cluster_label, bins_size: int,
+                     resolution=None):
+    """DE de un cluster respecto al resto (modo 'vs Rest' de groups_de)."""
+    import numpy as np
+    import scanpy as sc
+
+    step = "de_vs_rest"
+    print(f"\n[{step}] DE de cluster '{cluster_label}' vs Rest...")
+
+    with timed_step() as h:
+        labels = de_adata.obs["leiden"].astype(str)
+        de_adata.obs["_de_group"] = np.where(
+            labels == str(cluster_label), str(cluster_label), "Rest"
+        ).astype(str)
+        sc.tl.rank_genes_groups(
+            de_adata, groupby="_de_group",
+            groups=[str(cluster_label)], reference="Rest",
+            method="wilcoxon",
+        )
+        _ = sc.get.rank_genes_groups_df(de_adata, group=str(cluster_label))
+
+    n_in = int((de_adata.obs["_de_group"] == str(cluster_label)).sum())
+    log.record(
+        step          = step,
+        duration_s    = h.elapsed,
+        bins_size_um  = bins_size,
+        resolution    = resolution,
+        n_obs         = de_adata.n_obs,
+        n_vars        = de_adata.n_vars,
+        n_clusters    = 1,
+        ram_before_mb = h.ram_before,
+        ram_after_mb  = h.ram_after,
+        peak_ram_mb   = h.peak_ram,
+        notes         = f"cluster {cluster_label} ({n_in} obs) vs Rest; "
+                        f"rank_genes_groups(wilcoxon)",
+    )
+
+
+def bench_de_between(log: BenchmarkLogger, de_adata, label_a, label_b, bins_size: int,
+                     resolution=None):
+    """DE entre dos clusters (modo 'Entre clusters' de groups_de)."""
+    import scanpy as sc
+
+    step = "de_between_clusters"
+    print(f"\n[{step}] DE entre clusters '{label_a}' y '{label_b}'...")
+
+    usable = [str(label_a), str(label_b)]
+    with timed_step() as h:
+        labels = de_adata.obs["leiden"].astype(str)
+        in_sel = labels.isin(usable)
+        sub = de_adata[in_sel.values].copy()
+        sub.obs["_de_group"] = sub.obs["leiden"].astype(str)
+        sc.tl.rank_genes_groups(
+            sub, groupby="_de_group",
+            groups=usable, reference="rest",
+            method="wilcoxon",
+        )
+        for cname in usable:
+            _ = sc.get.rank_genes_groups_df(sub, group=cname)
+
+    log.record(
+        step          = step,
+        duration_s    = h.elapsed,
+        bins_size_um  = bins_size,
+        resolution    = resolution,
+        n_obs         = int(in_sel.sum()),
+        n_vars        = de_adata.n_vars,
+        n_clusters    = 2,
+        ram_before_mb = h.ram_before,
+        ram_after_mb  = h.ram_after,
+        peak_ram_mb   = h.peak_ram,
+        notes         = f"clusters {label_a} vs {label_b}; "
+                        f"rank_genes_groups(wilcoxon)",
+    )
+
+
 # ---------------------------------------------------------------------------
 # Main
 # ---------------------------------------------------------------------------
@@ -387,10 +507,13 @@ def main():
                 )
 
             # Clustering a 3 resoluciones (adata_processed reutilizado)
+            leiden_default = None   # etiquetas de DE_RESOLUTION para el DE
             for res in LEIDEN_RESOLUTIONS:
                 try:
                     bench_clustering(log, sample, resolution=res,
                                      bins_size=CLUSTERING_BIN_SIZE)
+                    if res == DE_RESOLUTION:
+                        leiden_default = sample.adata.obs["leiden"].copy()
                 except Exception:
                     print(f"  ✗ Fallo clustering r={res}:\n{traceback.format_exc()}")
                     log.record(
@@ -398,6 +521,85 @@ def main():
                         bins_size_um=CLUSTERING_BIN_SIZE, resolution=res,
                         notes="ERROR: " + traceback.format_exc(limit=1).strip(),
                     )
+
+            # ----------------------------------------------------------
+            # 6. DE — 1 cluster vs resto y 2 clusters entre ellos
+            #    Usa los clusters leiden de DE_RESOLUTION (1.0 = default app),
+            #    no la última resolución del bucle.
+            # ----------------------------------------------------------
+            if leiden_default is not None:
+                sample.adata.obs["leiden"] = leiden_default
+            else:
+                # Fallback: recalcular leiden a DE_RESOLUTION (no cronometrado)
+                try:
+                    import scanpy as sc
+                    if sample.adata_processed is None:
+                        sample.prepare_adata_processed()
+                    sc.tl.leiden(sample.adata_processed, resolution=DE_RESOLUTION)
+                    _common = sample.adata.obs_names.intersection(
+                        sample.adata_processed.obs_names)
+                    sample.adata.obs["leiden"] = None
+                    sample.adata.obs.loc[_common, "leiden"] = (
+                        sample.adata_processed.obs.loc[_common, "leiden"]
+                    )
+                except Exception:
+                    print(f"  ✗ Fallo recalculando leiden r={DE_RESOLUTION} "
+                          f"para DE:\n{traceback.format_exc()}")
+
+            leiden_obs = sample.adata.obs.get("leiden")
+            if leiden_obs is None or leiden_obs.dropna().empty:
+                print("\n  ✗ Sin clusters leiden — saltando DE.")
+            else:
+                counts = leiden_obs.dropna().astype(str).value_counts()
+                valid_labels = counts[counts >= 3].index.tolist()
+                if len(valid_labels) < 1:
+                    print("\n  ✗ Sin clusters con ≥3 obs — saltando DE.")
+                else:
+                    try:
+                        de_adata = bench_de_prepare(
+                            log, sample, bins_size=CLUSTERING_BIN_SIZE)
+                    except Exception:
+                        print(f"  ✗ Fallo preparación DE:\n{traceback.format_exc()}")
+                        de_adata = None
+                        log.record(
+                            step="de_prepare", duration_s=0,
+                            bins_size_um=CLUSTERING_BIN_SIZE,
+                            notes="ERROR: " + traceback.format_exc(limit=1).strip(),
+                        )
+
+                    if de_adata is not None:
+                        # a. 1 cluster vs resto
+                        try:
+                            bench_de_vs_rest(
+                                log, de_adata, valid_labels[0],
+                                bins_size=CLUSTERING_BIN_SIZE,
+                                resolution=DE_RESOLUTION)
+                        except Exception:
+                            print(f"  ✗ Fallo DE vs rest:\n{traceback.format_exc()}")
+                            log.record(
+                                step="de_vs_rest", duration_s=0,
+                                bins_size_um=CLUSTERING_BIN_SIZE,
+                                notes="ERROR: " + traceback.format_exc(limit=1).strip(),
+                            )
+
+                        # b. 2 clusters entre ellos
+                        if len(valid_labels) >= 2:
+                            try:
+                                bench_de_between(
+                                    log, de_adata,
+                                    valid_labels[0], valid_labels[1],
+                                    bins_size=CLUSTERING_BIN_SIZE,
+                                    resolution=DE_RESOLUTION)
+                            except Exception:
+                                print(f"  ✗ Fallo DE entre clusters:\n{traceback.format_exc()}")
+                                log.record(
+                                    step="de_between_clusters", duration_s=0,
+                                    bins_size_um=CLUSTERING_BIN_SIZE,
+                                    notes="ERROR: " + traceback.format_exc(limit=1).strip(),
+                                )
+                        else:
+                            print("\n  ✗ Menos de 2 clusters con ≥3 obs — "
+                                  "saltando DE entre clusters.")
 
     log.close()
     print(f"\n{'=' * 60}")

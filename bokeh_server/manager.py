@@ -283,7 +283,9 @@ class DynamicSourceManager(SourceManager):
             fetch_kwargs["resolution_level"] = self.resolution_level
             
         fetched_data = self.sample.fetch_data(colnames=colnames, bbox=bbox, **fetch_kwargs)
+        print(f"[add_data] bbox={bbox} | fetched_data.shape={fetched_data.shape}")
         new_data = fetched_data[~fetched_data.index.isin(self.indexes)]
+        print(f"[add_data] new_data.shape={new_data.shape}")
 
         self.indexes.extend(new_data.index.tolist())
         self.view_filter = np.concatenate((
@@ -296,7 +298,6 @@ class DynamicSourceManager(SourceManager):
             new_is_sequenced = (~new_data[colnames[0]].isna()).to_numpy().tolist()
             self.is_sequenced += new_is_sequenced
 
-        
         for param in self.parameters:
             if not param.is_static:
                 

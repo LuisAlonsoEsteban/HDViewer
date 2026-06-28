@@ -295,6 +295,8 @@ class StartupController:
 
     def generate_pseudospots(self):
         self.ensure_b2s()
+        if self.b2s is None:
+            return
 
         def worker():
             pseudospots_polygons = self.b2s.spot_polygons
@@ -386,8 +388,6 @@ class StartupController:
         
         if self.cells_checkbox.active:
             self.generate_cells()
-
-        self.ensure_b2s() # If Bins2Spots has not been computed
 
     def _all_tasks_finished(self):
         self.status_text.text = "Done"

@@ -69,10 +69,17 @@ class LazyLoader:
 
     def get_resolution_level(self):
         sample = self.manager.sample
-        if not hasattr(sample, "pixels_per_bin") or not sample.pixels_per_bin:
+        # native_width/height ya vienen en el espacio (escalado) de la figura,
+        # así que window_size y tamaño de bin son dimensionalmente consistentes.
+        bin_w = getattr(sample, "native_width", None)
+        bin_h = getattr(sample, "native_height", None)
+        if not bin_w or not bin_h:
             return None
 
-        max_span_in_bins = max(self.window_size) / sample.pixels_per_bin
+        max_span_in_bins = max(
+            self.window_size[0] / bin_w,
+            self.window_size[1] / bin_h,
+        )
         factors = tuple(getattr(sample, "AGGREGATION_FACTORS", (1,)))
         factor = factors[0]
 
@@ -104,7 +111,10 @@ class LazyLoader:
             def update_bbox():
                 resolution_level = self.get_resolution_level()
                 current_fetch_bbox = self.compute_bbox
+                n_before = len(self.manager.source.data.get('x', []))
+                print(f"[update_bbox] FIRED | n_source={n_before} | resolution_level={resolution_level} | manager.resolution_level={self.manager.resolution_level}")
                 if self.manager.bbox is None:
+                    print(f"[update_bbox] primera carga (bbox None)")
                     self.manager.set_fetch_context(
                         bbox=current_fetch_bbox,
                         resolution_level=resolution_level,
@@ -117,13 +127,21 @@ class LazyLoader:
                         bbox=self.manager.bbox,
                         resolution_level=resolution_level,
                     )
-                    if context_changed or not LazyLoader.is_inside(x, y, self.fixed_static_bbox):
+                    inside = LazyLoader.is_inside(x, y, self.fixed_static_bbox)
+                    print(f"[update_bbox] context_changed={context_changed} | inside={inside} | x={x:.1f} y={y:.1f}")
+                    if context_changed or not inside:
                         self.manager.bbox = current_fetch_bbox
                         self.fixed_static_bbox = self.static_bbox
                         self.manager.fetch_data()
 
-                    if not LazyLoader.is_inside(x, y, self.fixed_static_bbox):
-                        self.manager.remove_further_data(x, y, distance=1000)
+                    if not inside:
+                        # El radio debe cubrir TODA la región fetcheada (compute_bbox),
+                        # cuyas esquinas están a ~1.2*window del centro. Usamos
+                        # (1+OFFSET)*window para no recortar nunca bins visibles
+                        # y solo podar los de un paneo lejano anterior.
+                        prune_distance = max(self.window_size) * (1 + self.OFFSET)
+                        print(f"[update_bbox] llamando remove_further_data | distance={prune_distance:.0f} | n_source={len(self.manager.source.data.get('x',[]))}")
+                        self.manager.remove_further_data(x, y, distance=prune_distance)
 
             doc.add_next_tick_callback(update_bbox)
 
@@ -131,3 +149,14 @@ class LazyLoader:
         self.x_range.on_change('end', callback)
         self.y_range.on_change('start', callback)
         self.y_range.on_change('end', callback)
+
+    def force_reload(self):
+        """Reload current viewport data after source has been cleared."""
+        resolution_level = self.get_resolution_level()
+        self.manager.set_fetch_context(
+            bbox=self.compute_bbox,
+            resolution_level=resolution_level,
+        )
+        self.manager.bbox = self.compute_bbox
+        self.fixed_static_bbox = self.static_bbox
+        self.manager.fetch_data()

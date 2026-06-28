@@ -34,7 +34,7 @@ placeholders = {
     "bins_widgets": column(),
     "cells_widgets": column(),
     "plot_column": column(sizing_mode='stretch_width'),
-    "thumbnail_plot": column(sizing_mode='stretch_both'),
+    "thumbnail_plot": column(sizing_mode='stretch_width'),
 }
 
 # Add them to the document with names

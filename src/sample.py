@@ -108,6 +108,7 @@ class Sample:
                 return result
             
             # Genes (adata.var_names) → merge original por self.on
+            value_df.index.name = None  # avoid ambiguity if obs index name matches self.on
             value_df[self.on] = value_df.index.astype(gdf[self.on].dtype)
             merged_gdf = gdf.reset_index().merge(value_df, on=self.on, how='left').set_index('index')
             return merged_gdf[colname]
@@ -329,9 +330,12 @@ class Bins(Sample):
     AGGREGATION_FACTORS = (1, 2, 4, 8, 12)
     MAX_CACHE_ENTRIES = 24
 
-    def __init__(self, *args, half_bin_size=None, **kwargs):
+    def __init__(self, *args, half_bin_size=None,
+                 tile_scale_xfactor=1.0, tile_scale_yfactor=1.0, **kwargs):
         super().__init__(*args, **kwargs)
         self.half_bin_size = half_bin_size or 0
+        self.tile_scale_xfactor = tile_scale_xfactor
+        self.tile_scale_yfactor = tile_scale_yfactor
         self._multiscale_cache = OrderedDict()
 
     def crop_geom(self, left, right, top, bottom):
@@ -339,9 +343,15 @@ class Bins(Sample):
         if right is None: right = self.half_bin_size
         if bottom is None: bottom = self.half_bin_size
         if top is None: top = self.half_bin_size
-
-        return self.gdf.cx[left - self.half_bin_size : right + self.half_bin_size,
-                           bottom - self.half_bin_size : top + self.half_bin_size].copy()
+        print(f"crop_geom bbox: left={left}, right={right}, top={top}, bottom={bottom}")
+        print(f"[crop_geom] gdf.total_bounds (minx,miny,maxx,maxy): {self.gdf.total_bounds}")
+        if left >= right or top >= bottom:
+            print(f"[crop_geom] BBOX DEGENERADO → devuelve vacío")
+            return self.gdf.iloc[0:0]  # empty GeoDataFrame with same schema
+        result = self.gdf.cx[left - self.half_bin_size : right + self.half_bin_size,
+                              top - self.half_bin_size : bottom + self.half_bin_size]
+        print(f"[crop_geom] gdf total={len(self.gdf)} | resultado cx={len(result)}")
+        return result
             
     def get_x(self, geom):
         return geom.centroid.x
@@ -351,11 +361,11 @@ class Bins(Sample):
 
     @property
     def native_width(self):
-        return float(self.pixels_per_bin or 0)
+        return float((self.pixels_per_bin or 0) * self.tile_scale_xfactor)
 
     @property
     def native_height(self):
-        return float(self.pixels_per_bin or 0)
+        return float((self.pixels_per_bin or 0) * self.tile_scale_yfactor)
 
     def get_aggregation_factor(self, resolution_level):
         if resolution_level is None:
@@ -413,7 +423,8 @@ class Bins(Sample):
 
         cropped_gdf, cropped_adata = self.crop(*aligned_bbox, crop_adata=True)
         if cropped_gdf.empty:
-            empty = pd.DataFrame(columns=["x", "y", "width", "height", "obs_name"])
+            cols = ["x", "y", "width", "height", "obs_name"] + (list(colnames) if colnames else [])
+            empty = pd.DataFrame(columns=cols)
             self._cache_result(cache_key, empty)
             return empty.copy()
 
@@ -452,7 +463,19 @@ class Bins(Sample):
             if isinstance(colnames, str):
                 colnames = [colnames]
             for colname in colnames:
-                values = self._get_numeric_value(cropped_adata, cropped_gdf, colname)
+                _is_cat = (
+                    colname in cropped_adata.obs.columns
+                    and str(cropped_adata.obs[colname].dtype) in ("category", "object")
+                )
+                if _is_cat:
+                    # Categóricas (p.ej. 'leiden'): conservar las etiquetas ORIGINALES
+                    # (strings). Si se numerizan, '3' → 3.0 y el CategoricalColor deja
+                    # de casar con el mapa de color → bins grises opacos al hacer zoom-out.
+                    values = self.get_value(cropped_adata, cropped_gdf, colname)
+                    if not isinstance(values, pd.Series):
+                        values = pd.Series(values, index=cropped_gdf.index)
+                else:
+                    values = self._get_numeric_value(cropped_adata, cropped_gdf, colname)
                 value_frame = pd.DataFrame(
                     {
                         "grid_x": grid_x,
@@ -462,10 +485,6 @@ class Bins(Sample):
                     index=cropped_gdf.index,
                 )
                 _grp = value_frame.groupby(["grid_x", "grid_y"], sort=False)[colname]
-                _is_cat = (
-                    colname in cropped_adata.obs.columns
-                    and str(cropped_adata.obs[colname].dtype) in ("category", "object")
-                )
                 if _is_cat:
                     grouped[colname] = _grp.agg(
                         lambda s: s.value_counts().idxmax() if len(s.value_counts()) else np.nan
@@ -476,6 +495,7 @@ class Bins(Sample):
         grouped.reset_index(drop=True, inplace=True)
         grouped.index = grouped["obs_name"]
         self._cache_result(cache_key, grouped)
+
         return grouped.copy()
 
     def fetch_data(self, bbox=None, colnames=None, return_coords=True, resolution_level=None) -> pd.DataFrame:
