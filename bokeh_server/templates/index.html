@@ -76,6 +76,8 @@
         outline: none;
         border-bottom: 1px solid #6c6c6c;
         transition: background-color 0.3s ease;
+        position: relative; /* junto con z-index, mantiene la barra por encima */
+        z-index: 5;          /* de cualquier canvas de Bokeh que se derrame encima */
     }
 
     .widget-title:hover {
@@ -257,31 +259,21 @@
 </script>
 
 <script>
-    var accordionState = {};
-
-    function setupAccordions() {
-        console.log('[accordion] setupAccordions called');
-        document.querySelectorAll('.widget-title').forEach(function(title, i) {
-            title.style.cursor = 'pointer';
-            if (title._handler) title.removeEventListener('click', title._handler);
-            title._handler = function() {
-                const content = this.nextElementSibling;
-                const icon = this.querySelector('.fa');
-                if (!content) return;
-                accordionState[i] = !accordionState[i];
-                content.style.display = accordionState[i] ? 'block' : 'none';
-                if (icon) icon.style.transform = accordionState[i] ? "rotate(180deg)" : "rotate(0deg)";
-                console.log('[accordion] toggled', this.textContent.trim(), '->', accordionState[i]);
-            };
-            title.addEventListener('click', title._handler);
-        });
+    // Acordeón de secciones (Spots/Bins/Cells) por delegación de eventos:
+    // un único listener en document maneja el clic sobre cualquier .widget-title,
+    // sin importar cuándo se cree/muestre. Así no depende de showMainApp ni de setTimeout.
+    function toggleAccordion(title) {
+        const content = title.nextElementSibling;
+        const icon = title.querySelector('.fa');
+        if (!content) return;
+        const isOpen = content.style.display === 'block';
+        content.style.display = isOpen ? 'none' : 'block';
+        if (icon) icon.style.transform = isOpen ? "rotate(0deg)" : "rotate(180deg)";
     }
 
-    // Enganchar al evento showMainApp que ya existe
-    var _originalShowMainApp = window.showMainApp;
-    window.showMainApp = function() {
-        if (_originalShowMainApp) _originalShowMainApp();
-        setTimeout(setupAccordions, 500);
-    };
+    document.addEventListener('click', function(e) {
+        const title = e.target.closest('.widget-title');
+        if (title) toggleAccordion(title);
+    });
 </script>
 {% endblock %}
