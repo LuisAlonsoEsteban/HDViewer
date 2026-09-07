@@ -1,0 +1,32 @@
+# ---------------------------------------------------------------------------
+# Repos de terceros clonados, con su propio .git y sin modificaciones locales
+# (comprobado: `git status` limpio salvo build/, dist/ y *.egg-info).
+# Se reclonan, no se versionan aqui -- un .git anidado dentro del arbol lo
+# convertiria en un submodulo a medias.
+#     git clone https://github.com/JinmiaoChenLab/GraphST.git      methods/GraphST
+#     git clone https://github.com/RucDongLab/STAGATE_pyG.git      methods/STAGATE_pyG
+# ---------------------------------------------------------------------------
+methods/GraphST/
+methods/STAGATE_pyG/
+
+# ---------------------------------------------------------------------------
+# Datos generados. NO se versionan porque son reproducibles EXACTAMENTE:
+#     python gen_datasets3.py                        -> los 12 .h5ad + .npz
+#     python remask.py --base nb_s00 --mask-frac 0.30
+#     python remask.py --base nb_s10 --mask-frac 0.30
+# Verificado 2026-09-07: regenerar con seed=42 reproduce los .h5ad vigentes bit
+# a bit (ground_truth_full, lambda_field, obs["dominio"], obs["library_size"]).
+# Lo que SI se versiona son los .csv de resultados: son el registro del
+# experimento y no se regeneran sin volver a correr los jobs.
+# ---------------------------------------------------------------------------
+*.h5ad
+*.npz
+*.png
+
+# Salidas de SLURM y de /usr/bin/time -v
+logs/
+methods/logs/
+
+# Copias de seguridad puntuales (previas a cambios de configuracion)
+synthetic_out/**/backup_*/
+synthetic_out/datasets_gen3_backup_dispersion/

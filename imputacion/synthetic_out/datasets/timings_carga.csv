@@ -1,0 +1,5 @@
+dataset,t_carga_media_s,t_carga_std_s,tamano_MB,n_repeticiones
+poisson,0.028151,0.000311,0.5578,5
+nb_s00,0.029352,0.000413,0.5583,5
+nb_s10,0.029271,0.000537,0.5583,5
+nb_s50,0.028767,0.001101,0.5583,5

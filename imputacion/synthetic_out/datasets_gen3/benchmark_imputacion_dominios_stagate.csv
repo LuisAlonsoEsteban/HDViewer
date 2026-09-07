@@ -1,0 +1,3 @@
+dataset,metodo,n_heldout,rmse,mae,bias,pearson,spearman,r2,r2_recal,pred_min,pred_max,pred_neg_pct,pred_nan,t_wall_s,t_cpu_s,rss_base_mb,rss_pico_mb,rss_delta_mb
+nb_s00_dom_libre,STAGATE,12000,28.5361,21.2057,-18.0992,0.3328,0.3494,-0.5283,0.1125,0.0,141.4035,0.0,0,151.943,295.659,794.1,1014.0,219.9
+nb_s10_dom_libre,STAGATE,12000,2.4706,1.8037,-1.0077,0.2992,0.2888,-0.1071,0.0786,0.0,13.149,0.0,0,138.899,276.421,916.3,1037.3,121.0
