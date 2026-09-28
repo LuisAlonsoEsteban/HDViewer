@@ -51,6 +51,7 @@ class ClusteringManager:
                   `.source` (ColumnDataSource) and `.update_colname()`.run
         """
         self.component = component
+        self.cluster_col = self.CLUSTER_COL    # set to the obs column returned by run_clustering
 
         self._cluster_labels: list[str] = []   # ordered unique cluster ids
         self._color_map: dict[str, str] = {}   # cluster_id → hex color
@@ -64,7 +65,7 @@ class ClusteringManager:
     @property
     def is_clustered(self) -> bool:
         return (
-            self.CLUSTER_COL in self.component.manager.sample.adata.obs.columns
+            self.cluster_col in self.component.manager.sample.adata.obs.columns
             and len(self._cluster_labels) > 0
         )
 
@@ -79,7 +80,13 @@ class ClusteringManager:
         on_done    : optional callable(doc) invoked after the source and
                      widgets have been refreshed.
         """
-        self.component.manager.sample.run_clustering(resolution=resolution)
+        manager = self.component.manager
+        # Cluster at the level currently displayed (Bins store it as 'leiden_{factor}')
+        resolution_level = getattr(manager, "effective_resolution_level", None)
+        self.cluster_col = manager.sample.run_clustering(
+            resolution=resolution,
+            resolution_level=resolution_level,
+        )
         self._build_cluster_state()
         self._update_source_colors()
         self._rebuild_cluster_widgets(doc)
@@ -151,11 +158,11 @@ class ClusteringManager:
     def _build_cluster_state(self):
         """Derive ordered label list, color map, and active set from obs."""
         obs = self.component.manager.sample.adata.obs
-        if self.CLUSTER_COL not in obs.columns:
+        if self.cluster_col not in obs.columns:
             return
 
         # Sort numerically when labels are integers (typical for Leiden)
-        raw_labels = obs[self.CLUSTER_COL].astype(str).unique().tolist()
+        raw_labels = obs[self.cluster_col].astype(str).unique().tolist()
         try:
             self._cluster_labels = sorted(raw_labels, key=lambda x: int(x))
         except ValueError:
@@ -175,12 +182,12 @@ class ClusteringManager:
         glyph renderer can use field('cluster_color') for fill_color.
         """
 
-        if self.CLUSTER_COL not in self.component.manager.sample.adata.obs.columns:
+        if self.cluster_col not in self.component.manager.sample.adata.obs.columns:
             return
 
         self.component.add_parameter(
             attr='color',
-            colname=self.CLUSTER_COL,
+            colname=self.cluster_col,
             static=False,
             not_sequenced_val=NOT_SEQUENCED_VAL[f"{self.component.alias.lower()}s"]["color"],
             colname_hovered=True,
@@ -190,7 +197,7 @@ class ClusteringManager:
 
     def _apply_visibility_mask(self):
         cluster_ids = self.component.manager.sample.get_value(
-            colname=self.CLUSTER_COL
+            colname=self.cluster_col
         )
 
         visible = cluster_ids.isin(self._active_clusters)
@@ -258,6 +265,6 @@ class ClusteringManager:
 
     def _count_spots(self, label: str) -> int:
         obs = self.component.manager.sample.adata.obs
-        if self.CLUSTER_COL not in obs.columns:
+        if self.cluster_col not in obs.columns:
             return 0
-        return int((obs[self.CLUSTER_COL].astype(str) == label).sum())
+        return int((obs[self.cluster_col].astype(str) == label).sum())

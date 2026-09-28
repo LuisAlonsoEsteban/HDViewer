@@ -19,6 +19,7 @@ class Sample:
         self.adata = adata
 
         self.adata_processed = None
+        self._step_params = {}
         self._embedding_keys = {
             "pca": "X_pca_2d",
             "umap": "X_umap",
@@ -153,7 +154,7 @@ class Sample:
         return data
     
     def get_marker_genes(self, n_genes=5):
-        if not hasattr(self, 'adata_processed') or 'rank_genes_groups' not in self.adata_processed.uns:
+        if self.adata_processed is None or 'rank_genes_groups' not in self.adata_processed.uns:
             return {}
         
         result = self.adata_processed.uns['rank_genes_groups']
@@ -177,7 +178,36 @@ class Sample:
         else:
             raise ValueError(f"{colname} not found in 'adata'.")
 
-    def prepare_adata_processed(self, n_pcs=30, n_neighbors=15):
+
+    # Each processing step lists the steps whose results depend on it, so that
+    # recomputing a step (e.g. with different parameters) invalidates them.
+    _STEP_DEPENDENTS = {
+        "pca": ("neighbors", "tsne", "pca_embedding"),
+        "neighbors": ("umap", "leiden"),
+    }
+    _STEP_OBSM_KEYS = {
+        "pca_embedding": "X_pca_2d",
+        "umap": "X_umap",
+        "tsne": "X_tsne",
+    }
+
+    def _is_cached(self, step, params):
+        return step in self._step_params and self._step_params[step] == params
+
+    def _mark_computed(self, step, params):
+        self._invalidate_dependents(step)
+        self._step_params[step] = params
+
+    def _invalidate_dependents(self, step):
+        for dependent in self._STEP_DEPENDENTS.get(step, ()):
+            self._step_params.pop(dependent, None)
+            obsm_key = self._STEP_OBSM_KEYS.get(dependent)
+            if obsm_key is not None and self.adata is not None:
+                self.adata.obsm.pop(obsm_key, None)
+            self._invalidate_dependents(dependent)
+
+    def prepare_adata_processed(self):
+        """Normalize, log-transform, select HVGs and scale. Computed only once."""
         import scanpy as sc
 
         if self.adata_processed is not None:
@@ -192,11 +222,32 @@ class Sample:
         sc.pp.highly_variable_genes(adata)
         adata = adata[:, adata.var.highly_variable].copy()
         sc.pp.scale(adata, max_value=10)
-        sc.pp.pca(adata, n_comps=n_pcs)
-        sc.pp.neighbors(adata, n_neighbors=n_neighbors, n_pcs=n_pcs)
 
         self.adata_processed = adata
+        self._step_params = {}
         return self.adata_processed
+
+    def _ensure_pca(self, n_pcs=30):
+        import scanpy as sc
+
+        adata = self.prepare_adata_processed()
+        # A PCA with at least n_pcs components can be reused by any consumer
+        # asking for n_pcs (neighbors and t-SNE only use the first n_pcs).
+        cached = self._step_params.get("pca")
+        if cached is None or cached < n_pcs:
+            sc.pp.pca(adata, n_comps=n_pcs)
+            self._mark_computed("pca", n_pcs)
+        return adata
+
+    def _ensure_neighbors(self, n_pcs=30, n_neighbors=15):
+        import scanpy as sc
+
+        adata = self._ensure_pca(n_pcs)
+        params = (n_pcs, n_neighbors)
+        if not self._is_cached("neighbors", params):
+            sc.pp.neighbors(adata, n_neighbors=n_neighbors, n_pcs=n_pcs)
+            self._mark_computed("neighbors", params)
+        return adata
 
     def _store_embedding(self, method, values):
         key = self._embedding_keys[method]
@@ -208,7 +259,7 @@ class Sample:
         full[common_idx[valid], :] = values[valid, :]
         self.adata.obsm[key] = full
 
-    def compute_embedding(self, method: str, **params):
+    def compute_embedding(self, method: str, n_pcs=30, n_neighbors=15):
         import scanpy as sc
 
         method = method.lower()
@@ -216,70 +267,81 @@ class Sample:
             raise ValueError(f"Unsupported embedding method: {method}")
 
         key = self._embedding_keys[method]
-        if key in self.adata.obsm:
+        step = "pca_embedding" if method == "pca" else method
+        params = (n_pcs, n_neighbors) if method == "umap" else n_pcs
+
+        if self.adata_processed is not None and self._is_cached(step, params) and key in self.adata.obsm:
             return self.adata.obsm[key]
 
-        adata = self.prepare_adata_processed(**params)
-
         if method == "pca":
-            if "X_pca" not in adata.obsm:
-                sc.pp.pca(adata, n_comps=params.get("n_pcs", 30))
-            values = np.asarray(adata.obsm["X_pca"][:, :2], dtype=float)
+            adata = self._ensure_pca(n_pcs)
+            values = adata.obsm["X_pca"][:, :2]
         elif method == "umap":
-            if "neighbors" not in adata.uns:
-                sc.pp.neighbors(adata, n_neighbors=params.get("n_neighbors", 15), n_pcs=params.get("n_pcs", 30))
-            if "X_umap" not in adata.obsm:
-                sc.tl.umap(adata)
-            values = np.asarray(adata.obsm["X_umap"][:, :2], dtype=float)
+            adata = self._ensure_neighbors(n_pcs, n_neighbors)
+            sc.tl.umap(adata)
+            values = adata.obsm["X_umap"][:, :2]
         else:
-            if "X_tsne" not in adata.obsm:
-                sc.tl.tsne(adata)
-            values = np.asarray(adata.obsm["X_tsne"][:, :2], dtype=float)
+            adata = self._ensure_pca(n_pcs)
+            sc.tl.tsne(adata, n_pcs=n_pcs)
+            values = adata.obsm["X_tsne"][:, :2]
 
-        self._store_embedding(method, values)
+        self._store_embedding(method, np.asarray(values, dtype=float))
+        self._mark_computed(step, params)
         return self.adata.obsm[key]
 
     def get_embedding_dataframe(self, method: str) -> pd.DataFrame:
         method = method.lower()
-        key = self._embedding_keys[method]
-        if key not in self.adata.obsm:
-            self.compute_embedding(method)
-
-        values = np.asarray(self.adata.obsm[key], dtype=float)
+        values = np.asarray(self.compute_embedding(method), dtype=float)
         df = pd.DataFrame(values, columns=["x", "y"], index=self.adata.obs_names.astype(str))
         df.index.name = "obs_name"
         df.reset_index(inplace=True)
         df = df.dropna(subset=["x", "y"]).copy()
         return df
 
-    def run_clustering(self, resolution=0.9, n_pcs=30, n_neighbors=15):
+    def run_clustering(self, resolution=0.9, n_pcs=30, n_neighbors=15, key_added="leiden", resolution_level=None):
+        """Run Leiden clustering and store the labels in `adata.obs[key_added]`.
+
+        `resolution_level` is only meaningful for Bins; it is ignored here.
+        Returns the obs column holding the labels.
+        """
         import scanpy as sc
 
-        self.prepare_adata_processed(n_pcs=n_pcs, n_neighbors=n_neighbors)
+        adata = self._ensure_neighbors(n_pcs, n_neighbors)
 
-        sc.tl.leiden(self.adata_processed, resolution=resolution)
-#
-        common_idx = self.adata.obs_names.intersection(self.adata_processed.obs_names)
+        if not self._is_cached("leiden", resolution):
+            sc.tl.leiden(adata, resolution=resolution)
+            sc.tl.rank_genes_groups(adata, groupby='leiden', method='wilcoxon')
+            self._mark_computed("leiden", resolution)
 
-        self.adata.obs["leiden"] = None
-        self.adata.obs.loc[common_idx, "leiden"] = (
-            self.adata_processed.obs.loc[common_idx, "leiden"]
+        common_idx = self.adata.obs_names.intersection(adata.obs_names)
+
+        self.adata.obs[key_added] = None
+        self.adata.obs.loc[common_idx, key_added] = (
+            adata.obs.loc[common_idx, "leiden"]
             .astype(str)
             .values
         )
+        return key_added
 
-        sc.tl.rank_genes_groups(self.adata_processed, groupby='leiden', method='wilcoxon')
-        
 
 class Bins(Sample):
     AGGREGATED_PREFIX = "agg:"
     AGGREGATION_FACTORS = (1, 2, 4, 8, 12)
     MAX_CACHE_ENTRIES = 24
+    CLUSTER_PREFIX = "leiden_"
 
     def __init__(self, *args, half_bin_size=None, **kwargs):
         super().__init__(*args, **kwargs)
         self.half_bin_size = half_bin_size or 0
         self._multiscale_cache = OrderedDict()
+
+        self._current_factor = None
+        # Per aggregation factor: a Sample holding the aggregated AnnData (so its
+        # PCA/neighbors are cached across clustering runs) and, for every native
+        # obs, the name of the aggregated cell it belongs to.
+        self._aggregated_samples = {}
+        self._aggregated_cell_names = {}
+        self._clustering_factor = 1
 
     def crop_geom(self, left, right, top, bottom):
         if left is None: left = self.half_bin_size
@@ -315,6 +377,122 @@ class Bins(Sample):
         if factor <= 1:
             return None
         return f"{self.AGGREGATED_PREFIX}{int(factor)}"
+
+    @staticmethod
+    def _describe_factor(factor):
+        return "native bins" if factor <= 1 else f"{factor}x{factor} aggregated bins"
+
+    def _log_resolution_change(self, factor):
+        if factor != self._current_factor:
+            previous = "none" if self._current_factor is None else self._describe_factor(self._current_factor)
+            print(f"[Bins] Resolution level changed: {previous} -> {self._describe_factor(factor)}")
+            self._current_factor = factor
+
+    def get_cluster_colname(self, factor):
+        return f"{self.CLUSTER_PREFIX}{int(factor)}"
+
+    def get_cluster_factor(self, colname):
+        """Aggregation factor a 'leiden_{factor}' column was computed at, or None."""
+        if not isinstance(colname, str) or not colname.startswith(self.CLUSTER_PREFIX):
+            return None
+        suffix = colname[len(self.CLUSTER_PREFIX):]
+        if not suffix.isdigit() or self.adata is None or colname not in self.adata.obs.columns:
+            return None
+        return int(suffix)
+
+    def get_forced_aggregation_factor(self, colnames):
+        """Factor the view must be pinned to while showing a clustering column, or None."""
+        for colname in colnames or ():
+            factor = self.get_cluster_factor(colname)
+            if factor is not None:
+                return factor
+        return None
+
+    def _get_aggregated_sample(self, factor):
+        """Sum raw counts of the native bins falling in each grid cell of size `factor`."""
+        import anndata as ad
+        import scipy.sparse as sp
+
+        if factor in self._aggregated_samples:
+            return self._aggregated_samples[factor]
+
+        cell_width = self.native_width * factor
+        cell_height = self.native_height * factor
+
+        centroids = self.gdf.geometry.centroid
+        grid = pd.DataFrame(
+            {
+                "grid_x": np.floor(centroids.x.to_numpy() / cell_width),
+                "grid_y": np.floor(centroids.y.to_numpy() / cell_height),
+            },
+            index=self.gdf[self.on].astype(str).to_numpy(),
+        )
+        grid = grid[~grid.index.duplicated()].reindex(self.adata.obs_names.astype(str))
+        valid = grid.notna().all(axis=1).to_numpy()
+
+        # Same naming as in _fetch_aggregated_data, so obs_names match the plotted cells
+        cell_names = pd.Series(np.nan, index=self.adata.obs_names, dtype=object)
+        cell_names[valid] = (
+            "summary:"
+            + grid.loc[valid, "grid_x"].astype(np.int64).astype(str)
+            + ":"
+            + grid.loc[valid, "grid_y"].astype(np.int64).astype(str)
+            + f":{factor}"
+        ).to_numpy()
+
+        codes, uniques = pd.factorize(cell_names[valid])
+        membership = sp.csr_matrix(
+            (np.ones(len(codes), dtype=np.float32), (codes, np.flatnonzero(valid))),
+            shape=(len(uniques), self.adata.n_obs),
+        )
+        aggregated_X = sp.csr_matrix(membership @ self.adata.X)
+
+        aggregated_adata = ad.AnnData(
+            X=aggregated_X,
+            obs=pd.DataFrame(index=pd.Index(uniques, dtype=str)),
+            var=pd.DataFrame(index=self.adata.var_names.copy()),
+        )
+        print(f"[Bins] Built aggregated AnnData for {self._describe_factor(factor)}: "
+              f"{aggregated_adata.n_obs} cells x {aggregated_adata.n_vars} genes")
+
+        aggregated_sample = Sample(
+            pd.DataFrame({"index": aggregated_adata.obs_names}),
+            adata=aggregated_adata,
+            on="index",
+        )
+        self._aggregated_samples[factor] = aggregated_sample
+        self._aggregated_cell_names[factor] = cell_names
+        return aggregated_sample
+
+    def run_clustering(self, resolution=0.9, n_pcs=30, n_neighbors=15, key_added=None, resolution_level=None):
+        """Cluster at `resolution_level` and store labels in `adata.obs['leiden_{factor}']`.
+
+        For aggregated levels every native bin gets the label of the aggregated
+        cell containing it, so the column can be looked up like any other obs column.
+        """
+        factor = self.get_aggregation_factor(resolution_level)
+        key_added = key_added or self.get_cluster_colname(factor)
+        print(f"[Bins] Running Leiden clustering (resolution={resolution}) on {self._describe_factor(factor)} -> '{key_added}'")
+
+        if factor <= 1:
+            super().run_clustering(resolution=resolution, n_pcs=n_pcs, n_neighbors=n_neighbors, key_added=key_added)
+        else:
+            aggregated_sample = self._get_aggregated_sample(factor)
+            aggregated_sample.run_clustering(resolution=resolution, n_pcs=n_pcs, n_neighbors=n_neighbors)
+            labels = aggregated_sample.adata.obs["leiden"].astype(str)
+            mapped = self._aggregated_cell_names[factor].map(labels)
+            self.adata.obs[key_added] = mapped.where(mapped.notna(), None).astype(object)
+
+        self._clustering_factor = factor
+        # Drop cached aggregated tiles holding stale labels of a previous run
+        for cache_key in [k for k in self._multiscale_cache if key_added in k[2]]:
+            del self._multiscale_cache[cache_key]
+        return key_added
+
+    def get_marker_genes(self, n_genes=5):
+        if self._clustering_factor > 1:
+            return self._aggregated_samples[self._clustering_factor].get_marker_genes(n_genes=n_genes)
+        return super().get_marker_genes(n_genes=n_genes)
 
     def _cache_result(self, cache_key, value):
         self._multiscale_cache[cache_key] = value
@@ -399,7 +577,11 @@ class Bins(Sample):
             if isinstance(colnames, str):
                 colnames = [colnames]
             for colname in colnames:
-                values = self._get_numeric_value(cropped_adata, cropped_gdf, colname)
+                is_categorical = colname in self.adata.obs.columns and not self.is_continous(colname)
+                if is_categorical:
+                    values = self.get_value(adata=cropped_adata, gdf=cropped_gdf, colname=colname)
+                else:
+                    values = self._get_numeric_value(cropped_adata, cropped_gdf, colname)
                 value_frame = pd.DataFrame(
                     {
                         "grid_x": grid_x,
@@ -408,7 +590,10 @@ class Bins(Sample):
                     },
                     index=cropped_gdf.index,
                 )
-                grouped[colname] = value_frame.groupby(["grid_x", "grid_y"], sort=False)[colname].sum(min_count=1)
+                value_groups = value_frame.groupby(["grid_x", "grid_y"], sort=False)[colname]
+                # Categorical labels (e.g. leiden_{factor}) are shared by all bins
+                # of a cell, so take the first one instead of summing
+                grouped[colname] = value_groups.first() if is_categorical else value_groups.sum(min_count=1)
 
         grouped.reset_index(drop=True, inplace=True)
         grouped.index = grouped["obs_name"]
@@ -417,6 +602,7 @@ class Bins(Sample):
 
     def fetch_data(self, bbox=None, colnames=None, return_coords=True, resolution_level=None) -> pd.DataFrame:
         factor = self.get_aggregation_factor(resolution_level)
+        self._log_resolution_change(factor)
         if factor <= 1:
             data = super().fetch_data(bbox=bbox, colnames=colnames, return_coords=return_coords)
             if return_coords:

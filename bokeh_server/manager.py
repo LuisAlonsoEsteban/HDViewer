@@ -48,7 +48,7 @@ class SourceManager:
     def add_parameter(self, param):
         existing_param = self.get_param(param.attr)
         if existing_param is not None:
-            self.parameters.remove(self.get_param(param.attr))
+            self.parameters.remove(existing_param)
             if not existing_param.is_static and existing_param.colname in self.cache.columns:
                 self.cache.drop(columns=existing_param.colname, inplace=True)
             if existing_param.attr in self.source.data.keys():
@@ -194,21 +194,41 @@ class DynamicSourceManager(SourceManager):
         self.fetch_data()
 
     def add_parameter(self, param):
-        if self.get_param(param.attr) is None:
-            self.parameters.append(param)
+        # Replace any parameter already bound to this attribute (e.g. clustering
+        # swaps the static color for the cluster column)
+        existing_param = self.get_param(param.attr)
+        if existing_param is not None:
+            self.parameters.remove(existing_param)
+        self.parameters.append(param)
 
-            if param.is_static:
-                param.set_is_sequenced(self.is_sequenced)
-            else:
-                param.min_counts, param.max_counts = self.sample.get_range(param.colname)
+        if param.is_static:
+            param.set_is_sequenced(self.is_sequenced)
+        elif self.sample.is_continous(param.colname):
+            param.min_counts, param.max_counts = self.sample.get_range(param.colname)
 
-            if not param.is_static or self.is_empty:
-                self.clear_sources()
-            else:
-                self.source.data[param.attr] = param.get_values()
+        if not param.is_static or self.is_empty:
+            self.clear_sources()
+            if existing_param is not None and self.bbox is not None:
+                self.fetch_data()
         else:
-            raise ValueError(f"A parameter for attribute '{param.attr}' is already present.")
-        
+            self.source.data[param.attr] = param.get_values()
+
+    def update_param(self, attr, *args, **kwargs):
+        param = self.get_param(attr)
+        if param.is_static:
+            self.source.data[param.attr] = param.update(*args, **kwargs)
+        elif param.colname in self.source.data:
+            # The cache is not filled with lazy loading: rescale the loaded values
+            series = pd.Series(self.source.data[param.colname])
+            self.source.data[param.attr] = param.update(series, *args, **kwargs)
+        else:
+            param.update(pd.Series(dtype=object), *args, **kwargs)
+            self.clear_sources()
+            self.fetch_data()
+            return
+        if self.component is not None:
+            self.component.apply_selected_obs_names()
+
     def get_nan_vector(self):
         colnames = self.get_colnames()
         if len(colnames) > 0 and colnames[0] in self.source.data:
@@ -216,13 +236,25 @@ class DynamicSourceManager(SourceManager):
         obs_names = pd.Series(self.source.data['obs_name'])
         return obs_names.isna().to_numpy()
         
+    @property
+    def effective_resolution_level(self):
+        """Zoom-driven resolution level, unless a displayed column pins it
+        (e.g. 'leiden_{factor}' must be shown at the level it was computed at)."""
+        get_forced_factor = getattr(self.sample, "get_forced_aggregation_factor", None)
+        if get_forced_factor is not None:
+            factor = get_forced_factor(self.get_colnames())
+            if factor is not None:
+                return self.sample.get_resolution_level_for_factor(factor)
+        return self.resolution_level
+
     def set_fetch_context(self, bbox=None, resolution_level=None, **fetch_kwargs):
-        resolution_changed = resolution_level != self.resolution_level
+        previous_level = self.effective_resolution_level
         extra_changed = fetch_kwargs != self.fetch_kwargs
 
         self.bbox = bbox
         self.resolution_level = resolution_level
         self.fetch_kwargs = fetch_kwargs
+        resolution_changed = self.effective_resolution_level != previous_level
 
         if resolution_changed or extra_changed:
             self.clear_sources()
@@ -232,8 +264,8 @@ class DynamicSourceManager(SourceManager):
     def add_data(self, bbox=None):
         colnames = self.get_colnames()
         fetch_kwargs = dict(self.fetch_kwargs)
-        if self.resolution_level is not None:
-            fetch_kwargs["resolution_level"] = self.resolution_level
+        if self.effective_resolution_level is not None:
+            fetch_kwargs["resolution_level"] = self.effective_resolution_level
             
         fetched_data = self.sample.fetch_data(colnames=colnames, bbox=bbox, **fetch_kwargs)
         new_data = fetched_data[~fetched_data.index.isin(self.indexes)]
@@ -300,8 +332,8 @@ class DynamicSourceManager(SourceManager):
 
     def remove_data(self, bbox):
         fetch_kwargs = dict(self.fetch_kwargs)
-        if self.resolution_level is not None:
-            fetch_kwargs["resolution_level"] = self.resolution_level
+        if self.effective_resolution_level is not None:
+            fetch_kwargs["resolution_level"] = self.effective_resolution_level
         fetched_data = self.sample.fetch_data(bbox=bbox, **fetch_kwargs)
         removed_indexes = fetched_data['obs_name'].to_numpy()
         self.remove_indcs(removed_indexes)

@@ -466,7 +466,7 @@ class Component:
         def on_run_clustering(doc):
             if self.autocomplete_input:
                 self.autocomplete_input.completions = self.get_colnames()
-                self.autocomplete_input.value = self.clustering_manager.CLUSTER_COL
+                self.autocomplete_input.value = self.clustering_manager.cluster_col
 
                 self.add_param_form.colname_input.completions = self.get_colnames()
 
