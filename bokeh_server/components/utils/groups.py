@@ -61,7 +61,7 @@ class GroupsManager(DEMixin):
             min_characters=1,
             case_sensitive=False,
             restrict=False,
-            width=160,
+            width=235,
         )
         operator_select = Select(title="Operator", options=OPERATORS, value=">", width=70)
         value_input     = TextInput(title="Value", value="1", width=80)
@@ -69,21 +69,21 @@ class GroupsManager(DEMixin):
 
         self._conditions_div = Div(
             text="<p style='color:#888;font-size:11px'>No conditions added yet.</p>",
-            width=380,
+            width=270,
         )
         cluster_name_input = TextInput(value="Cluster A", title="Cluster name", width=200)
 
         add_condition_btn    = Button(label="+ Add condition",  button_type="success", width=150)
         clear_conditions_btn = Button(label="Clear",            button_type="warning",  width=80)
-        create_cluster_btn   = Button(label="✓ Create cluster", button_type="success", width=160)
-        delete_cluster_btn   = Button(label="🗑 Delete cluster", button_type="danger",  width=160)
+        create_cluster_btn   = Button(label="✓ Create cluster", button_type="success", width=130)
+        delete_cluster_btn   = Button(label="🗑 Delete cluster", button_type="danger",  width=130)
         de_mode              = RadioButtonGroup(labels=["vs Rest", "Entre clusters"], active=0)
         run_de_btn           = Button(label="▶ Run DE", button_type="primary", width=120)
 
-        self._status_div = Div(text="", width=380)
+        self._status_div = Div(text="", width=270)
         # Mensajes de estado/aviso del DE (Running DE..., bloqueos, sin resultados).
         # Va debajo del botón Run DE en el layout.
-        self._de_status_div = Div(text="", width=380)
+        self._de_status_div = Div(text="", width=270)
 
         if self._cluster_layout is None:
             self._cluster_layout = column(
@@ -199,6 +199,7 @@ class GroupsManager(DEMixin):
 
             del self._clusters[cname]
             self._active_clusters.discard(cname)
+            self._hide_de_if_cluster_hidden()
 
             col_key = f"grp_{cname}"
             if col_key in self.sample.adata.obs.columns:
@@ -210,6 +211,12 @@ class GroupsManager(DEMixin):
                 else:
                     if GROUPS_COL in self.sample.adata.obs.columns:
                         self.sample.adata.obs.drop(columns=[GROUPS_COL], inplace=True)
+                    if hasattr(self.component, 'loader'):
+                        # Bins: quitar la máscara de grupos del view_filter.
+                        mgr = self.component.manager
+                        mgr.view_filter = np.ones(len(mgr.indexes), dtype=bool)
+                        self.component._view = mgr.view_filter.tolist()
+                        self.component.change_glyph_view()
                 self._status_div.text = (
                     f"<p style='color:#f0a500;font-size:11px'>Cluster '{cname}' deleted.</p>"
                 )
@@ -249,9 +256,14 @@ class GroupsManager(DEMixin):
         run_de_btn.on_click(on_run_de)
 
         # --- Layout ---
-        condition_row  = row(gene_input, operator_select, value_input, logic_select, spacing=5)
+        # Gene en su propia fila y operador/valor/lógica debajo: todo en una
+        # fila (~400 px) no cabía en el panel izquierdo y quedaba cortado.
+        condition_row  = column(
+            gene_input,
+            row(operator_select, value_input, logic_select, spacing=5),
+        )
         condition_btns = row(add_condition_btn, clear_conditions_btn, spacing=5)
-        action_btns    = row(create_cluster_btn, delete_cluster_btn, spacing=10)
+        action_btns    = row(create_cluster_btn, delete_cluster_btn, spacing=5)
 
         _alias = getattr(self.component, "alias", None)
         _geom_label_div = Div(
@@ -290,8 +302,14 @@ class GroupsManager(DEMixin):
         labels = []
         for cname, conditions in self._clusters.items():
             n_spots  = self._count_spots_bool(cname)
-            cond_str = " & ".join(f"{col}{op}{val}" for col, op, val, logic in conditions)
-            labels.append(f"{cname}  ({n_spots} spots)  [{cond_str}]")
+            # Cada condición (salvo la primera) va precedida de su lógica AND/OR.
+            cond_str = ""
+            for i, (col, op, val, logic) in enumerate(conditions):
+                if i > 0:
+                    cond_str += f" {logic} "
+                cond_str += f"{col}{op}{val}"
+            unit = f"{self.component.alias.lower()}s"  # spots / bins / cells
+            labels.append(f"{cname}  ({n_spots} {unit})  [{cond_str}]")
 
         self._checkbox_group = CheckboxGroup(
             labels=labels,
@@ -303,10 +321,28 @@ class GroupsManager(DEMixin):
         def _on_checkbox_change(attr, old, new):
             cluster_names = list(self._clusters.keys())
             self._active_clusters = {cluster_names[i] for i in new}
+            self._hide_de_if_cluster_hidden()
             doc.add_next_tick_callback(self._apply_visibility_mask)
 
         self._checkbox_group.on_change("active", _on_checkbox_change)
         return [self._checkbox_group]
+
+    def _hide_de_if_cluster_hidden(self):
+        """Quitar la tabla y los gráficos DE del plot si se deselecciona o borra
+        alguno de los clusters con los que se calcularon."""
+        de_clusters = getattr(self, '_de_clusters', None)
+        if not de_clusters:
+            return
+        if all(c in self._active_clusters for c in de_clusters):
+            return
+        self._de_clusters = None
+        self._de_results = {}
+        self._last_plots_html = ""
+        de_div = getattr(self.component, '_figure_de_div', None)
+        if de_div is not None:
+            de_div.text = ""
+        if self._de_status_div is not None:
+            self._de_status_div.text = ""
 
     def _rebuild_cluster_widgets(self, doc):
         if self._cluster_layout is None:
@@ -330,16 +366,38 @@ class GroupsManager(DEMixin):
 
         adata = self.sample.adata
         gdf   = self.sample.gdf
+        mgr   = self.component.manager
 
-        visible = pd.Series([False] * len(gdf), index=gdf.index)
-        for cname in self._active_clusters:
-            col_key = f"grp_{cname}"
-            if col_key in adata.obs.columns:
-                cluster_series = self.sample.get_value(colname=col_key)
-                if not isinstance(cluster_series, pd.Series):
-                    cluster_series = pd.Series(cluster_series, index=gdf.index)
-                cluster_series = cluster_series.reindex(gdf.index).fillna(False).astype(bool)
-                visible |= cluster_series
+        if hasattr(self.component, 'loader'):
+            # Bins (lazy): el source solo tiene los bins cargados en el viewport,
+            # así que la máscara debe alinearse con source.data['obs_name'] y no
+            # con todo el gdf (si no, el BooleanFilter no casa y no se pinta nada).
+            # Se usa la etiqueta de cluster que ya trae cada bin en el source: en
+            # zoom alejado los bins agregados se llaman "summary:x:y:factor" y no
+            # existen en adata.obs.
+            n_source = len(mgr.source.data.get('x', []))
+            labels = mgr.source.data.get(GROUPS_COL)
+            if labels is not None and len(labels) == n_source:
+                visible = pd.Series(labels, dtype=object).isin(self._active_clusters)
+            else:
+                obs_names = pd.Series(mgr.source.data.get('obs_name', []), dtype=object)
+                visible = pd.Series(False, index=obs_names.index)
+                for cname in self._active_clusters:
+                    col_key = f"grp_{cname}"
+                    if col_key in adata.obs.columns:
+                        in_cluster = obs_names.map(adata.obs[col_key].astype(bool))
+                        visible |= in_cluster.fillna(False).astype(bool)
+            mgr.view_filter = visible.to_numpy(dtype=bool)
+        else:
+            visible = pd.Series([False] * len(gdf), index=gdf.index)
+            for cname in self._active_clusters:
+                col_key = f"grp_{cname}"
+                if col_key in adata.obs.columns:
+                    cluster_series = self.sample.get_value(colname=col_key)
+                    if not isinstance(cluster_series, pd.Series):
+                        cluster_series = pd.Series(cluster_series, index=gdf.index)
+                    cluster_series = cluster_series.reindex(gdf.index).fillna(False).astype(bool)
+                    visible |= cluster_series
 
         col = pd.Series([None] * len(adata.obs), index=adata.obs.index, dtype=object)
         for cname in self._clusters:
@@ -369,6 +427,8 @@ class GroupsManager(DEMixin):
                 self._color_map[cname] = PALETTE[len(self._color_map) % len(PALETTE)]
 
         self._rebuild_custom_clusters_col()
+        if hasattr(self.sample, 'clear_multiscale_cache'):
+            self.sample.clear_multiscale_cache()
         try:
             self.component.clustering_manager.apply_colors_to_column(GROUPS_COL)
         except ValueError:

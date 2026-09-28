@@ -34,6 +34,7 @@ google-auth-oauthlib==1.0.0
 google-pasta==0.2.0
 grpcio==1.70.0
 h5py==3.11.0
+igraph==0.9.10
 idna==3.10
 imageio==2.35.1
 importlib-metadata==8.5.0
@@ -49,6 +50,7 @@ jupyter-core==5.7.2
 keras==2.13.1
 kiwisolver==1.4.7
 lazy-loader==0.4
+leidenalg==0.8.10
 libclang==18.1.1
 llvmlite==0.41.1
 Markdown==3.7

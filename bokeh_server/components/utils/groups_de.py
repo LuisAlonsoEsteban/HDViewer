@@ -16,6 +16,7 @@ GROUPS_COL = "custom_clusters"
 # groups_de.py lives at:  bokeh_server/components/utils/groups_de.py
 #   .parent → utils/   .parent → components/   .parent → bokeh_server/
 _STATIC_DATA_DIR = pathlib.Path(__file__).resolve().parent.parent.parent / "static" / "data"
+_STATIC_DATA_DIR.mkdir(parents=True, exist_ok=True)  # ignorado en git: crear si falta
 
 
 class DEMixin:
@@ -39,6 +40,8 @@ class DEMixin:
                 doc.add_next_tick_callback(_u)
 
         _set_de_message("Running DE...")
+        # Clusters de este DE: si se deselecciona alguno, se ocultan los resultados.
+        self._de_clusters = list(active)
 
         def _run():
             if getattr(self, '_de_adata', None) is None:
@@ -426,6 +429,10 @@ class DEMixin:
                     <div style='overflow-x:auto;width:100%'>
                         <img src='{img_url}' style='width:500px;max-width:none;display:block'/>
                     </div>
+                    <p style='color:#888;font-size:10px;margin:4px 0 0 0'>
+                        Eje X: top genes de {cname}. Eje Y: log2 fold change ({cname} vs {rest_label}).
+                        Tamaño del punto: % de spots que expresan el gen (color = {cname}, gris = {rest_label}).
+                    </p>
                 </div>"""
 
             else:
@@ -446,8 +453,10 @@ class DEMixin:
                         expr = expr.toarray().flatten()
                     else:
                         expr = np.asarray(expr).flatten()
-                    in_vals  = np.log1p(expr[in_cluster.values])
-                    out_vals = np.log1p(expr[~in_cluster.values])
+                    # adata es el del DE (_de_adata), que ya tiene log1p aplicado:
+                    # no volver a transformar.
+                    in_vals  = expr[in_cluster.values]
+                    out_vals = expr[~in_cluster.values]
 
                     in_nz  = in_vals[in_vals > 0]   if (in_vals > 0).sum()  >= 3 else in_vals
                     out_nz = out_vals[out_vals > 0]  if (out_vals > 0).sum() >= 3 else out_vals
@@ -470,6 +479,10 @@ class DEMixin:
                     ax.set_ylim(0, ymax * 1.4)
                     ax.set_title(gene, color='white', fontsize=9)
                     ax.set_xlabel('')
+                    ax.set_ylabel(
+                        'Expresión log1p(conteos)' if ax is axes[0] else '',
+                        color='#aaaaaa', fontsize=9,
+                    )
                     ax.tick_params(colors='#aaaaaa', labelsize=10)
                     for spine in ['bottom', 'left']:
                         ax.spines[spine].set_color('#444')
@@ -490,6 +503,11 @@ class DEMixin:
                     <div style='overflow-x:auto;width:100%'>
                         <img src='{img_url}' style='width:{img_w}px;max-width:none;display:block'/>
                     </div>
+                    <p style='color:#888;font-size:10px;margin:4px 0 0 0'>
+                        Eje X: grupo ({cname} vs {rest_label}). Eje Y: expresión del gen,
+                        log1p(conteos). Solo se muestran las observaciones con expresión &gt; 0;
+                        las líneas internas son la mediana y los cuartiles.
+                    </p>
                 </div>"""
 
         if not violins_html:

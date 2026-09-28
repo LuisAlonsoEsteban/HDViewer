@@ -149,7 +149,9 @@ class Sample:
             cropped_gdf, cropped_adata = self.gdf, self.adata
 
         if return_coords:
-            data = self.get_coordinates(cropped_gdf)
+            # copy(): get_coordinates devuelve un slice del gdf y asignar
+            # columnas encima dispara SettingWithCopyWarning.
+            data = self.get_coordinates(cropped_gdf).copy()
         else:
             data = pd.DataFrame()
 
@@ -351,7 +353,7 @@ class Bins(Sample):
         result = self.gdf.cx[left - self.half_bin_size : right + self.half_bin_size,
                               top - self.half_bin_size : bottom + self.half_bin_size]
         print(f"[crop_geom] gdf total={len(self.gdf)} | resultado cx={len(result)}")
-        return result
+        return result.copy()
             
     def get_x(self, geom):
         return geom.centroid.x
@@ -378,6 +380,11 @@ class Bins(Sample):
         if factor <= 1:
             return None
         return f"{self.AGGREGATED_PREFIX}{int(factor)}"
+
+    def clear_multiscale_cache(self):
+        """Vaciar la caché de bins agregados (p.ej. al cambiar columnas de obs
+        como leiden o custom_clusters, que si no se servirían obsoletas)."""
+        self._multiscale_cache.clear()
 
     def _cache_result(self, cache_key, value):
         self._multiscale_cache[cache_key] = value

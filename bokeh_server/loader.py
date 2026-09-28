@@ -1,3 +1,5 @@
+import math
+
 
 class LazyLoader:
 
@@ -16,6 +18,31 @@ class LazyLoader:
 
         self.fixed_static_bbox = None
         self._last_factor = 1
+        self._last_valid_ranges = None
+
+    def _ranges_valid(self):
+        values = (self.x_range.start, self.x_range.end, self.y_range.start, self.y_range.end)
+        if any(v is None or not math.isfinite(v) for v in values):
+            return False
+        return values[1] > values[0] and values[3] > values[2]
+
+    def _check_ranges(self):
+        """True si los rangos son válidos. Si BokehJS manda NaN (p.ej. mientras
+        se recoloca el layout tras el clustering y el plot mide 0 px), se
+        restauran los últimos rangos válidos y se devuelve False."""
+        if self._ranges_valid():
+            self._last_valid_ranges = (
+                self.x_range.start, self.x_range.end,
+                self.y_range.start, self.y_range.end,
+            )
+            return True
+        print(f"[update_bbox] rangos no válidos: x=({self.x_range.start}, {self.x_range.end}) "
+              f"y=({self.y_range.start}, {self.y_range.end}) -> restaurando {self._last_valid_ranges}")
+        if self._last_valid_ranges is not None:
+            xs, xe, ys, ye = self._last_valid_ranges
+            self.x_range.update(start=xs, end=xe)
+            self.y_range.update(start=ys, end=ye)
+        return False
 
     @property
     def window_size(self):
@@ -109,6 +136,8 @@ class LazyLoader:
         def callback(attr, old, new):
 
             def update_bbox():
+                if not self._check_ranges():
+                    return
                 resolution_level = self.get_resolution_level()
                 current_fetch_bbox = self.compute_bbox
                 n_before = len(self.manager.source.data.get('x', []))
@@ -152,6 +181,8 @@ class LazyLoader:
 
     def force_reload(self):
         """Reload current viewport data after source has been cleared."""
+        if not self._check_ranges():
+            return
         resolution_level = self.get_resolution_level()
         self.manager.set_fetch_context(
             bbox=self.compute_bbox,

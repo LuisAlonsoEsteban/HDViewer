@@ -179,6 +179,10 @@ class ClusteringManager:
         if self.CLUSTER_COL not in self.component.manager.sample.adata.obs.columns:
             return
 
+        # Re-run de leiden: que los bins agregados no salgan con etiquetas antiguas.
+        if hasattr(self.component.manager.sample, 'clear_multiscale_cache'):
+            self.component.manager.sample.clear_multiscale_cache()
+
         self.component.add_parameter(
             attr='color',
             colname=self.CLUSTER_COL,
@@ -221,6 +225,9 @@ class ClusteringManager:
             new_colors = color_param.get_values(aligned.copy())
             data = dict(self.component.manager.source.data)
             data['color'] = new_colors
+            # Columna leiden en el source para el hover ("Cluster: @leiden"),
+            # igual que groups.py hace con custom_clusters.
+            data[self.CLUSTER_COL] = ['—' if pd.isna(c) else str(c) for c in aligned]
             self.component.manager.source.data = data
 
         self.component.update_hover_tooltips()
@@ -230,6 +237,12 @@ class ClusteringManager:
         mgr = self.component.manager
         if self.CLUSTER_COL in mgr.source.data and len(mgr.source.data[self.CLUSTER_COL]) > 0:
             cluster_ids = pd.Series(mgr.source.data[self.CLUSTER_COL])
+        elif hasattr(self.component, 'loader'):
+            # Bins (lazy): si el color ya no es leiden (p.ej. clusters personalizados),
+            # la columna no está en el source. Alinear por obs_name con lo cargado;
+            # get_value devolvería el gdf entero y desincroniza view_filter.
+            obs_names = pd.Series(mgr.source.data.get('obs_name', []), dtype=object)
+            cluster_ids = obs_names.map(mgr.sample.adata.obs[self.CLUSTER_COL].astype(str))
         else:
             cluster_ids = mgr.sample.get_value(colname=self.CLUSTER_COL)
         cluster_num = pd.to_numeric(cluster_ids, errors="coerce")
@@ -273,12 +286,13 @@ class ClusteringManager:
             doc.add_next_tick_callback(self._apply_visibility_mask)
 
         for label in self._cluster_labels:
-            cb = CheckboxGroup(labels=["Cluster " + str(label) + "  (" + str(self._count_spots(label)) + " spots)"], active=[0])
+            unit = f"{self.component.alias.lower()}s"  # spots / bins / cells
+            cb = CheckboxGroup(labels=["Cluster " + str(label) + "  (" + str(self._count_spots(label)) + f" {unit})"], active=[0])
             cb.on_change("active", _on_any_change)
             self._cluster_checkboxes.append(cb)
             entry = markers.get(str(label)) or markers.get(label)
             gns = ", ".join(str(t[0]) for t in entry) if entry else "-"
-            gdiv = _Div(text="&nbsp;&nbsp;&nbsp;&nbsp;<span style='color:#aaaaaa;font-size:11px'>" + gns + "</span>", width=380)
+            gdiv = _Div(text="&nbsp;&nbsp;&nbsp;&nbsp;<span style='color:#aaaaaa;font-size:11px'>" + gns + "</span>", width=270)
             widgets.append(cb)
             widgets.append(gdiv)
 
