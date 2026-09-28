@@ -287,16 +287,14 @@ class DynamicSourceManager(SourceManager):
         new_data = fetched_data[~fetched_data.index.isin(self.indexes)]
         print(f"[add_data] new_data.shape={new_data.shape}")
 
-        self.indexes.extend(new_data.index.tolist())
-        self.view_filter = np.concatenate((
-            self.view_filter,
-            np.ones(new_data.shape[0], dtype=bool),
-        ))
+        # Sin filas nuevas no hay nada que añadir (y get_values([]) de los
+        # parámetros estáticos devolvería el vector completo, no uno vacío).
+        if new_data.shape[0] == 0:
+            return
 
         new_is_sequenced = []
         if len(colnames) > 0:
             new_is_sequenced = (~new_data[colnames[0]].isna()).to_numpy().tolist()
-            self.is_sequenced += new_is_sequenced
 
         for param in self.parameters:
             if not param.is_static:
@@ -333,6 +331,15 @@ class DynamicSourceManager(SourceManager):
             new_data = new_data.drop(columns=list(extra), inplace=False)
 
         self.source.stream(new_data.to_dict(orient='list'))
+
+        # Actualizar índices solo tras un stream correcto: si algo falla antes,
+        # self.indexes y source.data no se desincronizan (rompía remove_further_data).
+        self.indexes.extend(new_data.index.tolist())
+        self.view_filter = np.concatenate((
+            self.view_filter,
+            np.ones(new_data.shape[0], dtype=bool),
+        ))
+        self.is_sequenced += new_is_sequenced
 
         if self.component is not None:
             self.component.apply_selected_obs_names()
