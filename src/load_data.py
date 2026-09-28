@@ -100,7 +100,7 @@ class DataSet:
         self.img_format = DataSet.get_format(self.img_path)
         if self.img_format == "btf":
             from tifffile import imread
-        elif self.img_format in ["png", "tiff"]:
+        elif self.img_format in ["png", "tif"]:
             from cv2 import imread
         else:
             raise ValueError("Image format not supported")
