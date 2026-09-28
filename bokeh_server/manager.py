@@ -46,6 +46,7 @@ class SourceManager:
         return dummy_vector.isna().to_numpy()
     
     def add_parameter(self, param):
+        print(f"[parameters lista] {[(p.colname, id(p)) for p in self.parameters if not p.is_static]}")
         existing_param = self.get_param(param.attr)
         if existing_param is not None:
             self.parameters.remove(existing_param)
@@ -69,12 +70,36 @@ class SourceManager:
             if param.is_static:
                 self.source.data[param.attr] = param.get_values()
             else:
+                if param.colname in self.cache.columns:
+                    self.cache.drop(columns=param.colname, inplace=True)
+
                 if param.colname not in self.cache.columns:
-                    colname_data = self.sample.fetch_data(colnames=param.colname, return_coords=False)
-                    self.cache[param.colname] = colname_data[param.colname]
-                self.source.data[param.attr] = param.get_values(self.cache[param.colname].copy())
+                    if param.colname in self.sample.adata.obs.columns:
+                        # Leer de adata.obs y alinear con obs_names del source
+                        obs_series = self.sample.adata.obs[param.colname]
+                        obs_names = pd.Series(self.source.data['obs_name'])
+                        print(f"[obs_names] primeros 3: {obs_names.dropna().head(3).tolist()}")
+                        print(f"[obs_series index] primeros 3: {obs_series.index[:3].tolist()}")
+                        
+                        aligned = obs_names.map(obs_series)
+                        print(f"[aligned] no-NaN: {aligned.dropna().unique()[:5]}")
+                        
+                        self.cache[param.colname] = aligned.values
+                    else:
+                        colname_data = self.sample.fetch_data(
+                            colnames=param.colname, return_coords=False
+                        )
+                        self.cache[param.colname] = colname_data[param.colname]
+
+                valores = param.get_values(
+                    pd.Series(self.cache[param.colname]).copy()
+                )
+                current_data = dict(self.source.data)
+                current_data[param.attr] = valores
+                self.source.data = current_data
         else:
             self.reset()
+
         
     def update_colname(self, old_colname, new_colname):
         for param in self.get_params_by_colname(old_colname):
@@ -101,8 +126,12 @@ class SourceManager:
         return list({param.colname for param in self.parameters if not param.is_static})
 
     def fetch_data(self):
+        print(f"[fetch_data] EJECUTÁNDOSE")
         fetched_data = self.sample.fetch_data(colnames=self.get_colnames())
-
+        print("\n--- FETCH DATA DEBUG ---")
+        print("fetched_data shape:", fetched_data.shape)
+        print("TIPO DE DATO:", type(self.sample))
+        print("columns:", fetched_data.columns)
         colnames = self.get_colnames()
         if len(colnames) > 0:
             self.is_sequenced.clear()
@@ -112,7 +141,12 @@ class SourceManager:
             if not param.is_static:
                 if param.colname not in self.cache.columns:
                     self.cache[param.colname] = fetched_data[param.colname]
-                fetched_data[param.attr] = param.get_values(fetched_data[param.colname].copy())
+                col_data = (
+                    self.cache[param.colname]
+                    if param.colname in self.cache.columns
+                    else fetched_data[param.colname]
+                )
+                fetched_data[param.attr] = param.get_values(col_data.copy())
             else:
                 fetched_data[param.attr] = param.get_values()
 
@@ -131,6 +165,10 @@ class SourceManager:
         if param.is_static:
             self.source.data[param.attr] = param.update(*args, **kwargs)
         else:
+            if param.colname not in self.cache.columns:
+                if kwargs.get('avoid_scaling') and hasattr(param, 'avoid_scaling'):
+                    param.avoid_scaling = True
+                return
             self.source.data[param.attr] = param.update(self.cache[param.colname].copy(), *args, **kwargs)
         if self.component is not None:
             self.component.apply_selected_obs_names()
@@ -226,6 +264,7 @@ class DynamicSourceManager(SourceManager):
             self.clear_sources()
             self.fetch_data()
             return
+
         if self.component is not None:
             self.component.apply_selected_obs_names()
 
@@ -268,7 +307,9 @@ class DynamicSourceManager(SourceManager):
             fetch_kwargs["resolution_level"] = self.effective_resolution_level
             
         fetched_data = self.sample.fetch_data(colnames=colnames, bbox=bbox, **fetch_kwargs)
+        print(f"[add_data] bbox={bbox} | fetched_data.shape={fetched_data.shape}")
         new_data = fetched_data[~fetched_data.index.isin(self.indexes)]
+        print(f"[add_data] new_data.shape={new_data.shape}")
 
         self.indexes.extend(new_data.index.tolist())
         self.view_filter = np.concatenate((
@@ -283,13 +324,17 @@ class DynamicSourceManager(SourceManager):
 
         for param in self.parameters:
             if not param.is_static:
+                
+                # ─── PARCHE DE RESCATE DE CLUSTERS ───────────────────────────
+                # Si el parámetro que se va a pintar coincide con tus grupos personalizados,
+                # nos aseguramos de mapear los posibles NaNs o valores vacíos 
+                # al estado de 'No asignado' para que el mapeador de color los reconozca.
+                vector_datos = new_data[param.colname].copy()
+                if param.colname.startswith("Group"):
+                    vector_datos = vector_datos.fillna("No asignado").astype(str)
+                # ─────────────────────────────────────────────────────────────
 
-                # if param.colname in self.cache.columns:
-                #     self.cache[param.colname] = pd.concat((self.cache[param.colname], new_data[param.colname]), axis=0) # ValueError: cannot reindex on an axis with duplicate labels
-                # else:
-                #     self.cache[param.colname] = new_data[param.colname]
-
-                new_data[param.attr] = param.get_values(new_data[param.colname].copy())
+                new_data[param.attr] = param.get_values(vector_datos)
             else:
                 new_data[param.attr] = param.get_values(is_sequenced_values=new_is_sequenced)
 
@@ -298,13 +343,32 @@ class DynamicSourceManager(SourceManager):
                 if not param.is_static and not param.colname_hovered]
         new_data = new_data.drop(cols_to_drop, axis=1, inplace=False)
         
+        # Reconciliar columnas con el esquema del source (p.ej. cells no trae width/height)
+        existing_cols = set(self.source.data.keys())
+        present_cols  = set(new_data.columns)
+
+        # Columnas que el source espera pero new_data no trae → rellenar con NaN
+        for missing in existing_cols - present_cols:
+            new_data[missing] = np.nan
+
+        # Columnas extra que el source no conoce → descartar (evita el error inverso)
+        extra = present_cols - existing_cols
+        if extra:
+            new_data = new_data.drop(columns=list(extra), inplace=False)
+
         self.source.stream(new_data.to_dict(orient='list'))
 
         if self.component is not None:
             self.component.apply_selected_obs_names()
 
-            self.component._view = self.view_filter.tolist()
-            self.component.change_glyph_view()
+            self.component.update_hover_tooltips()
+            cm = getattr(self.component, "clustering_manager", None)
+            if (cm is not None and getattr(cm, "is_clustered", False)
+                    and len(cm._active_clusters) < len(cm._cluster_labels)):
+                cm._apply_visibility_mask()
+            else:
+                self.component._view = self.view_filter.tolist()
+                self.component.change_glyph_view()
 
 
     def fetch_data(self):

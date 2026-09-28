@@ -45,7 +45,8 @@ class Pooler:
             raise ValueError(f"Predicate '{predicate}' is not valid for the given geometries.")
         
         self.join_result = gpd.sjoin(self.bins, self.gdf, how='right', predicate=predicate)
-        if self.join_result["bins_index"].notna().sum() == 0:
+
+        if (self.join_result["bins_index"].notna()).sum() == 0:
             raise ValueError("No geometries satisfy the predicate")
 
         self.join_result.set_index('bins_index', drop=False, inplace=True)
@@ -89,7 +90,8 @@ class Pooler:
         
         summed_counts = summed_counts.tocsr()
         self.pooled_adata = sc.AnnData(X=summed_counts, obs=pd.DataFrame(metadata, index=polygon_id), var=self.filtered_adata.var)
-        
+        self.pooled_adata.var_names_make_unique()
+
         if 'array_row' in self.pooled_adata.obs.columns and 'array_col' in self.pooled_adata.obs.columns:
             self.pooled_adata.obsm = {'spatial': self.pooled_adata.obs[['array_row', 'array_col']].values}
 

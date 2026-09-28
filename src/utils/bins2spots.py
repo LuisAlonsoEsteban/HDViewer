@@ -1,10 +1,10 @@
 
 import pandas as pd
 import geopandas as gpd
+import numpy as np
+import shapely
 
 from shapely.geometry import Point
-
-import scipy.sparse as sparse
 
 import scanpy as sc
 
@@ -59,21 +59,15 @@ class Bins2Spots:
         return self.converter.visiumHD.get_rotation(self.df_tissue_positions, rad=rad)
 
     def create_bin_squares(self, subset=False):
-        geometry = []
-        total_steps = self.df_tissue_positions.shape[0]
-        for i, (x,y) in tqdm(enumerate(zip(self.df_tissue_positions['pxl_col_in_fullres'], self.df_tissue_positions['pxl_row_in_fullres']))):
-            geometry.append(
-                create_square(
-                    Point(x * self.tile_scale_xfactor, y * self.tile_scale_yfactor), 
-                    self.converter.visiumHD.pixels_per_bin
-                )
-            )
-
-            if self.progress_callback is not None:
-                self.progress_callback(0, i, total_steps)
-
+        # El medio-ancho debe ir en el MISMO espacio (escalado) que los centros,
+        # si no las cajas salen ~1/tile_scale veces demasiado grandes y solapadas.
+        half_x = self.converter.visiumHD.pixels_per_bin / 2 * self.tile_scale_xfactor
+        half_y = self.converter.visiumHD.pixels_per_bin / 2 * self.tile_scale_yfactor
+        x = self.df_tissue_positions['pxl_col_in_fullres'].values * self.tile_scale_xfactor
+        y = self.df_tissue_positions['pxl_row_in_fullres'].values * self.tile_scale_yfactor
+        geometry = shapely.box(x - half_x, y - half_y, x + half_x, y + half_y)
         self._bin_squares = gpd.GeoDataFrame(self.df_tissue_positions, geometry=geometry)
-        return self._bin_squares[self._bin_squares["in_tissue"]] if subset else self._bin_squares
+        return self._bin_squares[self._bin_squares["in_tissue"] == 1] if subset else self._bin_squares
 
     def create_spot_polygons(self):
         spots = []
@@ -108,21 +102,22 @@ class Bins2Spots:
                     self.progress_callback(1, i, nspots_rows)
 
         self._spot_polygons = gpd.GeoDataFrame(metadata, geometry=spots)
+        self._spot_polygons.index.name = 'spot_id'  # avoid conflict with 'index' column in reset_index()
 
         return self._spot_polygons
     
     def convert(self, normalize=True):
         pooler = Pooler(
-            self.bin_squares, 
-            self.adata_hd, 
+            self.bin_squares,
+            self.adata_hd,
             self.spot_polygons,
             keep_cols=['array_row', 'array_col', 'pxl_row_in_fullres','pxl_col_in_fullres']
         )
-        
+
         self.adata_v2 = pooler.run(predicate='intersects')
 
         if normalize:
             sc.pp.normalize_total(self.adata_hd, target_sum=1e4)
             sc.pp.normalize_total(self.adata_v2, target_sum=1e4)
-        
-        return self.adata_v2 
+
+        return self.adata_v2

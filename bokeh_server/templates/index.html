@@ -43,6 +43,18 @@
         background: #333;
         border-right: 2px solid #555; /* Add borders */
     }
+
+    #right {
+        display: flex;
+        flex-direction: column;
+    }
+    #top-right {
+        overflow: hidden;
+    }
+    #bottom-right {
+        min-height: 0;
+        overflow: auto;   /* el embedding hace scroll dentro, no se monta encima */
+    }
     .gutter {
         cursor: col-resize;
     }
@@ -64,6 +76,8 @@
         outline: none;
         border-bottom: 1px solid #6c6c6c;
         transition: background-color 0.3s ease;
+        position: relative; /* junto con z-index, mantiene la barra por encima */
+        z-index: 5;          /* de cualquier canvas de Bokeh que se derrame encima */
     }
 
     .widget-title:hover {
@@ -99,15 +113,13 @@
     .widget-content.visible {
         display: block;
     }
-    #bottom-right {
-        overflow: auto; /* Ensures content is scrollable if it exceeds div height */
-    }
     .embedding-panel-container {
         height: 100%;
         padding: 10px;
         background: #fff;
         color: #333;
         overflow: auto;
+        box-sizing: border-box;
     }
 
     /* Tabs de Bokeh */
@@ -182,7 +194,7 @@
                         </div>
                     </div>
 
-                    <div class="widget-section">
+                    <div class="widget-section" id="cells-section" style="display:none">
                         <div class="widget-title">Cells<span class="fa fa-chevron-down"></span></div>
                         <div class="widget-content">
                             <div class="scroll-container">
@@ -247,16 +259,21 @@
 </script>
 
 <script>
-    document.addEventListener('DOMContentLoaded', function() {
-        const titles = document.querySelectorAll('.widget-title');
-        titles.forEach(title => {
-            title.addEventListener('click', function() {
-                const icon = this.querySelector('.fa');
-                const content = this.nextElementSibling;
-                const isVisible = content.classList.toggle('visible');
-                icon.style.transform = isVisible ? "rotate(180deg)" : "rotate(0deg)";
-            });
-        });
+    // Acordeón de secciones (Spots/Bins/Cells) por delegación de eventos:
+    // un único listener en document maneja el clic sobre cualquier .widget-title,
+    // sin importar cuándo se cree/muestre. Así no depende de showMainApp ni de setTimeout.
+    function toggleAccordion(title) {
+        const content = title.nextElementSibling;
+        const icon = title.querySelector('.fa');
+        if (!content) return;
+        const isOpen = content.style.display === 'block';
+        content.style.display = isOpen ? 'none' : 'block';
+        if (icon) icon.style.transform = isOpen ? "rotate(0deg)" : "rotate(180deg)";
+    }
+
+    document.addEventListener('click', function(e) {
+        const title = e.target.closest('.widget-title');
+        if (title) toggleAccordion(title);
     });
 </script>
 {% endblock %}

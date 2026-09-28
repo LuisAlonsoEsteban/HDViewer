@@ -3,6 +3,9 @@ from . import Panel
 
 from bokeh. plotting import figure
 
+from bokeh.models import Div
+from bokeh.layouts import column
+
 class FigurePanel(Panel):
 
     p, img_alpha_slider = None, None
@@ -51,6 +54,10 @@ class FigurePanel(Panel):
                 self.setup_image_alpha(image_component)
 
             self.add_children(self.img_alpha_slider)
+            self.de_div = Div(text="", sizing_mode="stretch_width") 
+            self.add_children(self.de_div)     
+
+    
 
 
 

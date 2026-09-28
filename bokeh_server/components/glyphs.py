@@ -1,7 +1,7 @@
 
 import os
 from pathlib import Path
-
+from .utils.groups import GroupsManager
 import numpy as np
 
 from bokeh.models import (
@@ -80,6 +80,7 @@ class Component:
         self.autocomplete_input = None
 
         self.clustering_manager = ClusteringManager(self)
+        self.groups_manager = GroupsManager(self)
         self.selected_obs_names = set()
         self._selection_listeners = []
         self._suspend_selection_sync = False
@@ -126,6 +127,11 @@ class Component:
         if self.lazy_loading and self.glyph_renderer is not None:
             loader = LazyLoader(self.manager, self.figure)
             loader.add_range_callback(self, doc)
+            self.loader = loader
+
+            def _initial_load():
+                loader.force_reload()
+            doc.add_next_tick_callback(_initial_load)
 
     def refresh_widgets_layout(self, doc):
         widgets_layout = doc.get_model_by_name(self.widgets_name)
@@ -267,25 +273,47 @@ class Component:
                 )
         self.refresh_figure()
 
+    #def get_hover_tooltips(self):
+    #    items = []
+    #    for param in self.manager.parameters:
+    #        if not param.is_static and param.colname_hovered:
+    #            items.append(f"{param.colname}: @{param.colname}")
+#
+    #    if len(items) > 0:
+    #        return ", ".join(items)
+    #    else:
+    #        return ""
+
     def get_hover_tooltips(self):
         items = []
         for param in self.manager.parameters:
-            if not param.is_static and param.colname_hovered:
+            if (not param.is_static and param.colname_hovered
+                    and param.colname not in ('custom_clusters', 'leiden')
+                    and param.attr != 'alpha'):
                 items.append(f"{param.colname}: @{param.colname}")
+
+        # Añadir leiden solo si tiene valores reales (no todos None)
+        if 'custom_clusters' in self.manager.source.data:
+            items.append("Group: @custom_clusters")
+        if 'leiden' in self.manager.source.data:
+            items.append("Cluster: @leiden")
 
         if len(items) > 0:
             return ", ".join(items)
         else:
-            return ""
+            return "@obs_name"
+
+    def add_hover(self):
+        if self.glyph_renderer:
+            self.hover = HoverTool(
+                tooltips=self.get_hover_tooltips(),
+                renderers=[self.glyph_renderer]
+            )
+            self.figure.add_tools(self.hover)
         
     def update_hover_tooltips(self):
         if self.hover:
             self.hover.tooltips = self.get_hover_tooltips()
-
-    def add_hover(self):
-        if self.glyph_renderer:
-            self.hover = HoverTool(tooltips=[(self.alias, self.get_hover_tooltips())], renderers=[self.glyph_renderer])
-            self.figure.add_tools(self.hover)
 
     def set_visibility(self, visible:bool, apply_checkbox=False):
        self.glyph_renderer.visible = visible
@@ -412,95 +440,112 @@ class Component:
     
     
     def get_widgets(self, doc):
+        print(f"[get_widgets] START alias={self.alias}")
         self._all_widgets = []  # flat list for set_visibility
 
-        # --- General Tab ---
-        general_widgets = [self.get_visible_checkbox()]
-        self._all_widgets.append(self.checkbox)
+        try:
+            general_widgets = [self.get_visible_checkbox()]
+            print(f"[get_widgets] checkbox OK")
+            self._all_widgets.append(self.checkbox)
 
-        general_widgets.append(self.get_not_sequenced_visible_checkbox())
-        self._all_widgets.append(self.notsequenced_checkbox)
+            general_widgets.append(self.get_not_sequenced_visible_checkbox())
+            self._all_widgets.append(self.notsequenced_checkbox)
 
-        if not self.lazy_loading:
-            dl = self.get_download_button()
-            if dl:
-                general_widgets.append(dl)
-                self._all_widgets.append(dl)
+            if not self.lazy_loading:
+                dl = self.get_download_button()
+                if dl:
+                    general_widgets.append(dl)
+                    self._all_widgets.append(dl)
 
-        for param in self.manager.parameters:
-            if 'alpha' in param.attr and not param.is_static:
-                self.slider = Slider(start=0.0, end=1.0, value=1.0, step=0.05, title=f"{self.alias}s alpha")
+            for param in self.manager.parameters:
+                if 'alpha' in param.attr and not param.is_static:
+                    self.slider = Slider(start=0.0, end=1.0, value=1.0, step=0.05, title=f"{self.alias}s alpha")
 
-                def update_alpha(attr, old, new, _param=param):
-                    def set_new_max_alpha():
-                        self.manager.update_param(_param.attr, new_maxv=new)
-                    doc.add_next_tick_callback(set_new_max_alpha)
+                    def update_alpha(attr, old, new, _param=param):
+                        def set_new_max_alpha():
+                            self.manager.update_param(_param.attr, new_maxv=new)
+                        doc.add_next_tick_callback(set_new_max_alpha)
 
-                self.slider.on_change('value', update_alpha)
-                general_widgets.append(self.slider)
-                self._all_widgets.append(self.slider)
+                    self.slider.on_change('value', update_alpha)
+                    general_widgets.append(self.slider)
+                    self._all_widgets.append(self.slider)
 
-        # --- Color Tab ---
-        color_widgets = []
+            # --- Color Tab ---
+            color_widgets = []
 
-        if any([not param.is_static for param in self.manager.parameters]):
-            autocomplete = self.get_autocomplete_input(doc)
-            color_widgets.append(autocomplete)
-            self._all_widgets.append(autocomplete)
+            if any([not param.is_static for param in self.manager.parameters]):
+                autocomplete = self.get_autocomplete_input(doc)
+                color_widgets.append(autocomplete)
+                self._all_widgets.append(autocomplete)
 
-        for param in self.manager.parameters:
-            if 'color' in param.attr:
-                self.colorpicker = ColorPicker(title=f"Select {self.alias}s Color", color='#6baed6')
+            for param in self.manager.parameters:
+                if 'color' in param.attr:
+                    self.colorpicker = ColorPicker(title=f"Select {self.alias}s Color", color='#6baed6')
 
-                def update_color(attr, old, new, _param=param):
-                    def set_new_color():
-                        self.manager.update_param('color', new_val=new)
-                        # self.refresh_params_layout(doc)
-                    doc.add_next_tick_callback(set_new_color)
+                    def update_color(attr, old, new, _param=param):
+                        def set_new_color():
+                            self.manager.update_param('color', new_val=new)
+                            # self.refresh_params_layout(doc)
+                        doc.add_next_tick_callback(set_new_color)
 
-                self.colorpicker.on_change('color', update_color)
-                color_widgets.append(self.colorpicker)
-                self._all_widgets.append(self.colorpicker)
-
+                    self.colorpicker.on_change('color', update_color)
+                    color_widgets.append(self.colorpicker)
+                    self._all_widgets.append(self.colorpicker)
         # --- Clustering Tab ---
         def on_run_clustering(doc):
             if self.autocomplete_input:
                 self.autocomplete_input.completions = self.get_colnames()
-                self.autocomplete_input.value = self.clustering_manager.cluster_col
+                # self.autocomplete_input.value = self.clustering_manager.cluster_col
 
-                self.add_param_form.colname_input.completions = self.get_colnames()
+                    self.add_param_form.colname_input.completions = self.get_colnames()
 
-            if hasattr(self, "_metadata_panel"):
-                def _refresh(doc=doc):
-                    self._metadata_panel.update_marker_table(self)
-                doc.add_next_tick_callback(_refresh)
+                self.update_hover_tooltips()
+                self.refresh_hover()
+                
+                if hasattr(self, "_metadata_panel"):
+                    def _refresh(doc=doc):
+                        self._metadata_panel.update_marker_table(self)
+                    doc.add_next_tick_callback(_refresh)
 
-        clustering_widgets = self.clustering_manager.get_widgets(doc, on_run_clustering)
-        self._all_widgets.extend(clustering_widgets)
+            groups_widgets = self.groups_manager.get_widgets(doc)
+            print(f"[get_widgets] groups OK, n={len(groups_widgets)}")
+            self._all_widgets.extend(groups_widgets)
 
-        # --- Tab panels ---
-        tab_panels = [
-            TabPanel(child=column(*general_widgets), title="General"),
-            TabPanel(child=column(*color_widgets) if color_widgets else column(Div(text="No color options.")), title="Color"),
-            TabPanel(child=column(*clustering_widgets), title="Clustering"),
-        ]
+            clustering_widgets = self.clustering_manager.get_widgets(doc, on_run_clustering)
+            print(f"[get_widgets] clustering OK, n={len(clustering_widgets)}")
+            self._all_widgets.extend(clustering_widgets)
 
-        for param in self.manager.parameters:
-            if not param.is_static and 'alpha' not in param.attr and 'color' not in param.attr:
+            # --- Tab panels ---
+            tab_panels = [
+                TabPanel(child=column(*general_widgets), title="General"),
+                TabPanel(child=column(*color_widgets) if color_widgets else column(Div(text="No color options.")), title="Color"),
+                TabPanel(child=column(*clustering_widgets), title="Clustering"),
+                TabPanel(child=column(*groups_widgets), title="Groups"),
+            ]
+
+            for param in self.manager.parameters:
+                if not param.is_static and 'alpha' not in param.attr and 'color' not in param.attr:
+                    tab_panels.append(
+                        TabPanel(child=column(Div(text=f"Parameter: <b>{param.attr}</b>")), title=param.attr)
+                    )
+
+            if len(self.get_available_attrs()) > 0:
+                self.add_param_form = ParamForm(self)
+                form_layout = self.add_param_form.get_layout(doc)
+                self._all_widgets.append(form_layout)
                 tab_panels.append(
-                    TabPanel(child=column(Div(text=f"Parameter: <b>{param.attr}</b>")), title=param.attr)
+                    TabPanel(child=column(form_layout), title="＋ Add param")
                 )
 
-        if len(self.get_available_attrs()) > 0:
-            self.add_param_form = ParamForm(self)
-            form_layout = self.add_param_form.get_layout(doc)
-            self._all_widgets.append(form_layout)
-            tab_panels.append(
-                TabPanel(child=column(form_layout), title="＋ Add param")
-            )
-
-        self.tabs_widget = Tabs(tabs=tab_panels)
-        return self.tabs_widget
+            self.tabs_widget = Tabs(tabs=tab_panels)
+            print(f"[get_widgets] END OK")
+            return self.tabs_widget
+            
+        except Exception as e:
+            import traceback
+            print(f"[get_widgets] ERROR: {e}")
+            print(traceback.format_exc())
+            raise
 
     def get_widgets_layout(self, doc):
         return column(self.get_widgets(doc), name=self.widgets_name)

@@ -4,6 +4,7 @@ from bokeh.layouts import column, row
 from bokeh.models import ColumnDataSource, Div, TabPanel, Tabs, DataTable, TableColumn, NumberFormatter
 from bokeh.plotting import figure
 from . import Panel
+import math
 
 
 class MetadataPanel(Panel):
@@ -13,6 +14,7 @@ class MetadataPanel(Panel):
         # Mantener este diccionario para compatibilidad interna de la app
         self._marker_table_sources = {}
         self._marker_divs = {}
+        self._de_divs = {}
 
     def _compute_general_stats(self, geom):
         """Calcula las estadísticas numéricas para la tabla de resumen."""
@@ -76,8 +78,8 @@ class MetadataPanel(Panel):
             geom._metadata_panel = self
 
         # Tab principal: General Info
-        main_tabs = [self._build_general_tab(geometries)]
-
+        #main_tabs = [self._build_general_tab(geometries)]
+        main_tabs = []
         # Un tab principal por cada geom con subtabs QC y Markers dentro
         for geom in geometries:
             adata = geom.sample.adata
@@ -185,12 +187,13 @@ class MetadataPanel(Panel):
             marker_tab = self._build_marker_tab(geom)
 
             # Subtabs dentro del tab del geom
-            inner_tabs = Tabs(tabs=[qc_tab, marker_tab])
+            inner_tabs = Tabs(tabs=[qc_tab, marker_tab, self._build_de_tab(geom)])
 
             main_tabs.append(TabPanel(
                 child=column(inner_tabs, sizing_mode="stretch_width"),
                 title=geom.alias
             ))
+        main_tabs.insert(0, self._build_general_tab(geometries))
 
         if main_tabs:
             self.set_children([Tabs(tabs=main_tabs)])
@@ -221,12 +224,18 @@ class MetadataPanel(Panel):
             return
         rows_html = ""
         for cluster, gene_list in markers.items():
-            for gene, score in gene_list:
+            for gene, score, pval, logfc in gene_list:
+                # Formatear pval en notación científica
+                pval_str = f"{pval:.2e}" if (pval and pval > 0 and not math.isnan(pval)) else "0.00e+00"
+                # Colorear logFC en rojo si es negativo, verde si positivo
+                logfc_color = "#4ef1a1" if logfc >= 0 else "#f14e4e"
                 rows_html += f"""
                 <tr>
                     <td style='padding:3px 8px;color:#aaa'>{cluster}</td>
                     <td style='padding:3px 8px;color:#fff'>{gene}</td>
-                    <td style='padding:3px 8px;color:#4e9af1'>{round(float(score), 2)}</td>
+                    <td style='padding:3px 8px;color:#4e9af1'>{score}</td>
+                    <td style='padding:3px 8px;color:#aaa'>{pval_str}</td>
+                    <td style='padding:3px 8px;color:{logfc_color}'>{logfc}</td>
                 </tr>"""
         html = f"""
         <div style='padding:10px;overflow-y:auto;max-height:350px'>
@@ -238,9 +247,47 @@ class MetadataPanel(Panel):
                     <th style='padding:3px 8px;color:#888;text-align:left'>Cluster</th>
                     <th style='padding:3px 8px;color:#888;text-align:left'>Gene</th>
                     <th style='padding:3px 8px;color:#888;text-align:left'>Z-Score</th>
+                    <th style='padding:3px 8px;color:#888;text-align:left'>Adj P-val</th>
+                    <th style='padding:3px 8px;color:#888;text-align:left'>Log2FC</th>
                 </tr>
             </thead>
             <tbody>{rows_html}</tbody>
         </table></div>"""
         self._marker_divs[geom.alias].text = html
         print(f"--- [TABLA ACTUALIZADA] ---")
+    
+    def _build_de_tab(self, geom):
+        de_div = Div(
+            text="<p style='color:#888; font-size:11px; padding:10px;'>"
+                "Create groups and run DE to populate.</p>"
+        )
+        self._de_divs[geom.alias] = de_div
+        return TabPanel(
+            child=column(de_div, sizing_mode="stretch_width"),
+            title="Groups DE"
+        )
+    
+    def update_de_table(self, geom, cname, result_html):
+        print(f"[update_de_table] alias={geom.alias}, in_de_divs={geom.alias in self._de_divs}")
+        if geom.alias in self._de_divs:
+            print(f"[update_de_table] Actualizando div, html len={len(result_html)}")
+            #self._de_divs[geom.alias].text = result_html
+            #result_html = """
+            #<div style="
+            #background:red;
+            #height:400px;
+            #width:100%;
+            #font-size:50px;
+            #color:white">
+            #PLOT TEST
+            #</div>
+            #"""
+            self._de_divs[geom.alias].text = """
+            <h1 style="color:red">HELLO</h1>
+            <div style="background:red;height:300px;width:300px">
+            TEST
+            </div>
+            """
+
+            print(type(self._de_divs[geom.alias]))
+            print(f"[update_de_table] Div actualizado")

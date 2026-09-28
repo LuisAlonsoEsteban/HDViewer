@@ -1,3 +1,4 @@
+import pandas as pd
 import numpy as np
 from bokeh.models import (
     CheckboxGroup,
@@ -12,7 +13,7 @@ from bokeh.layouts import column, row
 from bokeh.palettes import Category20, Category10
 
 from .. import NOT_SEQUENCED_VAL
-
+from ...parameter import CategoricalColor
 
 CLUSTER_PALETTES = [*Category20[20], *Category10[10]]
 
@@ -195,17 +196,61 @@ class ClusteringManager:
 
         self.component.manager.update_param('alpha', avoid_scaling=True)
 
-    def _apply_visibility_mask(self):
-        cluster_ids = self.component.manager.sample.get_value(
-            colname=self.cluster_col
-        )
+        # Bins (lazy loader): recargar por tiles. NO inyectar el source a mano,
+        # eso desincroniza source.data con self.indexes y revienta remove_further_data.
+        if hasattr(self.component, 'loader'):
+            self.component.loader.force_reload()
+            self.component.update_hover_tooltips()
+            return
 
-        visible = cluster_ids.isin(self._active_clusters)
+        print(f"[CLUSTER COLORS] alias={self.component.alias} "
+              f"loader={hasattr(self.component, 'loader')} "
+              f"obs_in_source={len(self.component.manager.source.data.get('obs_name', []))}")
+
+        # Cells: la inyección manual no cuela el cluster (obs_name vacío / no casa).
+        # Re-fetch del viewport -> pasa por get_value y alinea adata.obs con el gdf,
+        # igual que hace apply_colors_to_column para componentes sin loader.
+        if self.component.alias.lower() == 'cell':
+            # Cells son TILED (manager.source vacío). Igual que groups:
+            # el color param ya está puesto y leiden está en adata.obs;
+            # solo forzamos el re-render de los tiles vía change_glyph_view.
+            gdf = self.component.manager.sample.gdf
+            self.component._view = [True] * len(gdf)
+            self.component.change_glyph_view()
+            self.component.update_hover_tooltips()
+            return
+
+        color_param = self.component.manager.get_param('color')
+        if color_param is not None:
+            obs_series = self.component.manager.sample.adata.obs[self.CLUSTER_COL]
+            obs_names = pd.Series(self.component.manager.source.data['obs_name'])
+            aligned = obs_names.map(obs_series)
+            new_colors = color_param.get_values(aligned.copy())
+            data = dict(self.component.manager.source.data)
+            data['color'] = new_colors
+            self.component.manager.source.data = data
+
+        self.component.update_hover_tooltips()
+
+    def _apply_visibility_mask(self):
+        mgr = self.component.manager
+        if self.CLUSTER_COL in mgr.source.data and len(mgr.source.data[self.CLUSTER_COL]) > 0:
+            cluster_ids = pd.Series(mgr.source.data[self.CLUSTER_COL])
+        else:
+            cluster_ids = mgr.sample.get_value(colname=self.CLUSTER_COL)
+            
+        cluster_num = pd.to_numeric(cluster_ids, errors="coerce")
+        active_num = set(pd.to_numeric(pd.Series(list(self._active_clusters)), errors="coerce").dropna())
+        visible = cluster_num.isin(active_num)
 
         if 0 in self.component.notsequenced_checkbox.active:
-            visible |= cluster_ids.isna()
+            visible = visible | cluster_num.isna()
+        visible = np.asarray(visible.tolist(), dtype=bool)
+        
+        if hasattr(mgr, "view_filter"):
+            mgr.view_filter = visible.copy()
 
-        self.component._view = visible.to_list()
+        self.component._view = visible.tolist()
         self.component.change_glyph_view()
 
     # ------------------------------------------------------------------
@@ -213,39 +258,50 @@ class ClusteringManager:
     # ------------------------------------------------------------------
 
     def _build_cluster_control_widgets(self, doc) -> list:
-        """
-        Return a list of widgets for the current cluster state.
-        Empty list when no clustering has been run yet.
-        """
         if not self.is_clustered:
             return []
+        from bokeh.models import CheckboxGroup, Button
+        from bokeh.models import Div as _Div
+        markers = self.component.manager.sample.get_marker_genes(n_genes=5)
+        self._cluster_checkboxes = []
+        widgets = []
+        select_all_btn = Button(label="Select all / Deselect all", button_type="default", name="cluster_select_all")
+        widgets.append(select_all_btn)
 
-        # --- CheckboxGroup: one entry per cluster ----------------------
-        labels = [
-            f"Cluster {label}  ({self._count_spots(label)} spots)"
-            for label in self._cluster_labels
-        ]
-        self._checkbox_group = CheckboxGroup(
-            labels=labels,
-            active=list(range(len(self._cluster_labels))),
-            name="cluster_checkbox_group",
-        )
+        def _on_any_change(attr, old, new):
+            if getattr(self, "_bulk_update", False):
+                return
+            active = set()
+            for cb, lbl in zip(self._cluster_checkboxes, self._cluster_labels):
+                if 0 in cb.active:
+                    active.add(lbl)
+            self._active_clusters = active
+            doc.add_next_tick_callback(self._apply_visibility_mask)
 
-        self._apply_visibility_mask() # Make all spots appear
+        for label in self._cluster_labels:
+            cb = CheckboxGroup(labels=["Cluster " + str(label) + "  (" + str(self._count_spots(label)) + " spots)"], active=[0])
+            cb.on_change("active", _on_any_change)
+            self._cluster_checkboxes.append(cb)
+            entry = markers.get(str(label)) or markers.get(label)
+            gns = ", ".join(str(t[0]) for t in entry) if entry else "-"
+            gdiv = _Div(text="&nbsp;&nbsp;&nbsp;&nbsp;<span style='color:#aaaaaa;font-size:11px'>" + gns + "</span>", width=380)
+            widgets.append(cb)
+            widgets.append(gdiv)
 
-        def _on_checkbox_change(attr, old, new):
-            self._active_clusters = {
-                self._cluster_labels[i] for i in new
-            }
+        self._active_clusters = set(self._cluster_labels)
+        self._apply_visibility_mask()
 
-            def _patch():
-                self._apply_visibility_mask()
+        def _on_select_all():
+            all_on = all(0 in cb.active for cb in self._cluster_checkboxes)
+            self._bulk_update = True
+            for cb in self._cluster_checkboxes:
+                cb.active = [] if all_on else [0]
+            self._bulk_update = False
+            self._active_clusters = set() if all_on else set(self._cluster_labels)
+            doc.add_next_tick_callback(self._apply_visibility_mask)
+        select_all_btn.on_click(_on_select_all)
 
-            doc.add_next_tick_callback(_patch)
-
-        self._checkbox_group.on_change("active", _on_checkbox_change)
-
-        return [self._checkbox_group]
+        return widgets
 
     def _rebuild_cluster_widgets(self, doc):
         """Replace the children of _cluster_layout in-place."""
@@ -268,3 +324,17 @@ class ClusteringManager:
         if self.cluster_col not in obs.columns:
             return 0
         return int((obs[self.cluster_col].astype(str) == label).sum())
+
+
+    def apply_colors_to_column(self, colname: str):
+        self.component.add_parameter(
+            attr='color',
+            colname=colname,
+            static=False,
+            not_sequenced_val=NOT_SEQUENCED_VAL[f"{self.component.alias.lower()}s"]["color"],
+            colname_hovered=True,
+        )
+        self.component.manager.update_param('alpha', avoid_scaling=True)
+        if not hasattr(self.component, 'loader'):
+            self.component.manager.fetch_data()
+        self.component.update_hover_tooltips()

@@ -3,6 +3,7 @@ import geopandas as gpd
 import numpy as np
 import pandas as pd
 from collections import OrderedDict
+import math
 
 class Sample:
 
@@ -51,7 +52,10 @@ class Sample:
             col = self.adata.obs[colname]
             if hasattr(col, 'cat'):
                 col = col.cat.as_ordered()
-            return col.min(), col.max()
+            numeric = pd.to_numeric(col, errors='coerce')
+        if numeric.notna().any():
+            return numeric.min(), numeric.max()
+        return 0.0, 1.0
     
     def crop_geom(self, left, right, top, bottom):
         return self.gdf.cx[left:right, bottom:top].copy()
@@ -84,24 +88,31 @@ class Sample:
         else:
             raise ValueError(f"'{colname}' not found in adata")
          
+
     def get_value(self, adata=None, gdf=None, colname=None):
         if gdf is None:
             gdf = self.gdf
-
         if adata is None:
             adata = self.adata
 
         if colname in gdf.columns:
             return gdf[colname].values.tolist()
 
-        elif self.has_adata():            
+        elif self.has_adata():
             value_df = self.get_adata_vector(adata, colname)
-            value_df[self.on] = value_df.index.astype(gdf[self.on].dtype)
             
+            # Columnas de obs (leiden, Group 1, etc.) → map directo por obs_names
+            if colname in adata.obs.columns:
+                obs_series = self.get_obs_names(adata, gdf)
+                result = obs_series.map(value_df[colname])
+                result.index = gdf.index
+                return result
+            
+            # Genes (adata.var_names) → merge original por self.on
+            value_df.index.name = None  # avoid ambiguity if obs index name matches self.on
+            value_df[self.on] = value_df.index.astype(gdf[self.on].dtype)
             merged_gdf = gdf.reset_index().merge(value_df, on=self.on, how='left').set_index('index')
             return merged_gdf[colname]
-        else:
-            raise ValueError(f"'{colname}' not found in geometries, and AnnData not available")
         
     def get_dummy_colname(self, dtype="numpy"):
         colname = self.get_value(colname=self.get_colnames()[0]).isna()
@@ -160,10 +171,53 @@ class Sample:
         result = self.adata_processed.uns['rank_genes_groups']
         clusters = result['names'].dtype.names
         markers = {}
+        
+        cluster_labels = self.adata_processed.obs['leiden']
+
         for cluster in clusters:
             genes = [result['names'][cluster][i] for i in range(n_genes)]
             scores = [result['scores'][cluster][i] for i in range(n_genes)]
-            markers[cluster] = list(zip(genes, [round(s, 2) for s in scores]))
+            pvals = [result['pvals_adj'][cluster][i] for i in range(n_genes)]
+            
+            # Máscara booleana para separar las células que están dentro y fuera del cluster actual
+            cluster_mask = cluster_labels == cluster
+            logfcs = []
+            
+            for gene in genes:
+                if gene in self.adata_processed.var_names:
+                    # Extraemos la expresión del gen de forma segura (sea matriz densa o dispersa)
+                    expr = self.adata_processed[:, gene].X
+                    if hasattr(expr, 'toarray'):
+                        expr = expr.toarray().flatten()
+                    else:
+                        expr = np.asarray(expr).flatten()
+                    
+                    # Calculamos las medias logarítmicas
+                    mean_in = expr[cluster_mask].mean()
+                    mean_out = expr[~cluster_mask].mean()
+                    
+                    # Como los datos de Scanpy ya están en log1p, aplicamos la resta directa
+                    if mean_in == 0 and mean_out == 0:
+                        l2fc = 0.0
+                    elif mean_out == 0:
+                        # Si fuera del cluster es 0, usamos pseudocuenta de seguridad para evitar división por cero
+                        l2fc = np.log2((mean_in + 1e-6) / 1e-6)
+                    else:
+                        l2fc = mean_in - mean_out
+                        
+                    logfcs.append(round(float(l2fc), 2))
+                else:
+                    logfcs.append(0.0)
+            
+
+            # Empaquetamos los 4 elementos asegurando que todos mantengan tipos numéricos puros (float)
+            markers[cluster] = list(zip(
+                genes, 
+                [round(float(s), 2) for s in scores], 
+                [float(p) for p in pvals], 
+                [float(l) for l in logfcs]
+            ))
+            
         return markers
     
     def get_colnames(self):
@@ -330,9 +384,12 @@ class Bins(Sample):
     MAX_CACHE_ENTRIES = 24
     CLUSTER_PREFIX = "leiden_"
 
-    def __init__(self, *args, half_bin_size=None, **kwargs):
+    def __init__(self, *args, half_bin_size=None,
+                 tile_scale_xfactor=1.0, tile_scale_yfactor=1.0, **kwargs):
         super().__init__(*args, **kwargs)
         self.half_bin_size = half_bin_size or 0
+        self.tile_scale_xfactor = tile_scale_xfactor
+        self.tile_scale_yfactor = tile_scale_yfactor
         self._multiscale_cache = OrderedDict()
 
         self._current_factor = None
@@ -348,9 +405,15 @@ class Bins(Sample):
         if right is None: right = self.half_bin_size
         if bottom is None: bottom = self.half_bin_size
         if top is None: top = self.half_bin_size
-
-        return self.gdf.cx[left - self.half_bin_size : right + self.half_bin_size,
-                           bottom - self.half_bin_size : top + self.half_bin_size].copy()
+        print(f"crop_geom bbox: left={left}, right={right}, top={top}, bottom={bottom}")
+        print(f"[crop_geom] gdf.total_bounds (minx,miny,maxx,maxy): {self.gdf.total_bounds}")
+        if left >= right or top >= bottom:
+            print(f"[crop_geom] BBOX DEGENERADO → devuelve vacío")
+            return self.gdf.iloc[0:0]  # empty GeoDataFrame with same schema
+        result = self.gdf.cx[left - self.half_bin_size : right + self.half_bin_size,
+                              top - self.half_bin_size : bottom + self.half_bin_size]
+        print(f"[crop_geom] gdf total={len(self.gdf)} | resultado cx={len(result)}")
+        return result
             
     def get_x(self, geom):
         return geom.centroid.x
@@ -360,11 +423,11 @@ class Bins(Sample):
 
     @property
     def native_width(self):
-        return float(self.pixels_per_bin or 0)
+        return float((self.pixels_per_bin or 0) * self.tile_scale_xfactor)
 
     @property
     def native_height(self):
-        return float(self.pixels_per_bin or 0)
+        return float((self.pixels_per_bin or 0) * self.tile_scale_yfactor)
 
     def get_aggregation_factor(self, resolution_level):
         if resolution_level is None:
@@ -538,7 +601,8 @@ class Bins(Sample):
 
         cropped_gdf, cropped_adata = self.crop(*aligned_bbox, crop_adata=True)
         if cropped_gdf.empty:
-            empty = pd.DataFrame(columns=["x", "y", "width", "height", "obs_name"])
+            cols = ["x", "y", "width", "height", "obs_name"] + (list(colnames) if colnames else [])
+            empty = pd.DataFrame(columns=cols)
             self._cache_result(cache_key, empty)
             return empty.copy()
 
@@ -590,14 +654,19 @@ class Bins(Sample):
                     },
                     index=cropped_gdf.index,
                 )
-                value_groups = value_frame.groupby(["grid_x", "grid_y"], sort=False)[colname]
-                # Categorical labels (e.g. leiden_{factor}) are shared by all bins
-                # of a cell, so take the first one instead of summing
-                grouped[colname] = value_groups.first() if is_categorical else value_groups.sum(min_count=1)
+
+                _grp = value_frame.groupby(["grid_x", "grid_y"], sort=False)[colname]
+                if _is_cat:
+                    grouped[colname] = _grp.agg(
+                        lambda s: s.value_counts().idxmax() if len(s.value_counts()) else np.nan
+                    )
+                else:
+                    grouped[colname] = _grp.sum(min_count=1)
 
         grouped.reset_index(drop=True, inplace=True)
         grouped.index = grouped["obs_name"]
         self._cache_result(cache_key, grouped)
+
         return grouped.copy()
 
     def fetch_data(self, bbox=None, colnames=None, return_coords=True, resolution_level=None) -> pd.DataFrame:

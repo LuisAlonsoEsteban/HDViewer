@@ -52,6 +52,11 @@ class App:
         self.image_component = ImageComponent(image_processor)
 
     def add_sample(self, polygons, adata, b2s=None, sample_type="spots"):
+        print("\n==============================")
+        print("ADDING SAMPLE:", sample_type)
+        print("polygons type:", type(polygons))
+        print("polygons len:", len(polygons))
+        print("==============================\n")
         if sample_type not in ["spots", "bins", "cells"]:
             return
         
@@ -69,6 +74,9 @@ class App:
 
         if sample_type == "spots":
             sample = Spots(polygons, adata)
+            print("SPOTS -> polygons:", len(polygons))
+            print("SPOTS -> adata:", adata.shape)
+            print("SPOTS -> bounds:", polygons.total_bounds if hasattr(polygons, "total_bounds") else "no bounds")
             radius = b2s.converter.get_pixels(b2s.converter.VisiumV2.SPOT_DIAMETER) / 2
 
             geom = Circles(
@@ -96,15 +104,21 @@ class App:
                 val=self.INITIAL_ATTRS["color"],
                 not_sequenced_val=self.NOT_SEQUENCED_ATTRS["color"]
             )
-
+            #print("N spots:", len(spots_polygons))
             geom.manager.fetch_data()
 
         elif sample_type == "bins":
+            print("BINS -> polygons:", len(polygons))
+            print("BINS -> adata:", adata.shape)
+            print("BINS -> pixels_per_bin:", b2s.converter.visiumHD.pixels_per_bin)
+            print("BINS -> bounds:", polygons.total_bounds if hasattr(polygons, "total_bounds") else "no bounds")
             sample = Bins(
-                polygons, 
-                adata, 
-                on='index', 
-                pixels_per_bin=b2s.converter.visiumHD.pixels_per_bin
+                polygons,
+                adata,
+                on='index',
+                pixels_per_bin=b2s.converter.visiumHD.pixels_per_bin,
+                tile_scale_xfactor=b2s.tile_scale_xfactor,
+                tile_scale_yfactor=b2s.tile_scale_yfactor,
             )
 
             # width = sample.pixels_per_bin * b2s.tile_scale_xfactor
@@ -137,10 +151,16 @@ class App:
                 val=self.INITIAL_ATTRS["color"],
                 not_sequenced_val=self.NOT_SEQUENCED_ATTRS["color"]
             )
-
+            #print("N bins:", len(bins_polygons))
             geom.attach_loader(self.doc)
 
         elif sample_type == "cells":
+            print("CELLS -> polygons:", len(polygons))
+            print("CELLS -> adata:", adata.shape)
+            print("CELLS -> bounds:", polygons.total_bounds if hasattr(polygons, "total_bounds") else "no bounds")
+            print("CELLS -> area mean:", polygons.area.mean() if hasattr(polygons, "area") else "no area")
+            print("tile_scale x/y:", b2s.tile_scale_xfactor, b2s.tile_scale_yfactor)
+            print("spot radius px:", b2s.converter.get_pixels(b2s.converter.visiumV2.SPOT_DIAMETER)/2)
             sample = Cells(polygons, adata)
             geom = Patches(
                 self.figure_panel.p, 
@@ -167,9 +187,8 @@ class App:
                 val=self.INITIAL_ATTRS["color"],
                 not_sequenced_val=self.NOT_SEQUENCED_ATTRS["color"]
             )
-
+            #print("N cells:", len(cells_polygons))
             geom.attach_loader(self.doc)
-
         self.add_geometry(geom)
 
     def add_geometry(self, geom):
@@ -178,9 +197,10 @@ class App:
 
         # Reconstruir metadata si la app ya está construida
         if hasattr(self, '_app_built') and self._app_built:
-            self.doc.add_next_tick_callback(
-                lambda: self.metadata_panel.populate(self.geometries)
-            )
+            def _update(g=geom):
+                self.add_root(g.get_widgets_layout(self.doc))
+                self.metadata_panel.populate(self.geometries)
+            self.doc.add_next_tick_callback(_update)
         self.embedding_panel.set_components(self.geometries)
 
         # If the image is lowres, adjust the width and height to the max of geometries
@@ -202,7 +222,9 @@ class App:
                         self.figure_panel.p.y_range = Range1d(y, y+h)
 
     def add_root(self, layout):
+        print(f"[add_root] name={layout.name}")
         placeholder = self.doc.select_one({"name": layout.name})
+        print(f"[add_root] placeholder found={placeholder is not None}")
         if hasattr(placeholder, "children"):
             if hasattr(layout, "children"):
                 placeholder.children = layout.children
@@ -214,6 +236,10 @@ class App:
             raise ValueError("The ImageComponent must be loaded first with the 'add_image_component' function.")
 
         self.figure_panel.populate(self.image_component)
+
+        for geom in self.geometries:
+            geom._figure_de_div = self.figure_panel.de_div
+
         self.add_root(self.figure_panel.layout)
 
         self.thumbnail_panel.populate(self.image_component, self.figure_panel.p)

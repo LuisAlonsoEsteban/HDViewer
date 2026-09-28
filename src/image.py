@@ -3,7 +3,7 @@ import numpy as np
 from PIL import Image
 
 from flask import Flask, send_file, abort
-
+from shapely.affinity import scale as shapely_scale
 import os
 from tqdm import tqdm
 import math
@@ -26,11 +26,12 @@ class ImageProcessor:
 
     segmentation_path = './StarDist'
 
-    def __init__(self, image, tiles_path, segm_path, tile_size=256):
+    def __init__(self, image, tiles_path, segm_path, tile_size=256, um_per_px=0.5):
         self.image = np.flipud(image)
         self.tiles_path = tiles_path
         self.tile_size = tile_size
         self.segm_path = segm_path
+        self.um_per_px = um_per_px
 
     @property
     def mem(self):
@@ -54,6 +55,12 @@ class ImageProcessor:
     @property
     def scale_yfactor(self):
         return self.max_dim / self.image.shape[0]
+    
+    @property
+    def stardist_scale(self):
+        """Factor para llevar coords de StarDist (0.5 µm/px) al espacio real."""
+        STARDIST_UM_PER_PX = 0.5
+        return self.um_per_px / STARDIST_UM_PER_PX
 
     def clean_tiles(self, rm_dir=True):
         """
@@ -150,22 +157,34 @@ class ImageProcessor:
         # Run the Flask app in a separate thread
         threading.Thread(target=run_app).start()
 
-    def segment_image(self, axes='YXC', block_size=4096, prob_thresh=0.01,nms_thresh=0.001, min_overlap=128, context=128, normalizer=None, n_tiles=(4,4,1)):
-        labels_path = os.path.join(self.segm_path, 'labels.pickle')
-        polys_path = os.path.join(self.segm_path, 'polys.pickle')
+    def segment_image(self, axes='YXC', block_size=4096, prob_thresh=None, nms_thresh=None,
+                  min_overlap=128, context=128, normalizer=None, n_tiles=(4,4,1)):
+        tag = "_norm_v1"
+        labels_path = os.path.join(self.segm_path, f'labels{tag}.pickle')
+        polys_path = os.path.join(self.segm_path, f'polys{tag}.pickle')
 
         if os.path.exists(labels_path) and os.path.exists(polys_path):
-            # Load the labels and polys from files
             with open(labels_path, 'rb') as f:
                 labels = pickle.load(f)
             with open(polys_path, 'rb') as f:
                 polys = pickle.load(f)
             print("Loaded labels and polys from disk.")
-        else:           
-            from stardist.models import StarDist2D 
+        else:
+            from stardist.models import StarDist2D
+            from csbdeep.utils import normalize
+
+            # Normalización por percentiles que espera el modelo H&E.
+            # axis=(0,1) -> por canal, sobre las dos dimensiones espaciales.
+            img = normalize(self.image.astype(np.float32), 1, 99.8, axis=(0, 1))
+
             model = StarDist2D.from_pretrained('2D_versatile_he')
-            labels, polys = model.predict_instances_big(self.image, axes=axes, block_size=block_size, prob_thresh=prob_thresh, nms_thresh=nms_thresh, min_overlap=min_overlap, context=context, normalizer=normalizer, n_tiles=n_tiles)
-            
+            # Sin prob_thresh/nms_thresh -> usa los thresholds calibrados del modelo (0.69 / 0.3)
+            labels, polys = model.predict_instances_big(
+                img, axes=axes, block_size=block_size,
+                min_overlap=min_overlap, context=context,
+                normalizer=None, n_tiles=n_tiles
+            )
+
             with open(labels_path, 'wb') as f:
                 pickle.dump(labels, f, protocol=pickle.HIGHEST_PROTOCOL)
             with open(polys_path, 'wb') as f:
@@ -177,10 +196,23 @@ class ImageProcessor:
     def get_cells_gdf(self, polys, progress_callback=None):
         geometries = []
         n_cells = len(polys['coord'])
-        for i, nuclei in tqdm(enumerate(range(n_cells))):
-            coords = [(y * self.scale_xfactor, x * self.scale_yfactor) for x, y in zip(polys['coord'][nuclei][0], polys['coord'][nuclei][1])]
-            geometries.append(Polygon(coords))
+        H = self.image.shape[0]  # alto en píxeles (filas) del marco volteado de StarDist
 
+        # diagnóstico
+        diam_raw_px = []
+        for k in range(min(50, n_cells)):
+            ys = np.asarray(polys['coord'][k][0]); xs = np.asarray(polys['coord'][k][1])
+            diam_raw_px.append(max(xs.max() - xs.min(), ys.max() - ys.min()))
+        print("DEBUG n_cells:", n_cells)
+        print("DEBUG diám crudo px (mediana):", np.median(diam_raw_px))
+        print("DEBUG diám en µm (×um_per_px):", np.median(diam_raw_px) * self.um_per_px)
+
+        for i, nuclei in tqdm(enumerate(range(n_cells))):
+            coords = [
+                (x_val * self.scale_xfactor, (H - y_val) * self.scale_yfactor)
+                for y_val, x_val in zip(polys['coord'][nuclei][0], polys['coord'][nuclei][1])
+            ]
+            geometries.append(Polygon(coords))
             if progress_callback is not None:
                 progress_callback(i, n_cells)
 
