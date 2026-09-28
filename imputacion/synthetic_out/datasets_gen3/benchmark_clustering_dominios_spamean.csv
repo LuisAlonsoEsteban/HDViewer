@@ -1,9 +1,0 @@
-dataset,metodo,modo,normalizado,sparsity_pct,n_dominios,n_clusters,ARI,ARI_techo,ARI_suelo,NMI,AMI,HOMO,resolution,barrido,frac_recuperada,t_wall_s,t_cpu_s,rss_base_mb,rss_pico_mb,rss_delta_mb
-nb_s00_dom_libre,sin_heldout,referencia,False,0.0,3,3,0.9483,,,0.928,0.9277,0.9227,0.05,r0.05->3c r0.1->3c r0.15->3c r0.2->4c r0.3->5c r0.5->5c r0.8->8c r1.0->8c r1.5->12c,,,,,,
-nb_s00_dom_libre,sin_imputar,referencia,False,30.0,3,3,0.6496,,,0.594,0.592,0.6025,0.5,r0.05->1c r0.1->1c r0.15->1c r0.2->1c r0.3->2c r0.5->3c r0.8->4c r1.0->6c r1.5->11c,,,,,,
-nb_s00_dom_libre,SpaMean[denoise],denoise,False,5.77,3,3,0.6404,0.9483,0.6496,0.6387,0.637,0.6497,0.3,r0.05->1c r0.1->1c r0.15->2c r0.2->2c r0.3->3c r0.5->5c r0.8->6c r1.0->7c r1.5->10c,-0.0309,0.231,0.261,803.5,805.0,1.4
-nb_s00_dom_libre,SpaMean[imputa],imputa,False,5.77,3,3,0.6404,0.9483,0.6496,0.6387,0.637,0.6497,0.3,r0.05->1c r0.1->1c r0.15->2c r0.2->2c r0.3->3c r0.5->5c r0.8->6c r1.0->7c r1.5->10c,-0.0309,0.231,0.261,803.5,805.0,1.4
-nb_s10_dom_libre,sin_heldout,referencia,False,9.98,3,3,0.9519,,,0.9316,0.9313,0.9284,0.2,r0.05->1c r0.1->2c r0.15->2c r0.2->3c r0.3->3c r0.5->4c r0.8->4c r1.0->6c r1.5->8c,,,,,,
-nb_s10_dom_libre,sin_imputar,referencia,False,37.0,3,3,0.6173,,,0.5505,0.5484,0.5457,0.5,r0.05->1c r0.1->1c r0.15->1c r0.2->1c r0.3->1c r0.5->3c r0.8->4c r1.0->4c r1.5->13c,,,,,,
-nb_s10_dom_libre,SpaMean[denoise],denoise,False,12.84,3,3,0.5304,0.9519,0.6173,0.5178,0.5156,0.5273,0.5,r0.05->1c r0.1->1c r0.15->1c r0.2->1c r0.3->2c r0.5->3c r0.8->5c r1.0->5c r1.5->10c,-0.2596,0.256,0.293,806.0,807.8,1.8
-nb_s10_dom_libre,SpaMean[imputa],imputa,False,16.89,3,3,0.6909,0.9519,0.6173,0.6822,0.6807,0.6934,0.3,r0.05->1c r0.1->1c r0.15->1c r0.2->1c r0.3->3c r0.5->3c r0.8->4c r1.0->5c r1.5->9c,0.2202,0.256,0.293,806.0,807.8,1.8
