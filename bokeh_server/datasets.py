@@ -1,4 +1,10 @@
 AVAILABLE_DATASETS = {
+    "Mouse brain": {
+        "expression_path": "/scratch/lalonsoeste/PhD/VisiumVisualizer/data/Visium_HD_Mouse_Brain/binned_outputs/square_016um/filtered_feature_bc_matrix.h5",
+        "positions_path": "/scratch/lalonsoeste/PhD/VisiumVisualizer/data/Visium_HD_Mouse_Brain/binned_outputs/square_016um/spatial/tissue_positions.parquet",
+        "image_path": "/scratch/lalonsoeste/PhD/VisiumVisualizer/data/Visium_HD_Mouse_Brain/Visium_HD_Mouse_Brain_tissue_image.tif",
+        "bins_size": 16,
+    },
     "Mouse small intestine": {
         "expression_path": "/home/lalonso/PhD/VisHD/data/binned_outputs/square_016um/filtered_feature_bc_matrix.h5",
         "positions_path": "/home/lalonso/PhD/VisHD/data/binned_outputs/square_016um/spatial/tissue_positions.parquet",
