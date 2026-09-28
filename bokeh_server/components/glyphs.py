@@ -335,9 +335,7 @@ class Component:
     def change_glyph_view(self):
         if self._view:
             print(f"[change_glyph_view] alias={self.alias} | len(_view)={len(self._view)} | True={sum(self._view)} | n_source={len(self.manager.source.data.get('x',[]))}")
-            self.glyph_renderer.view.filters = [
-                BooleanFilter(booleans=self._view)
-            ]
+            self.glyph_renderer.view.filter = BooleanFilter(booleans=self._view)
     
     def get_not_sequenced_visible_checkbox(self):
         self.notsequenced_checkbox = CheckboxGroup(labels=[f"Show not sequenced {self.alias}s"], active=[0])

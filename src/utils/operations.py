@@ -45,7 +45,7 @@ class Pooler:
             raise ValueError(f"Predicate '{predicate}' is not valid for the given geometries.")
         
         self.join_result = gpd.sjoin(self.bins, self.gdf, how='right', predicate=predicate)
-        if (self.join_result["index_left"].notna()).sum() == 0:
+        if (self.join_result["bins_index"].notna()).sum() == 0:
             raise ValueError("No geometries satisfy the predicate")
 
         self.join_result.set_index('bins_index', drop=False, inplace=True)
