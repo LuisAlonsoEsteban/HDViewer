@@ -425,12 +425,7 @@ class Bins(Sample):
             return self.gdf.iloc[0:0]  # empty GeoDataFrame with same schema
         result = self.gdf.cx[left - self.half_bin_size : right + self.half_bin_size,
                               top - self.half_bin_size : bottom + self.half_bin_size]
-<<<<<<< HEAD
-        return result
-=======
-        print(f"[crop_geom] gdf total={len(self.gdf)} | resultado cx={len(result)}")
         return result.copy()
->>>>>>> ed021106398085b5e8f036008f984f803d5d8ae8
             
     def get_x(self, geom):
         return geom.centroid.x
