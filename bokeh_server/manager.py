@@ -307,20 +307,18 @@ class DynamicSourceManager(SourceManager):
             fetch_kwargs["resolution_level"] = self.effective_resolution_level
             
         fetched_data = self.sample.fetch_data(colnames=colnames, bbox=bbox, **fetch_kwargs)
-        print(f"[add_data] bbox={bbox} | fetched_data.shape={fetched_data.shape}")
+        print(f"[add_data] bbox={bbox} | resolution_level={self.resolution_level} | fetched_data.shape={fetched_data.shape}")
         new_data = fetched_data[~fetched_data.index.isin(self.indexes)]
         print(f"[add_data] new_data.shape={new_data.shape}")
 
-        self.indexes.extend(new_data.index.tolist())
-        self.view_filter = np.concatenate((
-            self.view_filter,
-            np.ones(new_data.shape[0], dtype=bool),
-        ))
+        # Sin filas nuevas no hay nada que añadir (y get_values([]) de los
+        # parámetros estáticos devolvería el vector completo, no uno vacío).
+        if new_data.shape[0] == 0:
+            return
 
         new_is_sequenced = []
         if len(colnames) > 0:
             new_is_sequenced = (~new_data[colnames[0]].isna()).to_numpy().tolist()
-            self.is_sequenced += new_is_sequenced
 
         for param in self.parameters:
             if not param.is_static:
@@ -358,12 +356,27 @@ class DynamicSourceManager(SourceManager):
 
         self.source.stream(new_data.to_dict(orient='list'))
 
+        # Actualizar índices solo tras un stream correcto: si algo falla antes,
+        # self.indexes y source.data no se desincronizan (rompía remove_further_data).
+        self.indexes.extend(new_data.index.tolist())
+        self.view_filter = np.concatenate((
+            self.view_filter,
+            np.ones(new_data.shape[0], dtype=bool),
+        ))
+        self.is_sequenced += new_is_sequenced
+
         if self.component is not None:
             self.component.apply_selected_obs_names()
 
             self.component.update_hover_tooltips()
             cm = getattr(self.component, "clustering_manager", None)
-            if (cm is not None and getattr(cm, "is_clustered", False)
+            gm = getattr(self.component, "groups_manager", None)
+            color_param = self.get_param('color')
+            # El color puede ser un StaticParameter (sin colname).
+            showing_groups = getattr(color_param, "colname", None) == "custom_clusters"
+            if showing_groups and gm is not None and getattr(gm, "_clusters", None):
+                gm._apply_visibility_mask()
+            elif (not showing_groups and cm is not None and getattr(cm, "is_clustered", False)
                     and len(cm._active_clusters) < len(cm._cluster_labels)):
                 cm._apply_visibility_mask()
             else:
@@ -412,9 +425,17 @@ class DynamicSourceManager(SourceManager):
             
         return math.sqrt((p1[0] - p2[0])**2 + (p1[1] - p2[1])**2)
 
+    @staticmethod
+    def _centers(values):
+        """Una coordenada por fila. En cells cada fila es la lista de vértices
+        del polígono (patches): se usa su media para que el array sea 1D."""
+        if len(values) > 0 and np.ndim(values[0]) > 0:
+            return np.array([np.mean(v) if len(v) else np.nan for v in values], dtype=float)
+        return np.asarray(values, dtype=float)
+
     def remove_further_data(self, x, y, distance=1000):
-        x_values = np.asarray(self.source.data['x'], dtype=float)
-        y_values = np.asarray(self.source.data['y'], dtype=float)
+        x_values = self._centers(self.source.data['x'])
+        y_values = self._centers(self.source.data['y'])
 
         distances = np.hypot(x_values - x, y_values - y)
         indexes_array = np.asarray(self.indexes, dtype=object)

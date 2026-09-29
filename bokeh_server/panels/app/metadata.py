@@ -107,6 +107,7 @@ class MetadataPanel(Panel):
                 continue
 
             obs = adata.obs
+            unit = geom.alias.lower()  # spot / bin / cell
             vals_mt = np.array(obs["pct_counts_mt"].dropna(), dtype=float)
             vals_genes = np.array(obs["n_genes_by_counts"].dropna(), dtype=float)
 
@@ -119,7 +120,7 @@ class MetadataPanel(Panel):
             ))
             p_hist_mt = figure(
                 title="% MT", width=210, height=190,
-                x_axis_label="% MT", y_axis_label="N",
+                x_axis_label="% MT", y_axis_label=f"N {unit}s",
                 tools="reset,pan,wheel_zoom"
             )
             p_hist_mt.xaxis.major_label_orientation = 0.8  # rotar etiquetas
@@ -138,8 +139,8 @@ class MetadataPanel(Panel):
                 right=edges2[1:].tolist()
             ))
             p_hist_genes = figure(
-                title="Genes per spot", width=210, height=190,
-                x_axis_label="N genes", y_axis_label="Frecuencia",
+                title=f"Genes per {unit}", width=210, height=190,
+                x_axis_label="N genes", y_axis_label=f"N {unit}s",
                 tools="reset,pan,wheel_zoom"
             )
             p_hist_genes.xaxis.major_label_orientation = 0.8  # rotar etiquetas

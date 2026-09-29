@@ -160,10 +160,18 @@ class StartupController:
 
         self.data_source.on_change("value", _update_source_mode)
 
-        self.status_text.js_on_change("text", CustomJS(code="""
+        # La sección Cells de index.html empieza oculta: mostrarla solo si se
+        # han segmentado células.
+        self.status_text.js_on_change("text", CustomJS(
+            args=dict(cells_checkbox=self.cells_checkbox),
+            code="""
             console.log("JS triggered:", cb_obj.text);
             if (cb_obj.text === "Done") {
                 showMainApp();
+                const cells_section = document.getElementById('cells-section');
+                if (cells_section && cells_checkbox.active) {
+                    cells_section.style.display = 'block';
+                }
             }
         """))
 

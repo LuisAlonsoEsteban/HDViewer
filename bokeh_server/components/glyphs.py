@@ -39,6 +39,8 @@ STATIC_PATH = Path("/bokeh_server/static/data")
 
 BASE_DIR = Path(__file__).resolve().parent  
 DOWNLOADABLE_DATA_PATH = (BASE_DIR.parent / "static" / "data").resolve()
+# static/data está en .gitignore: en un clon nuevo no existe y save_adata fallaría.
+DOWNLOADABLE_DATA_PATH.mkdir(parents=True, exist_ok=True)
 
 class Component:
 

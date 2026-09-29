@@ -155,7 +155,9 @@ class Sample:
             cropped_gdf, cropped_adata = self.gdf, self.adata
 
         if return_coords:
-            data = self.get_coordinates(cropped_gdf)
+            # copy(): get_coordinates devuelve un slice del gdf y asignar
+            # columnas encima dispara SettingWithCopyWarning.
+            data = self.get_coordinates(cropped_gdf).copy()
         else:
             data = pd.DataFrame()
 
@@ -423,7 +425,12 @@ class Bins(Sample):
             return self.gdf.iloc[0:0]  # empty GeoDataFrame with same schema
         result = self.gdf.cx[left - self.half_bin_size : right + self.half_bin_size,
                               top - self.half_bin_size : bottom + self.half_bin_size]
+<<<<<<< HEAD
         return result
+=======
+        print(f"[crop_geom] gdf total={len(self.gdf)} | resultado cx={len(result)}")
+        return result.copy()
+>>>>>>> ed021106398085b5e8f036008f984f803d5d8ae8
             
     def get_x(self, geom):
         return geom.centroid.x

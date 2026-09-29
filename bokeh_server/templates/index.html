@@ -107,7 +107,7 @@
 
     .scroll-container {
         overflow-x: auto; /* Allows horizontal scrolling within the container */
-        white-space: nowrap; /* Optional, if you want all items in a single line */
+        white-space: normal; /* los textos largos (p.ej. etiquetas de clusters) parten línea en vez de salirse */
     }
 
     .widget-content.visible {
@@ -239,7 +239,7 @@
 </script>
 <script>
     Split(['#left', '#center', '#right'], {
-        sizes: [25, 50, 25],
+        sizes: [30, 45, 25],
         minSize: 100,
         gutterSize: 5,
         gutterClass: 'custom-gutter',
