@@ -5,6 +5,8 @@ import pandas as pd
 from collections import OrderedDict
 import math
 
+from .utils.progress import report
+
 class Sample:
 
     _max_y = None
@@ -74,6 +76,9 @@ class Sample:
 
     def get_y(self, geom):
         pass
+
+    def get_unit_area_um2(self):
+        return self.gdf.geometry.area.mean()
     
     def get_coordinates(self, gdf) -> pd.DataFrame:
         gdf['x'] = gdf.geometry.apply(lambda geom: self.get_x(geom))
@@ -267,6 +272,7 @@ class Sample:
         if self.adata_processed is not None:
             return self.adata_processed
 
+        report(f"Preprocessing {self.adata.n_obs} observations (normalize, HVG, scale)...")
         adata = self.adata.copy()
         adata.var_names_make_unique()
 
@@ -289,6 +295,7 @@ class Sample:
         # asking for n_pcs (neighbors and t-SNE only use the first n_pcs).
         cached = self._step_params.get("pca")
         if cached is None or cached < n_pcs:
+            report(f"Computing PCA ({n_pcs} components)...")
             sc.pp.pca(adata, n_comps=n_pcs)
             self._mark_computed("pca", n_pcs)
         return adata
@@ -299,6 +306,7 @@ class Sample:
         adata = self._ensure_pca(n_pcs)
         params = (n_pcs, n_neighbors)
         if not self._is_cached("neighbors", params):
+            report(f"Computing neighbor graph (k={n_neighbors})...")
             sc.pp.neighbors(adata, n_neighbors=n_neighbors, n_pcs=n_pcs)
             self._mark_computed("neighbors", params)
         return adata
@@ -325,6 +333,7 @@ class Sample:
         params = (n_pcs, n_neighbors) if method == "umap" else n_pcs
 
         if self.adata_processed is not None and self._is_cached(step, params) and key in self.adata.obsm:
+            report(f"Using cached {method.upper()} embedding")
             return self.adata.obsm[key]
 
         if method == "pca":
@@ -332,10 +341,12 @@ class Sample:
             values = adata.obsm["X_pca"][:, :2]
         elif method == "umap":
             adata = self._ensure_neighbors(n_pcs, n_neighbors)
+            report("Running UMAP...")
             sc.tl.umap(adata)
             values = adata.obsm["X_umap"][:, :2]
         else:
             adata = self._ensure_pca(n_pcs)
+            report("Running t-SNE...")
             sc.tl.tsne(adata, n_pcs=n_pcs)
             values = adata.obsm["X_tsne"][:, :2]
 
@@ -343,7 +354,8 @@ class Sample:
         self._mark_computed(step, params)
         return self.adata.obsm[key]
 
-    def get_embedding_dataframe(self, method: str) -> pd.DataFrame:
+    def get_embedding_dataframe(self, method: str, resolution_level=None) -> pd.DataFrame:
+        """`resolution_level` is only meaningful for Bins; it is ignored here."""
         method = method.lower()
         values = np.asarray(self.compute_embedding(method), dtype=float)
         df = pd.DataFrame(values, columns=["x", "y"], index=self.adata.obs_names.astype(str))
@@ -363,7 +375,9 @@ class Sample:
         adata = self._ensure_neighbors(n_pcs, n_neighbors)
 
         if not self._is_cached("leiden", resolution):
+            report(f"Running Leiden clustering (resolution={resolution})...")
             sc.tl.leiden(adata, resolution=resolution)
+            report("Ranking marker genes...")
             sc.tl.rank_genes_groups(adata, groupby='leiden', method='wilcoxon')
             self._mark_computed("leiden", resolution)
 
@@ -405,14 +419,10 @@ class Bins(Sample):
         if right is None: right = self.half_bin_size
         if bottom is None: bottom = self.half_bin_size
         if top is None: top = self.half_bin_size
-        print(f"crop_geom bbox: left={left}, right={right}, top={top}, bottom={bottom}")
-        print(f"[crop_geom] gdf.total_bounds (minx,miny,maxx,maxy): {self.gdf.total_bounds}")
         if left >= right or top >= bottom:
-            print(f"[crop_geom] BBOX DEGENERADO → devuelve vacío")
             return self.gdf.iloc[0:0]  # empty GeoDataFrame with same schema
         result = self.gdf.cx[left - self.half_bin_size : right + self.half_bin_size,
                               top - self.half_bin_size : bottom + self.half_bin_size]
-        print(f"[crop_geom] gdf total={len(self.gdf)} | resultado cx={len(result)}")
         return result
             
     def get_x(self, geom):
@@ -420,6 +430,9 @@ class Bins(Sample):
     
     def get_y(self, geom):
         return geom.centroid.y
+
+    def get_unit_area_um2(self):
+        return (self.half_bin_size * 2) ** 2
 
     @property
     def native_width(self):
@@ -448,7 +461,6 @@ class Bins(Sample):
     def _log_resolution_change(self, factor):
         if factor != self._current_factor:
             previous = "none" if self._current_factor is None else self._describe_factor(self._current_factor)
-            print(f"[Bins] Resolution level changed: {previous} -> {self._describe_factor(factor)}")
             self._current_factor = factor
 
     def get_cluster_colname(self, factor):
@@ -478,6 +490,8 @@ class Bins(Sample):
 
         if factor in self._aggregated_samples:
             return self._aggregated_samples[factor]
+
+        report(f"Aggregating bins ({self._describe_factor(factor)})...")
 
         cell_width = self.native_width * factor
         cell_height = self.native_height * factor
@@ -515,8 +529,6 @@ class Bins(Sample):
             obs=pd.DataFrame(index=pd.Index(uniques, dtype=str)),
             var=pd.DataFrame(index=self.adata.var_names.copy()),
         )
-        print(f"[Bins] Built aggregated AnnData for {self._describe_factor(factor)}: "
-              f"{aggregated_adata.n_obs} cells x {aggregated_adata.n_vars} genes")
 
         aggregated_sample = Sample(
             pd.DataFrame({"index": aggregated_adata.obs_names}),
@@ -535,7 +547,6 @@ class Bins(Sample):
         """
         factor = self.get_aggregation_factor(resolution_level)
         key_added = key_added or self.get_cluster_colname(factor)
-        print(f"[Bins] Running Leiden clustering (resolution={resolution}) on {self._describe_factor(factor)} -> '{key_added}'")
 
         if factor <= 1:
             super().run_clustering(resolution=resolution, n_pcs=n_pcs, n_neighbors=n_neighbors, key_added=key_added)
@@ -551,6 +562,18 @@ class Bins(Sample):
         for cache_key in [k for k in self._multiscale_cache if key_added in k[2]]:
             del self._multiscale_cache[cache_key]
         return key_added
+
+    def get_embedding_dataframe(self, method: str, resolution_level=None) -> pd.DataFrame:
+        """Embed the obs at `resolution_level`.
+
+        For aggregated levels the embedding is computed on the aggregated AnnData
+        (sharing its PCA/neighbors with clustering), and obs_names are the
+        'summary:...' names of the plotted aggregated cells.
+        """
+        factor = self.get_aggregation_factor(resolution_level)
+        if factor <= 1:
+            return super().get_embedding_dataframe(method)
+        return self._get_aggregated_sample(factor).get_embedding_dataframe(method)
 
     def get_marker_genes(self, n_genes=5):
         if self._clustering_factor > 1:
@@ -656,7 +679,7 @@ class Bins(Sample):
                 )
 
                 _grp = value_frame.groupby(["grid_x", "grid_y"], sort=False)[colname]
-                if _is_cat:
+                if is_categorical:
                     grouped[colname] = _grp.agg(
                         lambda s: s.value_counts().idxmax() if len(s.value_counts()) else np.nan
                     )
@@ -690,6 +713,11 @@ class Spots(Sample):
     
     def get_y(self, geom):
         return geom.centroid.y
+
+    def get_unit_area_um2(self):
+        return 3.14 * (55.0 / 2)**2
+
+
 
 class Cells(Sample):
     def __init__(self, *args, **kwargs):

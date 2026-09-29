@@ -1,8 +1,9 @@
 from bokeh.layouts import column, row
-from bokeh.models import Button, ColumnDataSource, Div, Select, TabPanel, Tabs
+from bokeh.models import Button, ColumnDataSource, Select, TabPanel, Tabs
 from bokeh.plotting import figure
 
 from . import Panel
+from ...components.utils.loading import LoadingLogger
 
 
 class EmbeddingPanel(Panel):
@@ -13,8 +14,9 @@ class EmbeddingPanel(Panel):
         "tsne": "t-SNE",
     }
 
-    def __init__(self):
+    def __init__(self, doc):
         super().__init__(name="embedding_panel")
+        self.doc = doc
 
         self.components = {}
         self._syncing = False
@@ -68,8 +70,9 @@ class EmbeddingPanel(Panel):
             value="pca",
         )
         run_button = Button(label="Run embedding", button_type="success")
-        status_div = Div(
-            text=f"Select a method and run an embedding for {component.alias.lower()}s."
+        status = LoadingLogger(
+            self.doc,
+            text=f"Select a method and run an embedding for {component.alias.lower()}s.",
         )
 
         plot = figure(
@@ -95,7 +98,7 @@ class EmbeddingPanel(Panel):
 
         content = column(
             row(method_select, run_button, sizing_mode="stretch_width"),
-            status_div,
+            status.div,
             plot,
         )
         panel = TabPanel(child=content, title=component.alias)
@@ -105,7 +108,7 @@ class EmbeddingPanel(Panel):
             "source": source,
             "method_select": method_select,
             "run_button": run_button,
-            "status_div": status_div,
+            "status": status,
             "plot": plot,
             "panel": panel,
         }
@@ -117,9 +120,37 @@ class EmbeddingPanel(Panel):
 
         component = view["component"]
         method = view["method_select"].value
+        status = view["status"]
+        if status.running:
+            return
 
+        # Embed at the level currently displayed (Bins may be aggregated)
+        resolution_level = getattr(component.manager, "effective_resolution_level", None)
+
+        def _work():
+            return component.sample.get_embedding_dataframe(method, resolution_level=resolution_level)
+
+        def _on_error(exc):
+            view["run_button"].disabled = False
+            status.error(exc)
+            view["plot"].visible = False
+
+        view["run_button"].disabled = True
+        status.run(
+            f"{self.METHOD_LABELS[method]} embedding",
+            _work,
+            on_done=lambda df: self._on_embedding_done(sample_type, method, df),
+            on_error=_on_error,
+        )
+
+    def _on_embedding_done(self, sample_type, method, df):
+        view = self._component_views.get(sample_type)
+        if view is None:
+            return
+
+        component = view["component"]
+        view["run_button"].disabled = False
         try:
-            df = component.sample.get_embedding_dataframe(method)
             df["color"] = self._get_colors_for_component(component, df["obs_name"].tolist())
             view["source"].data = {
                 "obs_name": df["obs_name"].astype(str).tolist(),
@@ -130,12 +161,10 @@ class EmbeddingPanel(Panel):
             view["plot"].xaxis.axis_label = f"{self.METHOD_LABELS[method]} 1"
             view["plot"].yaxis.axis_label = f"{self.METHOD_LABELS[method]} 2"
             view["plot"].visible = True
-            view["status_div"].text = (
-                f"<p style='color:green'>Loaded {len(df)} {component.alias.lower()} embeddings.</p>"
-            )
+            view["status"].success(f"Loaded {len(df)} {component.alias.lower()} embeddings.")
             self._update_embedding_selection_from_component(sample_type)
         except Exception as exc:
-            view["status_div"].text = f"<p style='color:red'>Error: {exc}</p>"
+            view["status"].error(exc)
             view["plot"].visible = False
 
     def _get_colors_for_component(self, component, obs_names):

@@ -13,6 +13,7 @@ from bokeh.layouts import column, row
 from bokeh.palettes import Category20, Category10
 
 from .. import NOT_SEQUENCED_VAL
+from .loading import LoadingLogger
 from ...parameter import CategoricalColor
 
 CLUSTER_PALETTES = [*Category20[20], *Category10[10]]
@@ -81,13 +82,24 @@ class ClusteringManager:
         on_done    : optional callable(doc) invoked after the source and
                      widgets have been refreshed.
         """
+        self.apply_result(self.compute(resolution), doc, on_done)
+
+    def compute(self, resolution: float) -> str:
+        """Run the clustering itself (no Bokeh model updates, safe in a thread).
+
+        Returns the obs column holding the labels; pass it to `apply_result`.
+        """
         manager = self.component.manager
         # Cluster at the level currently displayed (Bins store it as 'leiden_{factor}')
         resolution_level = getattr(manager, "effective_resolution_level", None)
-        self.cluster_col = manager.sample.run_clustering(
+        return manager.sample.run_clustering(
             resolution=resolution,
             resolution_level=resolution_level,
         )
+
+    def apply_result(self, cluster_col: str, doc, on_done=None):
+        """Refresh colors and cluster widgets (must run on the document thread)."""
+        self.cluster_col = cluster_col
         self._build_cluster_state()
         self._update_source_colors()
         self._rebuild_cluster_widgets(doc)
@@ -107,10 +119,8 @@ class ClusteringManager:
             title="Clustering resolution",
         )
         run_button = Button(label="Run clustering", button_type="success")
-        status_div = Div(
-            text="<p style='color:gray;font-size:12px'>"
-                 "Run clustering to see results</p>"
-        )
+        status = LoadingLogger(doc)
+        status.set_message("Run clustering to see results")
 
         # Lazy-build cluster widget placeholder so we can update it in-place
         if self._cluster_layout is None:
@@ -120,39 +130,38 @@ class ClusteringManager:
             )
 
         def _on_run():
-            def _do():
-                run_button.disabled = True
-                status_div.text = (
-                    "<p style='color:gray;font-size:12px'>Clustering…</p>"
-                )
+            if status.running:
+                return
+            resolution = resolution_slider.value
+
+            def _on_done(cluster_col):
+                run_button.disabled = False
                 try:
-                    self.run(
-                        resolution=resolution_slider.value,
-                        doc=doc,
-                        on_done=on_run
-                    )
-                    status_div.text = (
-                        f"<p style='color:green;font-size:12px'>"
-                        f"{len(self._cluster_labels)} clusters found</p>"
-                    )
+                    self.apply_result(cluster_col, doc, on_done=on_run)
+                    status.success(f"{len(self._cluster_labels)} clusters found")
                 except Exception as exc:
                     import traceback
                     print(traceback.format_exc())
-                    status_div.text = (
-                        f"<p style='color:red;font-size:12px'>"
-                        f"Error: {str(exc)[:60]}</p>"
-                    )
-                finally:
-                    run_button.disabled = False
+                    status.error(str(exc)[:60])
 
-            doc.add_next_tick_callback(_do)
+            def _on_error(exc):
+                run_button.disabled = False
+                status.error(str(exc)[:60])
+
+            run_button.disabled = True
+            status.run(
+                f"Clustering (res={resolution:g})",
+                lambda: self.compute(resolution),
+                on_done=_on_done,
+                on_error=_on_error,
+            )
 
         run_button.on_click(_on_run)
 
         return [
             resolution_slider,
             run_button,
-            status_div,
+            status.div,
             self._cluster_layout,
         ]
 
@@ -222,7 +231,7 @@ class ClusteringManager:
 
         color_param = self.component.manager.get_param('color')
         if color_param is not None:
-            obs_series = self.component.manager.sample.adata.obs[self.CLUSTER_COL]
+            obs_series = self.component.manager.sample.adata.obs[self.cluster_col]
             obs_names = pd.Series(self.component.manager.source.data['obs_name'])
             aligned = obs_names.map(obs_series)
             new_colors = color_param.get_values(aligned.copy())
@@ -234,10 +243,10 @@ class ClusteringManager:
 
     def _apply_visibility_mask(self):
         mgr = self.component.manager
-        if self.CLUSTER_COL in mgr.source.data and len(mgr.source.data[self.CLUSTER_COL]) > 0:
-            cluster_ids = pd.Series(mgr.source.data[self.CLUSTER_COL])
+        if self.cluster_col in mgr.source.data and len(mgr.source.data[self.cluster_col]) > 0:
+            cluster_ids = pd.Series(mgr.source.data[self.cluster_col])
         else:
-            cluster_ids = mgr.sample.get_value(colname=self.CLUSTER_COL)
+            cluster_ids = mgr.sample.get_value(colname=self.cluster_col)
             
         cluster_num = pd.to_numeric(cluster_ids, errors="coerce")
         active_num = set(pd.to_numeric(pd.Series(list(self._active_clusters)), errors="coerce").dropna())

@@ -440,12 +440,10 @@ class Component:
     
     
     def get_widgets(self, doc):
-        print(f"[get_widgets] START alias={self.alias}")
         self._all_widgets = []  # flat list for set_visibility
 
         try:
             general_widgets = [self.get_visible_checkbox()]
-            print(f"[get_widgets] checkbox OK")
             self._all_widgets.append(self.checkbox)
 
             general_widgets.append(self.get_not_sequenced_visible_checkbox())
@@ -491,11 +489,12 @@ class Component:
                     self.colorpicker.on_change('color', update_color)
                     color_widgets.append(self.colorpicker)
                     self._all_widgets.append(self.colorpicker)
-        # --- Clustering Tab ---
-        def on_run_clustering(doc):
-            if self.autocomplete_input:
-                self.autocomplete_input.completions = self.get_colnames()
-                # self.autocomplete_input.value = self.clustering_manager.cluster_col
+
+            # --- Clustering Tab ---
+            def on_run_clustering(doc):
+                if self.autocomplete_input:
+                    self.autocomplete_input.completions = self.get_colnames()
+                    # self.autocomplete_input.value = self.clustering_manager.cluster_col
 
                     self.add_param_form.colname_input.completions = self.get_colnames()
 
@@ -508,11 +507,9 @@ class Component:
                     doc.add_next_tick_callback(_refresh)
 
             groups_widgets = self.groups_manager.get_widgets(doc)
-            print(f"[get_widgets] groups OK, n={len(groups_widgets)}")
             self._all_widgets.extend(groups_widgets)
 
-            clustering_widgets = self.clustering_manager.get_widgets(doc, on_run_clustering)
-            print(f"[get_widgets] clustering OK, n={len(clustering_widgets)}")
+            clustering_widgets = self.clustering_manager.get_widgets(doc, on_run=on_run_clustering)
             self._all_widgets.extend(clustering_widgets)
 
             # --- Tab panels ---
@@ -538,12 +535,10 @@ class Component:
                 )
 
             self.tabs_widget = Tabs(tabs=tab_panels)
-            print(f"[get_widgets] END OK")
             return self.tabs_widget
             
         except Exception as e:
             import traceback
-            print(f"[get_widgets] ERROR: {e}")
             print(traceback.format_exc())
             raise
 

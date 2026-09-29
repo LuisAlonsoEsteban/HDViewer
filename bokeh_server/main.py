@@ -14,6 +14,7 @@ placeholders = {
     "spots_widgets": column(),
     "bins_widgets": column(),
     "cells_widgets": column(),
+    "comparison_panel": column(sizing_mode='stretch_width'),
     "plot_column": column(sizing_mode='stretch_width'),
     "thumbnail_plot": column(sizing_mode='stretch_width'),
 }

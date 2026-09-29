@@ -27,9 +27,19 @@ class MetadataPanel(Panel):
         mean_umis = 0.0
         if adata is not None and "total_counts" in adata.obs.columns:
             mean_umis = round(float(adata.obs["total_counts"].mean()), 1)
+
+        umis_per_um2 = round(
+                float(
+                    mean_umis /
+                    geom.sample.get_unit_area_um2()
+                    if geom.sample.get_unit_area_um2() > 0
+                    else 0
+                ),
+                1
+            )
         
         return {
-            "Values": [str(n_total), str(n_seq), str(n_not_seq), f"{pct_seq}%", str(mean_umis)]
+            "Values": [str(n_total), str(n_seq), str(n_not_seq), f"{pct_seq}%", str(mean_umis), str(umis_per_um2)]
         }
 
     def _build_general_tab(self, geometries):
@@ -46,6 +56,7 @@ class MetadataPanel(Panel):
                 <td style="padding: 6px 10px; border-bottom: 1px solid #333;">{vals[2]}</td>
                 <td style="padding: 6px 10px; border-bottom: 1px solid #333;">{vals[3]}</td>
                 <td style="padding: 6px 10px; border-bottom: 1px solid #333;">{vals[4]}</td>
+                <td style="padding: 6px 10px; border-bottom: 1px solid #333;">{vals[5]}</td>
             </tr>"""
 
         html_content = f"""
@@ -60,6 +71,7 @@ class MetadataPanel(Panel):
                         <th style="padding: 6px 10px; color: #5cb85c;">Not Seq</th>
                         <th style="padding: 6px 10px; color: #5cb85c;">% Seq</th>
                         <th style="padding: 6px 10px; color: #5cb85c;">Mean UMIs</th>
+                        <th style="padding: 6px 10px; color: #5cb85c;">UMIs/um²</th>
                     </tr>
                 </thead>
                 <tbody>{rows_html}</tbody>

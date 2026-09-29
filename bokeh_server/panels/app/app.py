@@ -8,6 +8,7 @@ from .thumbnail import ThumbnailPanel
 from .figure import FigurePanel
 from .metadata import MetadataPanel
 from .embedding import EmbeddingPanel
+from .comparison import ComparisonPanel
 
 import sys
 sys.path.insert(0, os.path.abspath(os.path.join(os.path.dirname(__file__), '..', '..', '..')))
@@ -36,7 +37,8 @@ class App:
         self.thumbnail_panel = ThumbnailPanel()
         self.figure_panel = FigurePanel()
         self.metadata_panel = MetadataPanel()
-        self.embedding_panel = EmbeddingPanel()
+        self.embedding_panel = EmbeddingPanel(doc)
+        self.comparison_panel = ComparisonPanel(doc)
 
         self.image_component = None
         if image_processor is not None:
@@ -202,6 +204,7 @@ class App:
                 self.metadata_panel.populate(self.geometries)
             self.doc.add_next_tick_callback(_update)
         self.embedding_panel.set_components(self.geometries)
+        self.comparison_panel.set_components(self.geometries)
 
         # If the image is lowres, adjust the width and height to the max of geometries
         if self.image_component:
@@ -249,6 +252,7 @@ class App:
         self.add_root(self.metadata_panel.layout)
 
         self.add_root(self.embedding_panel.layout)
+        self.add_root(self.comparison_panel.layout)
 
         for geom in self.geometries:
             self.add_root(geom.get_widgets_layout(self.doc))

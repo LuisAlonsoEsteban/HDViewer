@@ -203,9 +203,6 @@ class ImageProcessor:
         for k in range(min(50, n_cells)):
             ys = np.asarray(polys['coord'][k][0]); xs = np.asarray(polys['coord'][k][1])
             diam_raw_px.append(max(xs.max() - xs.min(), ys.max() - ys.min()))
-        print("DEBUG n_cells:", n_cells)
-        print("DEBUG diám crudo px (mediana):", np.median(diam_raw_px))
-        print("DEBUG diám en µm (×um_per_px):", np.median(diam_raw_px) * self.um_per_px)
 
         for i, nuclei in tqdm(enumerate(range(n_cells))):
             coords = [

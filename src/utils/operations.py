@@ -97,7 +97,7 @@ class Pooler:
 
         return self.pooled_adata
     
-    def run(self, predicate='within'):
+    def run(self, predicate='intersects'):
         self.join(predicate=predicate)
         self.filter()
         return self.pool()
@@ -107,6 +107,11 @@ class CellsPooler(Pooler):
 
     def __init__(self, *args, **kwargs):
         super().__init__(*args, **kwargs)
+
+    def run(self, predicate=None):
+        self.join(predicate="within")
+        self.filter()
+        return self.pool()
 
     def filter(self): 
         self.join_result['is_within_polygon'] = ~self.join_result['bins_index'].isna()

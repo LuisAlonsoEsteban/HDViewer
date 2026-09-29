@@ -114,7 +114,7 @@ class Bins2Spots:
             keep_cols=['array_row', 'array_col', 'pxl_row_in_fullres','pxl_col_in_fullres']
         )
 
-        self.adata_v2 = pooler.run(predicate='intersects')
+        self.adata_v2 = pooler.run(predicate='within')
 
         if normalize:
             sc.pp.normalize_total(self.adata_hd, target_sum=1e4)
