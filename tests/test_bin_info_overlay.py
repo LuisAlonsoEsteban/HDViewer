@@ -7,6 +7,7 @@ import geopandas as gpd
 import numpy as np
 import pandas as pd
 from bokeh.document import Document
+from bokeh.events import ButtonClick
 from bokeh.models import ColumnDataSource
 from bokeh.plotting import figure
 from shapely.geometry import Polygon
@@ -43,7 +44,7 @@ class BinInfoOverlayTests(unittest.TestCase):
         np.testing.assert_allclose(width, np.linalg.norm(edge))
         np.testing.assert_allclose(height, np.linalg.norm(self.corners[2] - self.corners[1]))
         self.assertAlmostEqual(angle, math.degrees(math.atan2(edge[1], edge[0])))
-        self.assertIn('1 × 1 · native', self.overlay.label.text)
+        self.assertIn('1 × 1 · native', self.overlay.header.text)
         self.assertIn('Native bin 16 µm', self.overlay.label.text)
         self.assertIn('plot units', self.overlay.label.text)
 
@@ -54,13 +55,13 @@ class BinInfoOverlayTests(unittest.TestCase):
         self.plot.y_range.end = 10000
         loader.force_reload()
         self.assertEqual(self.overlay.metadata()['factor'], 12)
-        self.assertIn('12 × 12', self.overlay.label.text)
+        self.assertIn('12 × 12', self.overlay.header.text)
         self.assertIn('Rotation   0.00°', self.overlay.label.text)
         self.assertEqual(self.overlay.metadata()['geometry'], (24, 48, 0))
         self.plot.x_range.end = 20
         self.plot.y_range.end = 20
         loader.force_reload()
-        self.assertIn('1 × 1 · native', self.overlay.label.text)
+        self.assertIn('1 × 1 · native', self.overlay.header.text)
 
     def test_cluster_locked_factor_overrides_zoom(self):
         self.sample.adata.obs['leiden_4'] = ['0']
@@ -68,11 +69,11 @@ class BinInfoOverlayTests(unittest.TestCase):
         self.manager.set_fetch_context(resolution_level='agg:12')
         self.manager.clear_sources()
         self.assertEqual(self.overlay.metadata()['factor'], 4)
-        self.assertIn('4 × 4', self.overlay.label.text)
+        self.assertIn('4 × 4', self.overlay.header.text)
         self.assertIn('Cluster-locked', self.overlay.label.text)
         self.manager.get_colnames = lambda: []
         self.manager.clear_sources()
-        self.assertIn('12 × 12', self.overlay.label.text)
+        self.assertIn('12 × 12', self.overlay.header.text)
         self.assertIn('Zoom-driven', self.overlay.label.text)
 
     def test_screen_anchor_visibility_and_renderer_replacement(self):
@@ -124,7 +125,7 @@ class BinInfoOverlayTests(unittest.TestCase):
         self.assertEqual(self.manager.source.data['obs_name'], ['bin'])
         np.testing.assert_allclose(self.overlay.metadata()['geometry'][0],
                                    np.linalg.norm(self.corners[1] - self.corners[0]))
-        self.assertIn('1 × 1 · native', self.overlay.label.text)
+        self.assertIn('1 × 1 · native', self.overlay.header.text)
 
     def test_cluster_lock_restores_saved_mode(self):
         self.overlay.mode_select.value = '2'
@@ -161,6 +162,24 @@ class BinInfoOverlayTests(unittest.TestCase):
         overlay = BinInfoOverlay(SimpleNamespace(
             sample=self.sample, manager=self.manager, figure=figure()))
         self.assertIn('No bin geometry available', overlay.label.text)
+
+    def test_minimize_keeps_the_current_resolution_visible(self):
+        self.assertFalse(self.overlay.minimized)
+        self.assertTrue(self.overlay.body.visible)
+
+        self.overlay.toggle_button._trigger_event(ButtonClick(self.overlay.toggle_button))
+        self.assertTrue(self.overlay.minimized)
+        self.assertFalse(self.overlay.body.visible)
+        self.assertEqual(self.overlay.toggle_button.label, '+')
+        # The header still reports the active resolution, and keeps updating
+        self.assertIn('1 × 1 · native', self.overlay.header.text)
+        self.overlay.mode_select.value = '4'
+        self.assertIn('4 × 4', self.overlay.header.text)
+
+        self.overlay.toggle_button._trigger_event(ButtonClick(self.overlay.toggle_button))
+        self.assertFalse(self.overlay.minimized)
+        self.assertTrue(self.overlay.body.visible)
+        self.assertEqual(self.overlay.toggle_button.label, '−')
 
 
 if __name__ == '__main__':

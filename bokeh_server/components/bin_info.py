@@ -3,8 +3,8 @@
 import math
 from html import escape
 
-from bokeh.layouts import column
-from bokeh.models import Div, Node, Panel, Select
+from bokeh.layouts import column, row
+from bokeh.models import Button, Div, Node, Panel, Select
 
 from ..loader import LazyLoader
 
@@ -28,21 +28,41 @@ class BinInfoOverlay:
                 .bk-input:focus-visible { outline: 2px solid #5ee0c2; outline-offset: 2px; }
             """],
         )
+        self.header = Div(sizing_mode="stretch_width", margin=0,
+                          styles=dict(font="600 11px/24px monospace", color="#e5edf0",
+                                      letter_spacing="0.5px"))
+        self.toggle_button = Button(
+            label="−", width=26, height=24, margin=0,
+            stylesheets=["""
+                .bk-btn { background: #23383e; color: #e5edf0; border: 1px solid #5b8585;
+                    border-radius: 6px; padding: 0; font: 600 14px/1 monospace; }
+                .bk-btn:hover { background: #30464b; }
+                .bk-btn:focus-visible { outline: 2px solid #5ee0c2; outline-offset: 2px; }
+            """],
+        )
+        self.toggle_button.on_click(lambda: self.set_minimized(not self.minimized))
         self.label = Div(name="bin_resolution_details", sizing_mode="stretch_width")
         self.lock_notice = Div(
             text="Clustering fixes the resolution. Display another column to change it.",
             visible=False, sizing_mode="stretch_width",
             styles=dict(color="#a9c7c9", font_size="11px"),
         )
+        # Everything below the header; hidden while the overlay is minimized
+        self.body = column(self.mode_select, self.label, self.lock_notice,
+                           width=244, spacing=6, margin=0)
+        self.minimized = False
         self.panel = Panel(
             name="bin_resolution_info",
             position=Node(target="frame", symbol="top_right"),
             anchor="top_right", width=270,
-            elements=[column(self.mode_select, self.label, self.lock_notice,
-                             width=244, spacing=6, margin=0)],
+            elements=[column(
+                row(self.header, self.toggle_button, width=244, margin=0),
+                self.body,
+                width=244, spacing=6, margin=0,
+            )],
             styles=dict(background="rgba(24,39,45,0.94)", color="#e5edf0",
                         border="1px solid #5b8585", border_radius="8px",
-                        padding="12px", width="270px", margin_left="-12px", margin_top="12px",
+                        padding="8px 12px", width="270px", margin_left="-12px", margin_top="12px",
                         box_sizing="border-box", pointer_events="auto"),
         )
         component.figure.elements.append(self.panel)
@@ -88,7 +108,9 @@ class BinInfoOverlay:
         title = f"BINS · {factor} × {factor}"
         if factor == 1:
             title += " · native"
-        lines = [title]
+        if self.header.text != escape(title):
+            self.header.text = escape(title)
+        lines = []
         if info["geometry"] is None:
             lines.append("No bin geometry available")
         else:
@@ -113,6 +135,12 @@ class BinInfoOverlay:
                 + escape("\n".join(lines)) + '</div>')
         if self.label.text != text:
             self.label.text = text
+
+    def set_minimized(self, minimized):
+        """Collapse the overlay to its header (the current resolution) or expand it."""
+        self.minimized = minimized
+        self.body.visible = not minimized
+        self.toggle_button.label = "+" if minimized else "−"
 
     def _mode_changed(self, attr, old, new):
         if self._syncing:
