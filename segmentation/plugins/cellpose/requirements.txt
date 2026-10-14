@@ -1,0 +1,7 @@
+--extra-index-url https://download.pytorch.org/whl/cpu
+torch==2.5.1
+cellpose>=3.1,<4
+tifffile
+scipy
+opencv-python-headless
+packaging  # imported by fastremap (a cellpose dependency) but not declared by it

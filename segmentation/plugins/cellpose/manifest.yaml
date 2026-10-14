@@ -1,0 +1,44 @@
+name: cellpose
+title: Cellpose
+description: Generalist deep-learning segmentation of whole cells (cyto3) or nuclei.
+version: 0.1.0
+image: ghcr.io/luisalonsoesteban/visium-seg-cellpose:0.1.0
+url: https://github.com/MouseLand/cellpose
+citation: 'Stringer et al., Cellpose: a generalist algorithm for cellular segmentation, Nature Methods 2021.'
+
+params:
+  - name: model
+    label: Model
+    type: choice
+    choices: [cyto3, nuclei]
+    default: cyto3
+  - name: diameter_um
+    label: Expected diameter (µm)
+    type: float
+    default: 10
+    min: 2
+    max: 60
+    step: 1
+  - name: flow_threshold
+    label: Flow threshold
+    type: float
+    default: 0.4
+    min: 0
+    max: 3
+    step: 0.1
+    help: Higher keeps more (less regular) cells.
+  - name: cellprob_threshold
+    label: Cell probability threshold
+    type: float
+    default: 0
+    min: -6
+    max: 6
+    step: 0.5
+    help: Lower finds more and larger cells.
+  - name: block_size
+    label: Block size (px)
+    type: int
+    default: 2048
+    min: 512
+    max: 8192
+    step: 256

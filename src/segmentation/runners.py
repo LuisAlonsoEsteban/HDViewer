@@ -1,0 +1,221 @@
+"""Ways of executing a plugin: Docker, Apptainer/Singularity or a local Python.
+
+All runners share one contract: the plugin reads <input>/image.tif and
+<input>/params.json and writes <output>/cells.geojson, printing
+"##progress <fraction> <message>" lines to report progress.
+"""
+
+import os
+import shutil
+import subprocess
+import sys
+from collections import deque
+from pathlib import Path
+
+from .plugins import SDK_DIR, SEGMENTATION_ROOT
+
+PROGRESS_PREFIX = "##progress"
+CONTAINER_INPUT = "/data/input"
+CONTAINER_OUTPUT = "/data/output"
+
+# Numerical libraries start one thread per core by default; with several methods
+# running at once on a shared machine that exhausts per-user thread limits
+THREAD_VARIABLES = ("OMP_NUM_THREADS", "OPENBLAS_NUM_THREADS", "MKL_NUM_THREADS",
+                    "NUMEXPR_NUM_THREADS", "TF_NUM_INTRAOP_THREADS", "VHD_SEG_THREADS")
+DEFAULT_THREADS = 8
+
+
+class RunnerError(RuntimeError):
+    pass
+
+
+class Runner:
+    name = None
+
+    def __init__(self, config):
+        self.config = config
+        self.gpu = bool(config.get("gpu", False))
+        threads = config.get("threads_per_run", DEFAULT_THREADS)
+        self.threads = max(1, int(threads if threads != "auto" else os.cpu_count() or 1))
+
+    def thread_env(self):
+        env = {name: str(self.threads) for name in THREAD_VARIABLES}
+        env["TF_NUM_INTEROP_THREADS"] = "2"
+        return env
+
+    def available(self):
+        raise NotImplementedError
+
+    def prepare(self, plugin, on_progress, log):
+        """Make the plugin runnable (e.g. pull its image). Called before each run."""
+
+    def command(self, plugin, input_dir, output_dir, env):
+        """(argv, environment for the launcher) running the plugin with `env` set inside."""
+        raise NotImplementedError
+
+    def run(self, plugin, input_dir, output_dir, on_progress, log_path):
+        with open(log_path, "w") as log:
+            self.prepare(plugin, on_progress, log)
+            argv, env = self.command(plugin, Path(input_dir), Path(output_dir), self.thread_env())
+            log.write("$ " + " ".join(map(str, argv)) + "\n")
+            log.flush()
+            tail = self._stream(argv, env, log, on_progress)
+        return tail
+
+    def _stream(self, argv, env, log, on_progress=None):
+        tail = deque(maxlen=30)
+        try:
+            proc = subprocess.Popen(
+                [str(a) for a in argv], stdout=subprocess.PIPE, stderr=subprocess.STDOUT,
+                text=True, bufsize=1, env={**os.environ, **(env or {})},
+            )
+        except FileNotFoundError as exc:
+            raise RunnerError(f"{argv[0]} not found") from exc
+
+        with proc:
+            for line in proc.stdout:
+                log.write(line)
+                line = line.rstrip()
+                if line.startswith(PROGRESS_PREFIX):
+                    parts = line.split(maxsplit=2)
+                    try:
+                        fraction = float(parts[1])
+                    except (IndexError, ValueError):
+                        continue
+                    if on_progress is not None:
+                        on_progress(fraction, parts[2] if len(parts) > 2 else "")
+                elif line:
+                    tail.append(line)
+        code = proc.returncode
+        log.flush()
+        if code != 0:
+            details = "\n".join(tail)
+            raise RunnerError(f"exited with code {code} ({self.name} runner):\n{details}")
+        return list(tail)
+
+
+class DockerRunner(Runner):
+    name = "docker"
+
+    @property
+    def binary(self):
+        return self.config.get("docker", {}).get("binary", "docker")
+
+    def available(self):
+        if shutil.which(self.binary) is None:
+            return False
+        try:
+            return subprocess.run([self.binary, "info"], capture_output=True, timeout=15).returncode == 0
+        except (OSError, subprocess.TimeoutExpired):
+            return False
+
+    def prepare(self, plugin, on_progress, log):
+        exists = subprocess.run([self.binary, "image", "inspect", plugin.image],
+                                capture_output=True).returncode == 0
+        if exists:
+            return
+
+        # Plugins ship as prebuilt images: pull from the registry named in the manifest
+        on_progress(0.0, "Pulling container image (first run only)")
+        argv = [self.binary, "pull", plugin.image]
+        log.write("$ " + " ".join(map(str, argv)) + "\n")
+        try:
+            self._stream(argv, None, log)
+            return
+        except RunnerError as exc:
+            pull_error = exc
+
+        # Unpublished plugins (e.g. under development) can still be built from source
+        dockerfile = plugin.path / "Dockerfile"
+        if not dockerfile.exists():
+            raise RunnerError(f"could not pull {plugin.image}: {pull_error}")
+        on_progress(0.0, "Image not in a registry: building it (first run only)")
+        argv = [self.binary, "build", "-t", plugin.image, "-f", dockerfile, SEGMENTATION_ROOT]
+        log.write("$ " + " ".join(map(str, argv)) + "\n")
+        try:
+            self._stream(argv, None, log)
+        except RunnerError as exc:
+            raise RunnerError(f"could not pull {plugin.image} ({pull_error}) "
+                              f"nor build it from {dockerfile}: {exc}") from None
+
+    def command(self, plugin, input_dir, output_dir, env):
+        argv = [
+            self.binary, "run", "--rm", "--cpus", str(self.threads),
+            # Results must stay readable/removable by the viewer's user
+            "--user", f"{os.getuid()}:{os.getgid()}", "-e", "HOME=/tmp",
+            "-v", f"{input_dir.resolve()}:{CONTAINER_INPUT}:ro",
+            "-v", f"{output_dir.resolve()}:{CONTAINER_OUTPUT}",
+        ]
+        for name, value in env.items():
+            argv += ["-e", f"{name}={value}"]
+        if self.gpu:
+            argv += ["--gpus", "all"]
+        return argv + [plugin.image], None
+
+
+class ApptainerRunner(Runner):
+    name = "apptainer"
+
+    @property
+    def settings(self):
+        return self.config.get("apptainer", {})
+
+    @property
+    def binary(self):
+        for candidate in (self.settings.get("binary", "apptainer"), "apptainer", "singularity"):
+            if shutil.which(candidate):
+                return candidate
+        return None
+
+    def available(self):
+        return self.binary is not None
+
+    def image_uri(self, plugin):
+        configured = (self.settings.get("images") or {}).get(plugin.name)
+        if configured:
+            return configured
+        images_dir = SEGMENTATION_ROOT / self.settings.get("images_dir", "images")
+        sif = images_dir / f"{plugin.name}.sif"
+        if sif.exists():
+            return str(sif)
+        # Apptainer pulls the registry image and caches it as a SIF on first use
+        return f"docker://{plugin.image}"
+
+    def command(self, plugin, input_dir, output_dir, env):
+        argv = [self.binary, "run", "--cleanenv",
+                "--bind", f"{input_dir.resolve()}:{CONTAINER_INPUT}:ro,"
+                          f"{output_dir.resolve()}:{CONTAINER_OUTPUT}"]
+        for name, value in env.items():
+            argv += ["--env", f"{name}={value}"]
+        if self.gpu:
+            argv.append("--nv")
+        return argv + [self.image_uri(plugin)], None
+
+
+class LocalRunner(Runner):
+    name = "local"
+
+    def available(self):
+        return True
+
+    def command(self, plugin, input_dir, output_dir, env):
+        python = (self.config.get("local", {}).get("python") or {}).get(plugin.name) or sys.executable
+        pythonpath = os.pathsep.join(filter(None, [str(SDK_DIR), os.environ.get("PYTHONPATH")]))
+        argv = [python, plugin.path / "run.py", "--input", input_dir, "--output", output_dir]
+        return argv, {**env, "PYTHONPATH": pythonpath}
+
+
+RUNNERS = {cls.name: cls for cls in (DockerRunner, ApptainerRunner, LocalRunner)}
+
+
+def make_runner(config):
+    choice = os.environ.get("VHD_SEG_RUNNER") or config.get("runner", "auto")
+    if choice != "auto":
+        if choice not in RUNNERS:
+            raise ValueError(f"unknown segmentation runner '{choice}'; use auto or {sorted(RUNNERS)}")
+        return RUNNERS[choice](config)
+    for cls in (DockerRunner, ApptainerRunner):
+        runner = cls(config)
+        if runner.available():
+            return runner
+    return LocalRunner(config)

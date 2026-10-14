@@ -5,15 +5,9 @@ from PIL import Image
 from flask import Flask, send_file, abort
 from shapely.affinity import scale as shapely_scale
 import os
-from tqdm import tqdm
 import math
 
 import threading
-import pickle
-
-from tqdm import tqdm
-import geopandas as gpd
-from shapely import Polygon
 
 class ImageProcessor:
     
@@ -24,14 +18,10 @@ class ImageProcessor:
     tiles_path = './tiles'
     filename_pattern = 'z{zoom}_x{x}_y{y}.png'
 
-    segmentation_path = './StarDist'
-
-    def __init__(self, image, tiles_path, segm_path, tile_size=256, um_per_px=0.5):
+    def __init__(self, image, tiles_path, tile_size=256):
         self.image = np.flipud(image)
         self.tiles_path = tiles_path
         self.tile_size = tile_size
-        self.segm_path = segm_path
-        self.um_per_px = um_per_px
 
     @property
     def mem(self):
@@ -56,12 +46,6 @@ class ImageProcessor:
     def scale_yfactor(self):
         return self.max_dim / self.image.shape[0]
     
-    @property
-    def stardist_scale(self):
-        """Factor para llevar coords de StarDist (0.5 µm/px) al espacio real."""
-        STARDIST_UM_PER_PX = 0.5
-        return self.um_per_px / STARDIST_UM_PER_PX
-
     def clean_tiles(self, rm_dir=True):
         """
         Clean the tiles directory by removing all files.
@@ -156,64 +140,3 @@ class ImageProcessor:
 
         # Run the Flask app in a separate thread
         threading.Thread(target=run_app).start()
-
-    def segment_image(self, axes='YXC', block_size=4096, prob_thresh=None, nms_thresh=None,
-                  min_overlap=128, context=128, normalizer=None, n_tiles=(4,4,1)):
-        tag = "_norm_v1"
-        labels_path = os.path.join(self.segm_path, f'labels{tag}.pickle')
-        polys_path = os.path.join(self.segm_path, f'polys{tag}.pickle')
-
-        if os.path.exists(labels_path) and os.path.exists(polys_path):
-            with open(labels_path, 'rb') as f:
-                labels = pickle.load(f)
-            with open(polys_path, 'rb') as f:
-                polys = pickle.load(f)
-        else:
-            from stardist.models import StarDist2D
-            from csbdeep.utils import normalize
-
-            # Normalización por percentiles que espera el modelo H&E.
-            # axis=(0,1) -> por canal, sobre las dos dimensiones espaciales.
-            img = normalize(self.image.astype(np.float32), 1, 99.8, axis=(0, 1))
-
-            model = StarDist2D.from_pretrained('2D_versatile_he')
-            # Sin prob_thresh/nms_thresh -> usa los thresholds calibrados del modelo (0.69 / 0.3)
-            labels, polys = model.predict_instances_big(
-                img, axes=axes, block_size=block_size,
-                min_overlap=min_overlap, context=context,
-                normalizer=None, n_tiles=n_tiles
-            )
-
-            os.makedirs(self.segm_path, exist_ok=True)
-            with open(labels_path, 'wb') as f:
-                pickle.dump(labels, f, protocol=pickle.HIGHEST_PROTOCOL)
-            with open(polys_path, 'wb') as f:
-                pickle.dump(polys, f, protocol=pickle.HIGHEST_PROTOCOL)
-
-        return labels, polys
-
-    def get_cells_gdf(self, polys, progress_callback=None):
-        geometries = []
-        n_cells = len(polys['coord'])
-        H = self.image.shape[0]  # alto en píxeles (filas) del marco volteado de StarDist
-
-        # diagnóstico
-        diam_raw_px = []
-        for k in range(min(50, n_cells)):
-            ys = np.asarray(polys['coord'][k][0]); xs = np.asarray(polys['coord'][k][1])
-            diam_raw_px.append(max(xs.max() - xs.min(), ys.max() - ys.min()))
-
-        for i, nuclei in tqdm(enumerate(range(n_cells))):
-            coords = [
-                (x_val * self.scale_xfactor, (H - y_val) * self.scale_yfactor)
-                for y_val, x_val in zip(polys['coord'][nuclei][0], polys['coord'][nuclei][1])
-            ]
-            geometries.append(Polygon(coords))
-            if progress_callback is not None:
-                progress_callback(i, n_cells)
-
-        gdf = gpd.GeoDataFrame(geometry=geometries)
-        gdf['index'] = [f"ID_{i+1}" for i, _ in enumerate(gdf.index)]
-        gdf.index = gdf['index']
-        gdf.index.name = None
-        return gdf

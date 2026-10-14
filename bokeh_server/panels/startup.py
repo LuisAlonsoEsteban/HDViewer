@@ -1,10 +1,11 @@
 from bokeh.models import (
     FileInput, Button, Div, Select,
-    Checkbox, CustomJS, RadioButtonGroup, TextInput,
+    Checkbox, CustomJS, RadioButtonGroup, TextInput, NumericInput,
 )
 from bokeh.layouts import row, column
 
 import base64
+import hashlib
 import os
 import sys
 from pathlib import Path
@@ -19,6 +20,7 @@ from ..datasets import AVAILABLE_DATASETS
 sys.path.insert(0, os.path.abspath(os.path.join(os.path.dirname(__file__), "..")))
 
 from src.load_data import DataSet
+from src.segmentation import SegmentationService
 
 
 class StartupController:
@@ -50,12 +52,7 @@ class StartupController:
         self._add_callbacks()
         self._update_source_mode()
 
-        self.tasks = {
-            "tiles": False,
-            "bins": False,
-            "spots": False,
-            "cells": False
-        }
+        self.tasks = {}
 
         self.app = App(self.doc)
 
@@ -106,10 +103,7 @@ class StartupController:
             label="Generate Visium v2 pseudospots",
             active=True
         )
-        self.cells_checkbox = Checkbox(
-            label="Segment cells",
-            active=True
-        )
+        self._build_segmentation_widgets()
 
         self.example_select = Select(
             title="Choose example dataset",
@@ -119,11 +113,85 @@ class StartupController:
 
         self.bins_progress = Div(text="", width=200)
         self.pseudospots_progress = Div(text="", width=200)
-        self.cells_progress = Div(text="", width=200)
         self.status_text = Div(text="Upload your data")
 
         self.load_button = Button(label="Load Data", button_type="success")
         self.load_button.on_click(self.load_data_callback)
+
+    def _build_segmentation_widgets(self):
+        self.segmentation_controls = {}
+        try:
+            self.segmentation = SegmentationService()
+        except Exception as exc:
+            traceback.print_exc()
+            self.segmentation = None
+            self.segmentation_info = Div(
+                text=f'<span style="color:#fb9292">Segmentation is unavailable: {escape(str(exc))}</span>')
+            return
+
+        runner = self.segmentation.runner.name
+        hint = ("" if runner != "local" else
+                " No container runtime found: plugins use this Python environment "
+                "(see segmentation/config.yaml).")
+        self.segmentation_info = Div(text=(
+            '<p style="color:#b7cbd1;margin:0">Select one or more methods to compare; '
+            f'each becomes its own cells layer. Runner: <b>{runner}</b>.{escape(hint)}</p>'))
+
+        for plugin in self.segmentation.plugins.values():
+            checkbox = Checkbox(label=plugin.title, active=plugin.name == "stardist")
+            params = {param.name: self._param_widget(param) for param in plugin.params}
+            about = escape(plugin.description)
+            if plugin.url:
+                about += f' <a href="{escape(plugin.url)}" target="_blank" style="color:#88f5dc">More</a>'
+            box = column(
+                Div(text=f'<p style="color:#b7cbd1;margin:0">{about}</p>'),
+                *params.values(),
+                visible=checkbox.active, sizing_mode="stretch_width", spacing=6,
+                styles=dict(padding_left="28px"),
+            )
+            self.segmentation_controls[plugin.name] = dict(
+                plugin=plugin, checkbox=checkbox, params=params, box=box,
+                progress=Div(text="", width=200),
+            )
+
+    @staticmethod
+    def _param_widget(param):
+        if param.type in ("float", "int"):
+            widget = NumericInput(
+                title=param.label, value=param.default, mode=param.type,
+                low=param.min, high=param.max,
+                placeholder="default" if param.default is None else "",
+            )
+        elif param.type == "choice":
+            widget = Select(title=param.label, value=str(param.default),
+                            options=[str(choice) for choice in param.choices])
+        else:
+            widget = Checkbox(label=param.label, active=bool(param.default))
+        if param.help and hasattr(widget, "description"):
+            widget.description = param.help
+        return widget
+
+    def _read_segmentation_params(self):
+        """Selected methods' parameters, validated before loading starts."""
+        values = {}
+        for name, controls in self.segmentation_controls.items():
+            if not controls["checkbox"].active:
+                continue
+            plugin = controls["plugin"]
+            raw = {}
+            for param in plugin.params:
+                widget = controls["params"][param.name]
+                if param.type == "choice":
+                    raw[param.name] = next(c for c in param.choices if str(c) == widget.value)
+                elif param.type == "bool":
+                    raw[param.name] = widget.active
+                else:
+                    raw[param.name] = widget.value
+            try:
+                values[name] = plugin.resolve_params(raw)
+            except ValueError as exc:
+                raise ValueError(f"{plugin.title}: {exc}") from None
+        return values
 
     @property
     def source_mode(self):
@@ -175,7 +243,10 @@ class StartupController:
                 '<p style="color:#b7cbd1;margin-bottom:0">Shared across all data sources. '
                 'Choose the representations to generate.</p>'),
             self.pseudospots_checkbox,
-            self.cells_checkbox,
+            Div(text='<h3 style="margin:8px 0 0;font-size:16px">Cell segmentation</h3>'),
+            self.segmentation_info,
+            *[widget for controls in self.segmentation_controls.values()
+              for widget in (controls["checkbox"], controls["box"])],
         )
         self.progress_panel = card(
             Div(text='<h2 style="margin:0;font-size:19px">Loading progress</h2>'
@@ -199,8 +270,8 @@ class StartupController:
             styles=dict(color="#e5edf0"), name="startup",
         )
         for model in self.layout.references():
-            if isinstance(model, (FileInput, Select, TextInput, Checkbox, Button,
-                                  RadioButtonGroup, Div)):
+            if isinstance(model, (FileInput, Select, TextInput, NumericInput, Checkbox,
+                                  Button, RadioButtonGroup, Div)):
                 model.stylesheets = [widget_css]
                 model.sizing_mode = "stretch_width"
                 model.width = None
@@ -232,17 +303,21 @@ class StartupController:
         )
 
         self.pseudospots_checkbox.on_change("active", lambda attr, old, new: self._reset_progress())
-        self.cells_checkbox.on_change("active", lambda attr, old, new: self._reset_progress())
+        for controls in self.segmentation_controls.values():
+            def on_toggle(attr, old, new, box=controls["box"]):
+                box.visible = new
+                self._reset_progress()
+            controls["checkbox"].on_change("active", on_toggle)
 
         # La sección Cells de index.html empieza oculta: mostrarla solo si se
         # han segmentado células.
         self.status_text.js_on_change("text", CustomJS(
-            args=dict(cells_checkbox=self.cells_checkbox),
+            args=dict(checkboxes=[c["checkbox"] for c in self.segmentation_controls.values()]),
             code="""
             if (cb_obj.text === "Done") {
                 showMainApp();
                 const cells_section = document.getElementById('cells-section');
-                if (cells_section && cells_checkbox.active) {
+                if (cells_section && checkboxes.some((cb) => cb.active)) {
                     cells_section.style.display = 'block';
                 }
             }
@@ -253,16 +328,11 @@ class StartupController:
 
     @property
     def _progress_divs(self):
-        return (self.tiles_progress_bar, self.bins_progress,
-                self.pseudospots_progress, self.cells_progress)
+        return (self.tiles_progress_bar, self.bins_progress, self.pseudospots_progress,
+                *[c["progress"] for c in self.segmentation_controls.values()])
 
     def _progress_html(self, div, pct=0, status="Waiting"):
-        label = {
-            self.tiles_progress_bar: "Image tiles",
-            self.bins_progress: "Bins",
-            self.pseudospots_progress: "Pseudospots",
-            self.cells_progress: "Cell segmentation",
-        }[div]
+        label = self._task_label(next(task for task, d in self._task_divs.items() if d is div))
         pct = max(0, min(100, int(pct)))
         detail = escape(status) + f" · {pct}%"
         color = "#fb9292" if status.startswith("Failed") else "#5ee0c2"
@@ -282,10 +352,12 @@ class StartupController:
         with self._progress_lock:
             self._progress_cache.clear()
         self._progress_displayed.clear()
-        for div, enabled in ((self.tiles_progress_bar, True),
-                             (self.bins_progress, True),
-                             (self.pseudospots_progress, self.pseudospots_checkbox.active),
-                             (self.cells_progress, self.cells_checkbox.active)):
+        enabled_by_div = [(self.tiles_progress_bar, True),
+                          (self.bins_progress, True),
+                          (self.pseudospots_progress, self.pseudospots_checkbox.active)]
+        enabled_by_div += [(c["progress"], c["checkbox"].active)
+                           for c in self.segmentation_controls.values()]
+        for div, enabled in enabled_by_div:
             div.text = self._progress_html(div, status="Waiting" if enabled else "Skipped")
 
     def update_progress(self, div, pct=None, status="Processing"):
@@ -318,17 +390,29 @@ class StartupController:
         if settled and self._ready_to_finish:
             self._finish_loading()
 
+    @property
+    def _task_divs(self):
+        divs = {"tiles": self.tiles_progress_bar, "bins": self.bins_progress,
+                "spots": self.pseudospots_progress}
+        divs.update({f"cells:{name}": c["progress"] for name, c in self.segmentation_controls.items()})
+        return divs
+
     def _task_progress(self, task):
-        return {"tiles": self.tiles_progress_bar, "bins": self.bins_progress,
-                "spots": self.pseudospots_progress,
-                "cells": self.cells_progress}[task]
+        return self._task_divs[task]
 
-    TASK_LABELS = {"tiles": "Image tiles", "bins": "Bins",
-                   "spots": "Pseudospots", "cells": "Cell segmentation"}
+    TASK_LABELS = {"tiles": "Image tiles", "bins": "Bins", "spots": "Pseudospots"}
 
-    def _report_failure(self, task, exc=None):
-        self.failed = True
-        name = self.TASK_LABELS.get(task, "Loading")
+    def _task_label(self, task):
+        if task and task.startswith("cells:"):
+            return f"Cells · {self.segmentation_controls[task[6:]]['plugin'].title}"
+        return self.TASK_LABELS.get(task, "Loading")
+
+    def _report_failure(self, task, exc=None, fatal=True):
+        """A fatal failure stops loading; others (one segmentation method) only
+        mark their own progress bar so the remaining data still loads."""
+        if fatal:
+            self.failed = True
+        name = self._task_label(task)
         reason = None
         if exc is not None:
             # Workers run in threads: without this the traceback is lost
@@ -339,6 +423,8 @@ class StartupController:
         if task:
             self.update_progress(self._task_progress(task),
                                  status=f"Failed · {reason}" if reason else "Failed")
+        if not fatal:
+            return
         message = f"{name} failed: {reason}" if reason else "Loading failed."
         self.doc.add_next_tick_callback(lambda: setattr(
             self.status_text, "text", escape(message) + " Reload to try again."
@@ -370,14 +456,16 @@ class StartupController:
         if not self.preparing and not self.failed and all(self.tasks.values()):
             self.doc.add_next_tick_callback(self._all_tasks_finished)
     
-    def run_in_thread(self, func, sample_type=None):
+    def run_in_thread(self, func, sample_type=None, task=None, sample_kwargs=None, fatal=True):
+        task = task or sample_type
+
         def finish(error=None):
             if error is not None:
-                self._report_failure(sample_type, error)
-            elif sample_type in self.tasks:
-                self.update_progress(self._task_progress(sample_type), 100, "Complete")
-            if sample_type in self.tasks:
-                self.tasks[sample_type] = True
+                self._report_failure(task, error, fatal=fatal)
+            elif task in self.tasks:
+                self.update_progress(self._task_progress(task), 100, "Complete")
+            if task in self.tasks:
+                self.tasks[task] = True
             self._check_all_done()
 
         def wrapper():
@@ -395,7 +483,8 @@ class StartupController:
             # it runs on the document thread and can fail too
             def update_doc():
                 try:
-                    self.app.add_sample(*output, b2s=self.b2s, sample_type=sample_type)
+                    self.app.add_sample(*output, b2s=self.b2s, sample_type=sample_type,
+                                        **(sample_kwargs or {}))
                 except Exception as exc:
                     finish(exc)
                 else:
@@ -414,9 +503,6 @@ class StartupController:
             self.image_processor = ImageProcessor(
                 self.dataset.img,
                 base_dir / "tiles",
-                base_dir / "StarDist",
-                # pixels_per_bin is the full-res width of one bin of the loaded size
-                um_per_px = float(self.dataset.bins_size) / self.dataset.pixels_per_bin
             )
         
             self.doc.add_next_tick_callback(
@@ -503,53 +589,79 @@ class StartupController:
 
         self.run_in_thread(worker, sample_type="spots")
 
-    def generate_cells(self):
-        from src.utils.operations import CellsPooler
+    def _image_key(self):
+        """Identifies the image file, so segmentation results are cached per image."""
+        path = Path(self.dataset.img_path).resolve()
+        stat = path.stat()
+        return hashlib.sha1(f"{path}|{stat.st_size}|{stat.st_mtime_ns}".encode()).hexdigest()[:12]
 
+    def generate_segmentations(self, base_dir):
+        from src.utils.operations import CellsPooler
+        import shapely
+
+        selected = [c for c in self.segmentation_controls.values() if c["checkbox"].active]
+        if not selected:
+            return
         if self.image_processor is None:
             raise RuntimeError("The tissue image must be loaded before segmenting cells")
 
-        self.update_progress(self.cells_progress, status="Preparing expression data")
+        for controls in selected:
+            self.update_progress(controls["progress"], status="Preparing image")
         self.ensure_b2s()
 
-        def worker():
-            def on_progress(done, total):
-                # Four stages: preparation, inference, boundaries, aggregation.
-                pct = 50 + int(25 * done / total) if total else 50
-                self.update_progress(self.cells_progress, pct, "Extracting cell boundaries")
+        work_dir = Path(base_dir) / "segmentation"
+        image_key = self._image_key()
+        # OpenCV (png/tif) reads BGR; plugins always receive RGB
+        image_path = self.segmentation.prepare_image(
+            self.dataset.img, image_key, work_dir, bgr=self.dataset.img_format in ("png", "tif"))
+        um_per_px = (float(self.dataset.bins_size) / self.dataset.pixels_per_bin
+                     if self.dataset.pixels_per_bin else None)
+        # Plugins return pixel coordinates of the original image; the figure
+        # stretches the image to a square (same transform as the bins)
+        scale = (self.image_processor.scale_xfactor, self.image_processor.scale_yfactor)
 
-            self.update_progress(self.cells_progress, 25, "Segmenting tissue")
-            polys = self.image_processor.segment_image(min_overlap=320)[1]
-            self.update_progress(self.cells_progress, 50, "Extracting cell boundaries")
-            cells_gdf = self.image_processor.get_cells_gdf(polys, progress_callback=on_progress)
+        for controls in selected:
+            plugin = controls["plugin"]
 
-            cells_pooler = CellsPooler(
-                self.b2s.bin_squares,
-                self.b2s.adata_hd,
-                cells_gdf,
-                keep_cols=[]
+            def worker(plugin=plugin, div=controls["progress"]):
+                def on_progress(fraction, message):
+                    self.update_progress(div, 5 + int(80 * fraction), message or "Segmenting")
+
+                cells, out_dir = self.segmentation.run(
+                    plugin.name, image_path, image_key, work_dir,
+                    params=self._segmentation_params[plugin.name],
+                    um_per_px=um_per_px, on_progress=on_progress,
+                )
+                print(f"[segmentation] {plugin.title}: {len(cells)} cells ({out_dir})")
+                if cells.empty:
+                    raise RuntimeError(f"{plugin.title} found no cells")
+
+                cells.geometry = shapely.transform(cells.geometry.values, lambda xy: xy * scale)
+                cells["index"] = [f"{plugin.name}_{i + 1}" for i in range(len(cells))]
+                cells.index = cells["index"].values
+
+                self.update_progress(div, 85, f"Aggregating expression of {len(cells)} cells")
+                cells_adata = CellsPooler(
+                    self.b2s.bin_squares, self.b2s.adata_hd, cells, keep_cols=[]
+                ).run(predicate="intersects")
+                self.update_progress(div, 95, "Adding cells to the viewer")
+                return cells, cells_adata
+
+            self.run_in_thread(
+                worker, task=f"cells:{plugin.name}", sample_type="cells",
+                sample_kwargs=dict(method=plugin.name, title=plugin.title),
+                fatal=False,
             )
 
-            self.update_progress(self.cells_progress, 75, "Aggregating cell expression")
-            cells_adata = cells_pooler.run(predicate="intersects")
-
-            return cells_gdf, cells_adata
-
-        self.run_in_thread(worker, sample_type="cells")
-
     def set_tasks(self):
-        self.tasks["tiles"] = False
-        self.tasks["bins"] = False
-        
-        if self.pseudospots_checkbox.active:
-            self.tasks["spots"] = False
-        else:
-            self.tasks["spots"] = True
-        
-        if self.cells_checkbox.active:
-            self.tasks["cells"] = False
-        else:
-            self.tasks["cells"] = True
+        # False = pending; tasks that were not selected count as done
+        self.tasks = {
+            "tiles": False,
+            "bins": False,
+            "spots": not self.pseudospots_checkbox.active,
+        }
+        for name, controls in self.segmentation_controls.items():
+            self.tasks[f"cells:{name}"] = not controls["checkbox"].active
 
     def load_data_callback(self):
         if self.loading or self.source_mode == "url":
@@ -560,6 +672,12 @@ class StartupController:
             self.status_text.text = "Please choose an example dataset"
             return
 
+        try:
+            self._segmentation_params = self._read_segmentation_params()
+        except ValueError as exc:
+            self.status_text.text = escape(str(exc))
+            return
+
         self.restart()
         self.set_tasks()
         self.status_text.text = "Loading your dataset…"
@@ -568,8 +686,10 @@ class StartupController:
         self._reset_progress()
         self._progress_timer = self.doc.add_periodic_callback(self._render_progress, 50)
         for widget in (self.data_source, self.load_button, self.pseudospots_checkbox,
-                       self.cells_checkbox, self.example_select, self.h5_input,
-                       self.positions_input, self.image_input, self.resolution_select):
+                       self.example_select, self.h5_input,
+                       self.positions_input, self.image_input, self.resolution_select,
+                       *[w for c in self.segmentation_controls.values()
+                         for w in (c["checkbox"], *c["params"].values())]):
             widget.disabled = True
         self.update_progress(self.tiles_progress_bar, status="Reading image and preparing tiles")
 
@@ -609,16 +729,16 @@ class StartupController:
             bins_size=bins_size
         )
 
-        self.generate_tiles(
+        base_dir = (
             self.UPLOAD_DIR if self.source_mode == "upload"
             else Path(AVAILABLE_DATASETS[self.example_select.value]["image_path"]).resolve().parent
         )
+        self.generate_tiles(base_dir)
         
         if self.pseudospots_checkbox.active:
             self.generate_pseudospots()
         
-        if self.cells_checkbox.active:
-            self.generate_cells()
+        self.generate_segmentations(base_dir)
 
         # Bins are always displayed; the generators above only build them as a
         # dependency, so with both options unchecked they would never be added

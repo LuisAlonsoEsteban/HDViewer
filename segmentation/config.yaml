@@ -1,0 +1,30 @@
+# How segmentation plugins are executed. VHD_SEG_RUNNER overrides `runner`.
+#   auto      - docker if the daemon is reachable, else apptainer/singularity, else local
+#   docker    - one container per run (images are pulled on first use)
+#   apptainer - for HPC; docker://<image>, or a local .sif from images/<name>.sif
+#               or `apptainer.images` below
+#   local     - run.py with a Python environment on this machine (see `local.python`)
+runner: auto
+
+# Methods running at the same time; the others wait in a queue.
+max_parallel: 2
+
+# CPU threads each run may use (OpenMP/BLAS/TensorFlow/PyTorch pools); `auto` = all
+# cores. Keep it modest on shared machines: max_parallel runs use it each.
+threads_per_run: 8
+
+# Pass GPUs to containers (docker --gpus all / apptainer --nv).
+gpu: false
+
+docker:
+  binary: docker
+
+apptainer:
+  binary: apptainer          # `singularity` is also tried
+  images_dir: images         # relative to this folder; <name>.sif per plugin
+  images: {}                 # name -> .sif path or URI overriding docker://<manifest image>
+
+local:
+  # name -> Python interpreter with the plugin's requirements.txt installed.
+  # Plugins not listed use the viewer's own interpreter.
+  python: {}

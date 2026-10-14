@@ -1,0 +1,46 @@
+name: stardist
+title: StarDist
+description: Star-convex nucleus detection with the pretrained H&E model (2D_versatile_he).
+version: 0.1.0
+image: ghcr.io/luisalonsoesteban/visium-seg-stardist:0.1.0
+url: https://github.com/stardist/stardist
+citation: 'Schmidt et al., "Cell Detection with Star-convex Polygons", MICCAI 2018.'
+
+params:
+  - name: prob_thresh
+    label: Probability threshold
+    type: float
+    default: null
+    min: 0
+    max: 1
+    step: 0.05
+    help: Empty uses the model's calibrated threshold.
+  - name: nms_thresh
+    label: Overlap (NMS) threshold
+    type: float
+    default: null
+    min: 0
+    max: 1
+    step: 0.05
+    help: Empty uses the model's calibrated threshold.
+  - name: norm_low
+    label: Normalisation low percentile
+    type: float
+    default: 1
+    min: 0
+    max: 50
+    step: 0.5
+  - name: norm_high
+    label: Normalisation high percentile
+    type: float
+    default: 99.8
+    min: 50
+    max: 100
+    step: 0.1
+  - name: block_size
+    label: Block size (px)
+    type: int
+    default: 4096
+    min: 512
+    max: 16384
+    step: 512

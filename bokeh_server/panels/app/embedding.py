@@ -28,7 +28,7 @@ class EmbeddingPanel(Panel):
     def set_components(self, components):
         component_map = {}
         for component in components:
-            component_map[component.sample_type] = component
+            component_map[component.key] = component
             component.add_selection_listener(self._on_component_selection_change)
         self.components = component_map
 
@@ -61,7 +61,7 @@ class EmbeddingPanel(Panel):
         })
         source.selected.on_change(
             "indices",
-            lambda attr, old, new, sample_type=component.sample_type: self._on_embedding_selection_change(sample_type, new),
+            lambda attr, old, new, sample_type=component.key: self._on_embedding_selection_change(sample_type, new),
         )
 
         method_select = Select(
@@ -72,11 +72,11 @@ class EmbeddingPanel(Panel):
         run_button = Button(label="Run embedding", button_type="success")
         status = LoadingLogger(
             self.doc,
-            text=f"Select a method and run an embedding for {component.alias.lower()}s.",
+            text=f"Select a method and run an embedding for {component.name}.",
         )
 
         plot = figure(
-            title=f"{component.alias} embedding",
+            title=f"{component.name} embedding",
             height=350,
             visible=False,
             tools="pan,wheel_zoom,box_select,lasso_select,tap,save,reset",
@@ -92,7 +92,7 @@ class EmbeddingPanel(Panel):
         plot.toolbar.logo = None
 
         def _on_run():
-            self._run_embedding(component.sample_type)
+            self._run_embedding(component.key)
 
         run_button.on_click(_on_run)
 
@@ -101,7 +101,7 @@ class EmbeddingPanel(Panel):
             status.div,
             plot,
         )
-        panel = TabPanel(child=content, title=component.alias)
+        panel = TabPanel(child=content, title=component.name)
 
         return {
             "component": component,
@@ -210,4 +210,4 @@ class EmbeddingPanel(Panel):
         component.set_selected_obs_names(selected_obs_names, notify=False)
 
     def _on_component_selection_change(self, component):
-        self._update_embedding_selection_from_component(component.sample_type)
+        self._update_embedding_selection_from_component(component.key)

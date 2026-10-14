@@ -1,0 +1,51 @@
+# Builds every segmentation plugin's image and publishes it under the name in its
+# manifest.yaml (ghcr.io/...), so the viewer pulls ready-made images instead of
+# building them. Bump `version` (and the image tag) in a manifest when results change.
+name: Segmentation plugin images
+
+on:
+  push:
+    branches: [main]
+    paths: ["segmentation/**"]
+  workflow_dispatch:
+
+permissions:
+  contents: read
+  packages: write
+
+jobs:
+  list:
+    runs-on: ubuntu-latest
+    outputs:
+      plugins: ${{ steps.find.outputs.plugins }}
+    steps:
+      - uses: actions/checkout@v4
+      - id: find
+        run: |
+          plugins=$(ls segmentation/plugins/*/Dockerfile | cut -d/ -f3 | jq -R . | jq -cs .)
+          echo "plugins=$plugins" >> "$GITHUB_OUTPUT"
+
+  build:
+    needs: list
+    runs-on: ubuntu-latest
+    strategy:
+      fail-fast: false
+      matrix:
+        plugin: ${{ fromJson(needs.list.outputs.plugins) }}
+    steps:
+      - uses: actions/checkout@v4
+      - id: manifest
+        run: |
+          image=$(grep -m1 '^image:' "segmentation/plugins/${{ matrix.plugin }}/manifest.yaml" | awk '{print $2}')
+          echo "image=$image" >> "$GITHUB_OUTPUT"
+      - uses: docker/login-action@v3
+        with:
+          registry: ghcr.io
+          username: ${{ github.actor }}
+          password: ${{ secrets.GITHUB_TOKEN }}
+      - uses: docker/build-push-action@v6
+        with:
+          context: segmentation
+          file: segmentation/plugins/${{ matrix.plugin }}/Dockerfile
+          push: true
+          tags: ${{ steps.manifest.outputs.image }}

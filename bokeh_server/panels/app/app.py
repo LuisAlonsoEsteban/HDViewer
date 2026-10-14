@@ -1,7 +1,8 @@
 
 import os
 
-from bokeh.models import Range1d
+from bokeh.layouts import column
+from bokeh.models import Range1d, Tabs, TabPanel
 
 # from .upload import UploadPanel
 from .thumbnail import ThumbnailPanel
@@ -44,8 +45,12 @@ class App:
         if image_processor is not None:
             self.image_component = ImageComponent(image_processor)
 
+    # Outline colours that tell segmentation methods apart on the figure
+    CELL_LAYER_COLORS = ["#6baed6", "#fd8d3c", "#74c476", "#9e9ac8", "#f768a1", "#fdd0a2"]
+
     def reset_geometries(self):
         self.geometries.clear()
+        self.cells_tabs = None
 
     def on_data_loaded(self, adata, df_tissue_positions=None):
         pass
@@ -53,7 +58,9 @@ class App:
     def add_image_component(self, image_processor):
         self.image_component = ImageComponent(image_processor)
 
-    def add_sample(self, polygons, adata, b2s=None, sample_type="spots"):
+    def add_sample(self, polygons, adata, b2s=None, sample_type="spots", method=None, title=None):
+        """For cells, `method`/`title` identify the segmentation method; each
+        method becomes its own layer."""
         if sample_type not in ["spots", "bins", "cells"]:
             return
         
@@ -147,13 +154,18 @@ class App:
 
         elif sample_type == "cells":
             sample = Cells(polygons, adata)
+            n_cell_layers = sum(g.sample_type == "cells" for g in self.geometries)
             geom = Patches(
                 self.figure_panel.p, 
                 sample, 
                 lazy_loading=True, 
                 alias='Cell', 
-                hover_color='blue'
+                hover_color='blue',
+                key=f"cells_{method}" if method else None,
+                name=f"Cells · {title}" if title else None,
             )
+            geom.method_title = title or "Cells"
+            cell_color = self.CELL_LAYER_COLORS[n_cell_layers % len(self.CELL_LAYER_COLORS)]
             geom.sample_type = sample_type
 
             geom.add_parameter(
@@ -169,7 +181,7 @@ class App:
             geom.add_parameter(
                 attr='color',
                 static=True,
-                val=self.INITIAL_ATTRS["color"],
+                val=cell_color,
                 not_sequenced_val=self.NOT_SEQUENCED_ATTRS["color"]
             )
             geom.attach_loader(self.doc)
@@ -182,7 +194,7 @@ class App:
         # Reconstruir metadata si la app ya está construida
         if hasattr(self, '_app_built') and self._app_built:
             def _update(g=geom):
-                self.add_root(g.get_widgets_layout(self.doc))
+                self.add_widgets(g)
                 self.metadata_panel.populate(self.geometries)
             self.doc.add_next_tick_callback(_update)
         self.embedding_panel.set_components(self.geometries)
@@ -214,6 +226,19 @@ class App:
             else:
                 placeholder.children = [layout]
 
+    def add_widgets(self, geom):
+        layout = geom.get_widgets_layout(self.doc)
+        if geom.sample_type != "cells":
+            self.add_root(layout)
+            return
+        # Every segmentation method shares the Cells section: one tab per method
+        panel = TabPanel(child=layout, title=geom.method_title)
+        if getattr(self, "cells_tabs", None) is None:
+            self.cells_tabs = Tabs(tabs=[panel], sizing_mode="stretch_width")
+            self.add_root(column(self.cells_tabs, name="cells_widgets"))
+        else:
+            self.cells_tabs.tabs = [*self.cells_tabs.tabs, panel]
+
     def build(self):
         if self.image_component is None:
             raise ValueError("The ImageComponent must be loaded first with the 'add_image_component' function.")
@@ -235,5 +260,5 @@ class App:
         self.add_root(self.comparison_panel.layout)
 
         for geom in self.geometries:
-            self.add_root(geom.get_widgets_layout(self.doc))
+            self.add_widgets(geom)
         self._app_built = True  # ← añadir esta línea al final

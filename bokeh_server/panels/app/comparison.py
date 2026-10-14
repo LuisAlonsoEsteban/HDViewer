@@ -176,7 +176,7 @@ class ComparisonPanel(Panel):
     # ------------------------------------------------------------------
 
     def set_components(self, components):
-        self.components = {c.alias: c for c in components if c.sample.has_adata()}
+        self.components = {c.name: c for c in components if c.sample.has_adata()}
         aliases = list(self.components.keys())
 
         # Default order: largest geometries are the low-res sample
@@ -251,7 +251,7 @@ class ComparisonPanel(Panel):
 
         self.run_button.disabled = True
         self.status.run(
-            f"Comparing {low.alias}s with {high.alias}s",
+            f"Comparing {low.name} with {high.name}",
             _work,
             on_done=lambda result: self._on_result(low, high, result),
             on_error=self._on_error,

@@ -50,7 +50,7 @@ class MetadataPanel(Panel):
             vals = stats["Values"]
             rows_html += f"""
             <tr>
-                <td style="padding: 6px 10px; border-bottom: 1px solid #333;"><b>{geom.alias}</b></td>
+                <td style="padding: 6px 10px; border-bottom: 1px solid #333;"><b>{geom.name}</b></td>
                 <td style="padding: 6px 10px; border-bottom: 1px solid #333;">{vals[0]}</td>
                 <td style="padding: 6px 10px; border-bottom: 1px solid #333;">{vals[1]}</td>
                 <td style="padding: 6px 10px; border-bottom: 1px solid #333;">{vals[2]}</td>
@@ -202,7 +202,7 @@ class MetadataPanel(Panel):
 
             main_tabs.append(TabPanel(
                 child=column(inner_tabs, sizing_mode="stretch_width"),
-                title=geom.alias
+                title=geom.name
             ))
         main_tabs.insert(0, self._build_general_tab(geometries))
 
@@ -217,8 +217,8 @@ class MetadataPanel(Panel):
             text="<p style='color:#888; font-size:11px; padding:10px;'>"
                 "Run clustering to populate.</p>"
         )
-        self._marker_divs[geom.alias] = marker_div  # ← guardar referencia
-        self._marker_table_sources[geom.alias] = ColumnDataSource(
+        self._marker_divs[geom.key] = marker_div  # ← guardar referencia
+        self._marker_table_sources[geom.key] = ColumnDataSource(
             dict(cluster=[], gene=[], score=[])
         )
         return TabPanel(
@@ -228,7 +228,7 @@ class MetadataPanel(Panel):
 
     def update_marker_table(self, geom):
         markers = geom.sample.get_marker_genes(n_genes=10)
-        if not markers or geom.alias not in self._marker_divs:
+        if not markers or geom.key not in self._marker_divs:
             return
         rows_html = ""
         for cluster, gene_list in markers.items():
@@ -261,22 +261,22 @@ class MetadataPanel(Panel):
             </thead>
             <tbody>{rows_html}</tbody>
         </table></div>"""
-        self._marker_divs[geom.alias].text = html
+        self._marker_divs[geom.key].text = html
     
     def _build_de_tab(self, geom):
         de_div = Div(
             text="<p style='color:#888; font-size:11px; padding:10px;'>"
                 "Create groups and run DE to populate.</p>"
         )
-        self._de_divs[geom.alias] = de_div
+        self._de_divs[geom.key] = de_div
         return TabPanel(
             child=column(de_div, sizing_mode="stretch_width"),
             title="Groups DE"
         )
     
     def update_de_table(self, geom, cname, result_html):
-        if geom.alias in self._de_divs:
-            #self._de_divs[geom.alias].text = result_html
+        if geom.key in self._de_divs:
+            #self._de_divs[geom.key].text = result_html
             #result_html = """
             #<div style="
             #background:red;
@@ -287,7 +287,7 @@ class MetadataPanel(Panel):
             #PLOT TEST
             #</div>
             #"""
-            self._de_divs[geom.alias].text = """
+            self._de_divs[geom.key].text = """
             <h1 style="color:red">HELLO</h1>
             <div style="background:red;height:300px;width:300px">
             TEST

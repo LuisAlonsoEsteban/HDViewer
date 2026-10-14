@@ -1,0 +1,44 @@
+name: watershed
+title: Watershed (baseline)
+description: Classical baseline - hematoxylin thresholding split by a distance-transform watershed. No model or GPU needed.
+version: 0.1.0
+image: ghcr.io/luisalonsoesteban/visium-seg-watershed:0.1.0
+url: https://scikit-image.org/docs/stable/auto_examples/segmentation/plot_watershed.html
+
+params:
+  - name: smoothing_um
+    label: Smoothing (µm)
+    type: float
+    default: 0.75
+    min: 0
+    max: 5
+    step: 0.25
+  - name: threshold_factor
+    label: Threshold factor
+    type: float
+    default: 1.0
+    min: 0.5
+    max: 2
+    step: 0.05
+    help: Multiplies the Otsu threshold of the hematoxylin channel; higher keeps fewer, darker nuclei.
+  - name: min_distance_um
+    label: Min. distance between nuclei (µm)
+    type: float
+    default: 3
+    min: 0.5
+    max: 20
+    step: 0.5
+  - name: min_area_um2
+    label: Min. nucleus area (µm²)
+    type: float
+    default: 8
+    min: 0
+    max: 200
+    step: 1
+  - name: block_size
+    label: Block size (px)
+    type: int
+    default: 2048
+    min: 512
+    max: 8192
+    step: 256

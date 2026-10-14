@@ -59,9 +59,15 @@ class Component:
             lazy_loading=False,
             hover_color=None,
             alias='Spot',
+            key=None,
+            name=None,
             ):
         
         self.figure = figure
+        # alias is the unit ("Cell"); key/name tell apart several layers of one
+        # unit, e.g. one cells layer per segmentation method
+        self.key = key or f"{alias.lower()}s"
+        self.name = name or f"{alias}s"
 
         self.lazy_loading = lazy_loading
 
@@ -103,11 +109,11 @@ class Component:
 
     @property
     def widgets_name(self):
-        return f"{self.alias.lower()}s_widgets"
+        return f"{self.key}_widgets"
     
     @property
     def param_table_name(self):
-        return f"{self.alias.lower()}s_params"
+        return f"{self.key}_params"
     
     @property
     def view(self):
