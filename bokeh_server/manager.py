@@ -46,7 +46,6 @@ class SourceManager:
         return dummy_vector.isna().to_numpy()
     
     def add_parameter(self, param):
-        print(f"[parameters lista] {[(p.colname, id(p)) for p in self.parameters if not p.is_static]}")
         existing_param = self.get_param(param.attr)
         if existing_param is not None:
             self.parameters.remove(existing_param)
@@ -78,11 +77,8 @@ class SourceManager:
                         # Leer de adata.obs y alinear con obs_names del source
                         obs_series = self.sample.adata.obs[param.colname]
                         obs_names = pd.Series(self.source.data['obs_name'])
-                        print(f"[obs_names] primeros 3: {obs_names.dropna().head(3).tolist()}")
-                        print(f"[obs_series index] primeros 3: {obs_series.index[:3].tolist()}")
                         
                         aligned = obs_names.map(obs_series)
-                        print(f"[aligned] no-NaN: {aligned.dropna().unique()[:5]}")
                         
                         self.cache[param.colname] = aligned.values
                     else:
@@ -120,18 +116,14 @@ class SourceManager:
             self.source.data[param.attr] = param.get_values(self.cache[param.colname].copy())
             self.source.data[param.colname] = self.cache[param.colname]
 
-        del self.source.data[old_colname]
+        if not self.get_params_by_colname(old_colname):
+            self.source.data.pop(old_colname, None)
         
     def get_colnames(self):
         return list({param.colname for param in self.parameters if not param.is_static})
 
     def fetch_data(self):
-        print(f"[fetch_data] EJECUTÁNDOSE")
         fetched_data = self.sample.fetch_data(colnames=self.get_colnames())
-        print("\n--- FETCH DATA DEBUG ---")
-        print("fetched_data shape:", fetched_data.shape)
-        print("TIPO DE DATO:", type(self.sample))
-        print("columns:", fetched_data.columns)
         colnames = self.get_colnames()
         if len(colnames) > 0:
             self.is_sequenced.clear()
@@ -166,9 +158,10 @@ class SourceManager:
             self.source.data[param.attr] = param.update(*args, **kwargs)
         else:
             if param.colname not in self.cache.columns:
-                if kwargs.get('avoid_scaling') and hasattr(param, 'avoid_scaling'):
-                    param.avoid_scaling = True
-                return
+                if self.is_empty:
+                    param.update(pd.Series(dtype=object), *args, **kwargs)
+                    return
+                self.cache[param.colname] = self.sample.get_value(colname=param.colname)
             self.source.data[param.attr] = param.update(self.cache[param.colname].copy(), *args, **kwargs)
         if self.component is not None:
             self.component.apply_selected_obs_names()
@@ -185,6 +178,16 @@ class DynamicSourceManager(SourceManager):
         self.bbox = None
         self.fetch_kwargs = {}
         self.resolution_level = None
+        self.fixed_aggregation_factor = None
+        self._context_callbacks = []
+        self.clear_sources()
+
+    def on_context_change(self, callback):
+        self._context_callbacks.append(callback)
+
+    def _notify_context_change(self):
+        for callback in self._context_callbacks:
+            callback()
 
     @property
     def n_geometries(self):
@@ -209,11 +212,13 @@ class DynamicSourceManager(SourceManager):
             'y': [], 
             'width': [],
             'height': [],
+            **({'angle': [], 'xs': [], 'ys': []} if hasattr(self.sample, 'native_angle') else {}),
             'obs_name': [],
             **attr_dict, 
             **hovered_dict
         }
         self.view_filter = np.empty(0, dtype=bool)
+        self._notify_context_change()
 
     def update_colname(self, old_colname, new_colname):
         for param in self.get_params_by_colname(old_colname):
@@ -277,14 +282,25 @@ class DynamicSourceManager(SourceManager):
         
     @property
     def effective_resolution_level(self):
-        """Zoom-driven resolution level, unless a displayed column pins it
-        (e.g. 'leiden_{factor}' must be shown at the level it was computed at)."""
+        """Cluster locking takes precedence over a fixed level, then zoom."""
         get_forced_factor = getattr(self.sample, "get_forced_aggregation_factor", None)
         if get_forced_factor is not None:
             factor = get_forced_factor(self.get_colnames())
             if factor is not None:
                 return self.sample.get_resolution_level_for_factor(factor)
+        if self.fixed_aggregation_factor is not None:
+            return self.sample.get_resolution_level_for_factor(self.fixed_aggregation_factor)
         return self.resolution_level
+
+    def set_aggregation_factor(self, factor):
+        """None follows zoom; 1 means native; other supported factors are fixed."""
+        if factor is not None and factor not in self.sample.AGGREGATION_FACTORS:
+            raise ValueError(f"Unsupported bin aggregation factor: {factor}")
+        previous_level = self.effective_resolution_level
+        self.fixed_aggregation_factor = factor
+        if self.effective_resolution_level != previous_level:
+            self.clear_sources()
+        self._notify_context_change()
 
     def set_fetch_context(self, bbox=None, resolution_level=None, **fetch_kwargs):
         previous_level = self.effective_resolution_level
@@ -298,6 +314,7 @@ class DynamicSourceManager(SourceManager):
         if resolution_changed or extra_changed:
             self.clear_sources()
 
+        self._notify_context_change()
         return resolution_changed or extra_changed
 
     def add_data(self, bbox=None):
@@ -307,9 +324,7 @@ class DynamicSourceManager(SourceManager):
             fetch_kwargs["resolution_level"] = self.effective_resolution_level
             
         fetched_data = self.sample.fetch_data(colnames=colnames, bbox=bbox, **fetch_kwargs)
-        print(f"[add_data] bbox={bbox} | resolution_level={self.resolution_level} | fetched_data.shape={fetched_data.shape}")
         new_data = fetched_data[~fetched_data.index.isin(self.indexes)]
-        print(f"[add_data] new_data.shape={new_data.shape}")
 
         # Sin filas nuevas no hay nada que añadir (y get_values([]) de los
         # parámetros estáticos devolvería el vector completo, no uno vacío).
@@ -359,10 +374,11 @@ class DynamicSourceManager(SourceManager):
         # Actualizar índices solo tras un stream correcto: si algo falla antes,
         # self.indexes y source.data no se desincronizan (rompía remove_further_data).
         self.indexes.extend(new_data.index.tolist())
-        self.view_filter = np.concatenate((
-            self.view_filter,
-            np.ones(new_data.shape[0], dtype=bool),
-        ))
+        new_visible = np.ones(new_data.shape[0], dtype=bool)
+        if (self.component is not None and not self.component.show_not_sequenced
+                and len(new_is_sequenced) == new_data.shape[0]):
+            new_visible = np.asarray(new_is_sequenced, dtype=bool)
+        self.view_filter = np.concatenate((self.view_filter, new_visible))
         self.is_sequenced += new_is_sequenced
 
         if self.component is not None:

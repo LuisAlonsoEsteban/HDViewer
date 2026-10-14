@@ -6,9 +6,11 @@ from bokeh. plotting import figure
 from bokeh.models import Div
 from bokeh.layouts import column
 
+from ...components.measure import MeasureTool
+
 class FigurePanel(Panel):
 
-    p, img_alpha_slider = None, None
+    p, img_alpha_slider, measure_tool = None, None, None
 
     def __init__(self):
         super().__init__(name="plot_column")
@@ -30,6 +32,9 @@ class FigurePanel(Panel):
         self.p.yaxis.visible = False
         self.p.toolbar.logo = None
         self.p.toolbar.autohide = True
+        self.p.toolbar.active_inspect = None
+
+        self.measure_tool = MeasureTool(self.p)
 
     def attach_image(self, image_component, w=None, h=None):
         if self.p:

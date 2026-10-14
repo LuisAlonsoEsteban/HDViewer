@@ -401,9 +401,12 @@ class Bins(Sample):
     CLUSTER_PREFIX = "leiden_"
 
     def __init__(self, *args, half_bin_size=None,
-                 tile_scale_xfactor=1.0, tile_scale_yfactor=1.0, **kwargs):
+                 tile_scale_xfactor=1.0, tile_scale_yfactor=1.0,
+                 native_angle=0.0, bin_size_um=None, **kwargs):
         super().__init__(*args, **kwargs)
         self.half_bin_size = half_bin_size or 0
+        self.native_angle = float(native_angle)
+        self.bin_size_um = bin_size_um
         self.tile_scale_xfactor = tile_scale_xfactor
         self.tile_scale_yfactor = tile_scale_yfactor
         self._multiscale_cache = OrderedDict()
@@ -626,7 +629,7 @@ class Bins(Sample):
 
         cropped_gdf, cropped_adata = self.crop(*aligned_bbox, crop_adata=True)
         if cropped_gdf.empty:
-            cols = ["x", "y", "width", "height", "obs_name"] + (list(colnames) if colnames else [])
+            cols = ["x", "y", "width", "height", "angle", "xs", "ys", "obs_name"] + (list(colnames) if colnames else [])
             empty = pd.DataFrame(columns=cols)
             self._cache_result(cache_key, empty)
             return empty.copy()
@@ -688,6 +691,14 @@ class Bins(Sample):
                 else:
                     grouped[colname] = _grp.sum(min_count=1)
 
+        # These cells are defined in an axis-aligned display-space grid.
+        # Applying the native tissue rotation would rotate their dimensions
+        # away from their center spacing, creating overlaps and gaps.
+        grouped["angle"] = 0.0
+        left, right = grouped.x - cell_width / 2, grouped.x + cell_width / 2
+        bottom, top = grouped.y - cell_height / 2, grouped.y + cell_height / 2
+        grouped["xs"] = np.column_stack((left, right, right, left, left)).tolist()
+        grouped["ys"] = np.column_stack((bottom, bottom, top, top, bottom)).tolist()
         grouped.reset_index(drop=True, inplace=True)
         grouped.index = grouped["obs_name"]
         self._cache_result(cache_key, grouped)
@@ -702,6 +713,13 @@ class Bins(Sample):
             if return_coords:
                 data["width"] = self.native_width
                 data["height"] = self.native_height
+                data["angle"] = self.native_angle
+                # Render the same footprints used for spatial operations. A
+                # single angle/width/height cannot express anisotropic scaling
+                # of a rotated grid (the transformed bins are parallelograms).
+                footprints = self.gdf.loc[data.index].geometry
+                data["xs"] = [list(geom.exterior.coords.xy[0]) for geom in footprints]
+                data["ys"] = [list(geom.exterior.coords.xy[1]) for geom in footprints]
             return data
 
         return self._fetch_aggregated_data(bbox=bbox, colnames=colnames, factor=factor)

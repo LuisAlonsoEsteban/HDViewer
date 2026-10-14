@@ -59,13 +59,28 @@ class Bins2Spots:
         return self.converter.visiumHD.get_rotation(self.df_tissue_positions, rad=rad)
 
     def create_bin_squares(self, subset=False):
-        # El medio-ancho debe ir en el MISMO espacio (escalado) que los centros,
-        # si no las cajas salen ~1/tile_scale veces demasiado grandes y solapadas.
-        half_x = self.converter.visiumHD.pixels_per_bin / 2 * self.tile_scale_xfactor
-        half_y = self.converter.visiumHD.pixels_per_bin / 2 * self.tile_scale_yfactor
-        x = self.df_tissue_positions['pxl_col_in_fullres'].values * self.tile_scale_xfactor
-        y = self.df_tissue_positions['pxl_row_in_fullres'].values * self.tile_scale_yfactor
-        geometry = shapely.box(x - half_x, y - half_y, x + half_x, y + half_y)
+        positions = self.df_tissue_positions
+        # Fit the two grid directions in image coordinates. A reflected or
+        # rotated array cannot be represented by swapping rectangle dimensions.
+        # Sampling bounds the cost for high-resolution position tables.
+        sampled = positions.iloc[np.linspace(
+            0, len(positions) - 1, min(4096, len(positions)), dtype=int
+        )]
+        design = np.column_stack((sampled["array_col"], sampled["array_row"],
+                                  np.ones(len(sampled))))
+        pixel_centers = sampled[["pxl_col_in_fullres", "pxl_row_in_fullres"]].to_numpy()
+        basis, _, rank, _ = np.linalg.lstsq(design, pixel_centers, rcond=None)
+        if rank < 3:
+            # A single row/column cannot determine both directions.
+            pitch = self.converter.visiumHD.pixels_per_bin
+            basis = np.array([[pitch, 0], [0, pitch]])
+        offsets = np.array([[-.5, -.5], [.5, -.5], [.5, .5], [-.5, .5]]) @ basis[:2]
+        centers = positions[["pxl_col_in_fullres", "pxl_row_in_fullres"]].to_numpy()
+        # Rotate in raw image coordinates, then scale each display axis.
+        corners = (centers[:, None, :] + offsets) * np.array(
+            [self.tile_scale_xfactor, self.tile_scale_yfactor]
+        )
+        geometry = shapely.polygons(corners)
         self._bin_squares = gpd.GeoDataFrame(self.df_tissue_positions, geometry=geometry)
         return self._bin_squares[self._bin_squares["in_tissue"] == 1] if subset else self._bin_squares
 
@@ -98,8 +113,8 @@ class Bins2Spots:
 
                 spots.append(Point(scaled_x, scaled_y).buffer(scaled_radius))
 
-                if self.progress_callback is not None:
-                    self.progress_callback(1, i, nspots_rows)
+            if self.progress_callback is not None:
+                self.progress_callback(1, i + 1, nspots_rows)
 
         self._spot_polygons = gpd.GeoDataFrame(metadata, geometry=spots)
         self._spot_polygons.index.name = 'spot_id'  # avoid conflict with 'index' column in reset_index()

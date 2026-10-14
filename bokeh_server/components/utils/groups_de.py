@@ -77,7 +77,7 @@ class DEMixin:
                         )
                         results[cname] = sc.get.rank_genes_groups_df(adata_copy, group=cname)
                     except Exception as e:
-                        print(f"[DE] Error en {cname}: {e}")
+                        pass
             else:
                 obs_grp = adata_copy.obs[GROUPS_COL].astype(str)
                 in_sel = adata_copy.obs[GROUPS_COL].notna() & obs_grp.isin(active)

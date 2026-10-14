@@ -140,8 +140,6 @@ class ClusteringManager:
                     self.apply_result(cluster_col, doc, on_done=on_run)
                     status.success(f"{len(self._cluster_labels)} clusters found")
                 except Exception as exc:
-                    import traceback
-                    print(traceback.format_exc())
                     status.error(str(exc)[:60])
 
             def _on_error(exc):
@@ -216,9 +214,6 @@ class ClusteringManager:
             self.component.update_hover_tooltips()
             return
 
-        print(f"[CLUSTER COLORS] alias={self.component.alias} "
-              f"loader={hasattr(self.component, 'loader')} "
-              f"obs_in_source={len(self.component.manager.source.data.get('obs_name', []))}")
 
         # Cells: la inyección manual no cuela el cluster (obs_name vacío / no casa).
         # Re-fetch del viewport -> pasa por get_value y alinea adata.obs con el gdf,

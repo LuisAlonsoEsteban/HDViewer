@@ -54,11 +54,6 @@ class App:
         self.image_component = ImageComponent(image_processor)
 
     def add_sample(self, polygons, adata, b2s=None, sample_type="spots"):
-        print("\n==============================")
-        print("ADDING SAMPLE:", sample_type)
-        print("polygons type:", type(polygons))
-        print("polygons len:", len(polygons))
-        print("==============================\n")
         if sample_type not in ["spots", "bins", "cells"]:
             return
         
@@ -76,9 +71,6 @@ class App:
 
         if sample_type == "spots":
             sample = Spots(polygons, adata)
-            print("SPOTS -> polygons:", len(polygons))
-            print("SPOTS -> adata:", adata.shape)
-            print("SPOTS -> bounds:", polygons.total_bounds if hasattr(polygons, "total_bounds") else "no bounds")
             radius = b2s.converter.get_pixels(b2s.converter.VisiumV2.SPOT_DIAMETER) / 2
 
             geom = Circles(
@@ -106,29 +98,27 @@ class App:
                 val=self.INITIAL_ATTRS["color"],
                 not_sequenced_val=self.NOT_SEQUENCED_ATTRS["color"]
             )
-            #print("N spots:", len(spots_polygons))
             geom.manager.fetch_data()
 
         elif sample_type == "bins":
-            print("BINS -> polygons:", len(polygons))
-            print("BINS -> adata:", adata.shape)
-            print("BINS -> pixels_per_bin:", b2s.converter.visiumHD.pixels_per_bin)
-            print("BINS -> bounds:", polygons.total_bounds if hasattr(polygons, "total_bounds") else "no bounds")
             sample = Bins(
                 polygons,
                 adata,
                 on='index',
                 pixels_per_bin=b2s.converter.visiumHD.pixels_per_bin,
+                bin_size_um=b2s.bins_size,
                 tile_scale_xfactor=b2s.tile_scale_xfactor,
                 tile_scale_yfactor=b2s.tile_scale_yfactor,
             )
-
-            # width = sample.pixels_per_bin * b2s.tile_scale_xfactor
-            # height = sample.pixels_per_bin * b2s.tile_scale_yfactor
-            angle = b2s.get_rotation(rad=True)
+            # Bins carry the physical scale: one native bin is bin_size_um wide
+            if self.figure_panel.measure_tool is not None and sample.native_width > 0:
+                bin_size_um = float(sample.bin_size_um)
+                self.figure_panel.measure_tool.set_scale(
+                    bin_size_um / sample.native_width,
+                    bin_size_um / sample.native_height,
+                )
 
             geom = Squares(
-                angle, 
                 self.figure_panel.p, 
                 sample, 
                 lazy_loading=True, 
@@ -153,16 +143,9 @@ class App:
                 val=self.INITIAL_ATTRS["color"],
                 not_sequenced_val=self.NOT_SEQUENCED_ATTRS["color"]
             )
-            #print("N bins:", len(bins_polygons))
             geom.attach_loader(self.doc)
 
         elif sample_type == "cells":
-            print("CELLS -> polygons:", len(polygons))
-            print("CELLS -> adata:", adata.shape)
-            print("CELLS -> bounds:", polygons.total_bounds if hasattr(polygons, "total_bounds") else "no bounds")
-            print("CELLS -> area mean:", polygons.area.mean() if hasattr(polygons, "area") else "no area")
-            print("tile_scale x/y:", b2s.tile_scale_xfactor, b2s.tile_scale_yfactor)
-            print("spot radius px:", b2s.converter.get_pixels(b2s.converter.visiumV2.SPOT_DIAMETER)/2)
             sample = Cells(polygons, adata)
             geom = Patches(
                 self.figure_panel.p, 
@@ -189,7 +172,6 @@ class App:
                 val=self.INITIAL_ATTRS["color"],
                 not_sequenced_val=self.NOT_SEQUENCED_ATTRS["color"]
             )
-            #print("N cells:", len(cells_polygons))
             geom.attach_loader(self.doc)
         self.add_geometry(geom)
 
@@ -225,9 +207,7 @@ class App:
                         self.figure_panel.p.y_range = Range1d(y, y+h)
 
     def add_root(self, layout):
-        print(f"[add_root] name={layout.name}")
         placeholder = self.doc.select_one({"name": layout.name})
-        print(f"[add_root] placeholder found={placeholder is not None}")
         if hasattr(placeholder, "children"):
             if hasattr(layout, "children"):
                 placeholder.children = layout.children

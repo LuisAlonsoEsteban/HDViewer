@@ -117,13 +117,11 @@ class CellsPooler(Pooler):
         self.join_result['is_within_polygon'] = ~self.join_result['bins_index'].isna()
         isolated_bins = (~self.join_result['is_within_polygon']).sum()
         total_bins = self.bins.shape[0]
-        print(f"Detected {isolated_bins} bins (out of {total_bins}, {(100 * isolated_bins / total_bins):.2f}%) that pointed to no cell")
 
         barcodes_in_overlaping_polygons = pd.unique(self.join_result[self.join_result.duplicated(subset=['bins_index'])]['bins_index'])
         overlapping_bins = barcodes_in_overlaping_polygons.shape[0]
         new_total_bins = total_bins - isolated_bins
         self.join_result['is_not_in_a_polygon_overlap'] = ~self.join_result['bins_index'].isin(barcodes_in_overlaping_polygons)
-        print(f"Detected {overlapping_bins} bins (out of {new_total_bins}, {(100 * overlapping_bins / new_total_bins):.2f}%) that pointed to a cell jointly with another bin/s")
            
         self.barcodes_in_one_polygon = self.join_result[self.join_result['is_within_polygon'] & self.join_result['is_not_in_a_polygon_overlap']]
 

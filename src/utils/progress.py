@@ -3,7 +3,7 @@
 Computation code calls `report("step...")`; the caller decides where messages go by wrapping the
 work in `reporting(callback)`. The callback is thread-local, so concurrent jobs running in their own
 threads (e.g. from the Bokeh server) each log to their own sink. Without a callback, messages are
-printed.
+ignored.
 """
 
 import threading
@@ -14,9 +14,7 @@ _local = threading.local()
 
 def report(message):
     callback = getattr(_local, "callback", None)
-    if callback is None:
-        print(message)
-    else:
+    if callback is not None:
         callback(message)
 
 

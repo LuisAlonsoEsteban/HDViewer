@@ -18,6 +18,15 @@
         color: #fff;
         background: #2F2F2F;
     }
+    #startup-container {
+        min-height: 100vh;
+        box-sizing: border-box;
+        padding: 48px max(16px, calc((100vw - 760px) / 2));
+        background: radial-gradient(ellipse at top, #263f42 0%, #152024 65%);
+    }
+    @media (max-width: 600px) {
+        #startup-container { padding: 24px 12px; }
+    }
     #layout {
         display: flex;
         height: 100vh;

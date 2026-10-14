@@ -177,8 +177,6 @@ class GroupsManager(DEMixin):
                     f"<p style='color:green;font-size:11px'>Cluster '{cname}' created.</p>"
                 )
             except Exception as e:
-                import traceback
-                traceback.print_exc()
                 self._status_div.text = (
                     f"<p style='color:red;font-size:11px'>Error: {str(e)[:80]}</p>"
                 )
@@ -221,8 +219,6 @@ class GroupsManager(DEMixin):
                     f"<p style='color:#f0a500;font-size:11px'>Cluster '{cname}' deleted.</p>"
                 )
             except Exception as e:
-                import traceback
-                traceback.print_exc()
                 self._status_div.text = (
                     f"<p style='color:red;font-size:11px'>Error: {str(e)[:80]}</p>"
                 )
@@ -387,7 +383,12 @@ class GroupsManager(DEMixin):
                     if col_key in adata.obs.columns:
                         in_cluster = obs_names.map(adata.obs[col_key].astype(bool))
                         visible |= in_cluster.fillna(False).astype(bool)
-            mgr.view_filter = visible.to_numpy(dtype=bool)
+            visible = visible.to_numpy(dtype=bool)
+            if not self.component.show_not_sequenced:
+                is_nan = mgr.get_nan_vector()
+                if is_nan.shape[0] == visible.shape[0]:
+                    visible &= ~is_nan
+            mgr.view_filter = visible
         else:
             visible = pd.Series([False] * len(gdf), index=gdf.index)
             for cname in self._active_clusters:
@@ -488,7 +489,6 @@ class GroupsManager(DEMixin):
             elif col in obs.columns:
                 series = obs[col].astype(float)
             else:
-                print(f"[GroupsManager] Warning: '{col}' not found, skipping.")
                 continue
 
             ops       = {'>': series > val_f, '<': series < val_f,

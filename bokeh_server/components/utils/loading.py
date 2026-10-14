@@ -1,7 +1,6 @@
 import html
 import threading
 import time
-import traceback
 
 from bokeh.models import Div
 
@@ -82,7 +81,6 @@ class LoadingLogger:
                 with reporting(self.log):
                     result = work()
             except Exception as exc:
-                print(traceback.format_exc())
                 self.doc.add_next_tick_callback(lambda exc=exc: self._finish(on_error, exc, failed=True))
             else:
                 self.doc.add_next_tick_callback(lambda: self._finish(on_done, result, failed=False))
@@ -90,8 +88,7 @@ class LoadingLogger:
         threading.Thread(target=_target, daemon=True).start()
 
     def log(self, message):
-        """Thread-safe: record a step (also printed to the server console)."""
-        print(f"[{self._title}] {message}")
+        """Thread-safe: record a step for the loading UI."""
         with self._lock:
             self._steps.append((self._elapsed(), str(message)))
 

@@ -84,7 +84,6 @@ class MetadataPanel(Panel):
         )
 
     def populate(self, geometries):
-        print("--- CONFIGURANDO INTERFAZ DE METADATOS ---")
         
         for geom in geometries:
             geom._metadata_panel = self
@@ -103,7 +102,6 @@ class MetadataPanel(Panel):
                 if "pct_counts_mt" not in adata.obs.columns:
                     sc.pp.calculate_qc_metrics(adata, qc_vars=["mt"], inplace=True, log1p=False)
             except Exception as e:
-                print(f"Error QC para {geom.alias}: {e}")
                 continue
 
             obs = adata.obs
@@ -213,7 +211,6 @@ class MetadataPanel(Panel):
         else:
             self.set_children([Div(text="<p style='color:gray'>Esperando datos...</p>")])
 
-        print("--- INTERFAZ ACTUALIZADA ---")
 
     def _build_marker_tab(self, geom):
         marker_div = Div(
@@ -230,10 +227,8 @@ class MetadataPanel(Panel):
         )
 
     def update_marker_table(self, geom):
-        print(f"--- [ACTUALIZANDO TABLA] Extrayendo marcadores para {geom.alias} ---")
         markers = geom.sample.get_marker_genes(n_genes=10)
         if not markers or geom.alias not in self._marker_divs:
-            print(f"Aviso: No se encontraron marcadores para {geom.alias}.")
             return
         rows_html = ""
         for cluster, gene_list in markers.items():
@@ -267,7 +262,6 @@ class MetadataPanel(Panel):
             <tbody>{rows_html}</tbody>
         </table></div>"""
         self._marker_divs[geom.alias].text = html
-        print(f"--- [TABLA ACTUALIZADA] ---")
     
     def _build_de_tab(self, geom):
         de_div = Div(
@@ -281,9 +275,7 @@ class MetadataPanel(Panel):
         )
     
     def update_de_table(self, geom, cname, result_html):
-        print(f"[update_de_table] alias={geom.alias}, in_de_divs={geom.alias in self._de_divs}")
         if geom.alias in self._de_divs:
-            print(f"[update_de_table] Actualizando div, html len={len(result_html)}")
             #self._de_divs[geom.alias].text = result_html
             #result_html = """
             #<div style="
@@ -301,6 +293,3 @@ class MetadataPanel(Panel):
             TEST
             </div>
             """
-
-            print(type(self._de_divs[geom.alias]))
-            print(f"[update_de_table] Div actualizado")

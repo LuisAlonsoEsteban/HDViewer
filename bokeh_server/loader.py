@@ -36,8 +36,6 @@ class LazyLoader:
                 self.y_range.start, self.y_range.end,
             )
             return True
-        print(f"[update_bbox] rangos no válidos: x=({self.x_range.start}, {self.x_range.end}) "
-              f"y=({self.y_range.start}, {self.y_range.end}) -> restaurando {self._last_valid_ranges}")
         if self._last_valid_ranges is not None:
             xs, xe, ys, ye = self._last_valid_ranges
             self.x_range.update(start=xs, end=xe)
@@ -141,9 +139,7 @@ class LazyLoader:
                 resolution_level = self.get_resolution_level()
                 current_fetch_bbox = self.compute_bbox
                 n_before = len(self.manager.source.data.get('x', []))
-                print(f"[update_bbox] FIRED | n_source={n_before} | resolution_level={resolution_level} | manager.resolution_level={self.manager.resolution_level}")
                 if self.manager.bbox is None:
-                    print(f"[update_bbox] primera carga (bbox None)")
                     self.manager.set_fetch_context(
                         bbox=current_fetch_bbox,
                         resolution_level=resolution_level,
@@ -157,7 +153,6 @@ class LazyLoader:
                         resolution_level=resolution_level,
                     )
                     inside = LazyLoader.is_inside(x, y, self.fixed_static_bbox)
-                    print(f"[update_bbox] context_changed={context_changed} | inside={inside} | x={x:.1f} y={y:.1f}")
                     if context_changed or not inside:
                         self.manager.bbox = current_fetch_bbox
                         self.fixed_static_bbox = self.static_bbox
@@ -169,7 +164,6 @@ class LazyLoader:
                         # (1+OFFSET)*window para no recortar nunca bins visibles
                         # y solo podar los de un paneo lejano anterior.
                         prune_distance = max(self.window_size) * (1 + self.OFFSET)
-                        print(f"[update_bbox] llamando remove_further_data | distance={prune_distance:.0f} | n_source={len(self.manager.source.data.get('x',[]))}")
                         self.manager.remove_further_data(x, y, distance=prune_distance)
 
             doc.add_next_tick_callback(update_bbox)

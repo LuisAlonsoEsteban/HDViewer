@@ -2,6 +2,7 @@
 import os
 from pathlib import Path
 from .utils.groups import GroupsManager
+from .bin_info import BinInfoOverlay
 import numpy as np
 
 from bokeh.models import (
@@ -338,8 +339,15 @@ class Component:
         if self._view:
             self.glyph_renderer.view.filter = BooleanFilter(booleans=self._view)
     
+    @property
+    def show_not_sequenced(self):
+        checkbox = getattr(self, 'notsequenced_checkbox', None)
+        return checkbox is None or 0 in checkbox.active
+
     def get_not_sequenced_visible_checkbox(self):
-        self.notsequenced_checkbox = CheckboxGroup(labels=[f"Show not sequenced {self.alias}s"], active=[0])
+        # Keep the user's choice when the widgets are rebuilt
+        active = [0] if self.show_not_sequenced else []
+        self.notsequenced_checkbox = CheckboxGroup(labels=[f"Show not sequenced {self.alias}s"], active=active)
 
         static_is_nan = self.manager.get_nan_vector()
 
@@ -348,13 +356,14 @@ class Component:
 
             if self.lazy_loading:
                 is_nan = self.manager.get_nan_vector()
+                # view_filter is what every reload rebuilds the view from
+                current_filter = np.asarray(self.manager.view_filter, dtype=bool)
             else:
                 is_nan = static_is_nan
-            
-            current_filter = np.asarray(
-                self.view,
-                dtype=bool,
-            )
+                current_filter = np.asarray(
+                    self.view,
+                    dtype=bool,
+                )
             
             if is_nan.shape[0] != current_filter.shape[0]:
                 raise ValueError(
@@ -364,6 +373,8 @@ class Component:
             booleans = current_filter.copy()
             booleans[is_nan] = visible
 
+            if self.lazy_loading:
+                self.manager.view_filter = booleans.copy()
             self._view = booleans.tolist()
             self.change_glyph_view()
 
@@ -398,40 +409,50 @@ class Component:
                                     )
         
         def on_input_change(_, old, new):
-            def update_colname():
-                if self.sample.is_continous(old) == self.sample.is_continous(new):
-                    self.manager.update_colname(old, new)
-                else:
-                    if self.sample.is_continous(new):
-                        if self.slider:
-                            self.manager.update_param('alpha', new_minv=0, new_maxv=self.slider.value)
-                        if self.colorpicker:
-                            self.add_parameter(
-                                attr='color',
-                                val=self.colorpicker.color,
-                                static=True,
-                                not_sequenced_val=NOT_SEQUENCED_VAL[f"{self.alias.lower()}s"]["color"],
-                            )
-                    else:
-                        self.manager.update_param('alpha', avoid_scaling=True)
-                        if self.autocomplete_input:
-                            self.add_parameter(
-                                attr='color',
-                                colname=self.autocomplete_input.value,
-                                static=False,
-                                not_sequenced_val=NOT_SEQUENCED_VAL[f"{self.alias.lower()}s"]["color"],
-                                colname_hovered=True,
-                            )
-
-                self.update_hover_tooltips()
-                # self.refresh_params_layout(doc)
-                
-            doc.add_next_tick_callback(update_colname)
+            doc.add_next_tick_callback(lambda: self.show_colname(new))
 
         self.autocomplete_input.on_change('value', on_input_change)
 
         return self.autocomplete_input
-    
+
+    def show_colname(self, colname):
+        """Display `colname`, deciding from the current parameters rather than the
+        previous input value: clustering/groups change the colour behind the
+        autocomplete's back, so `old` may not be what is on screen."""
+        not_sequenced_color = NOT_SEQUENCED_VAL[f"{self.alias.lower()}s"]["color"]
+        color_param = self.manager.get_param('color')
+        alpha_param = self.manager.get_param('alpha')
+        has_dynamic_alpha = alpha_param is not None and not alpha_param.is_static
+
+        if self.sample.is_continous(colname):
+            # Continuous: static colour, alpha scaled by the values of `colname`
+            if color_param is not None and not color_param.is_static:
+                self.add_parameter(
+                    attr='color',
+                    val=self.colorpicker.color if self.colorpicker else '#6baed6',
+                    static=True,
+                    not_sequenced_val=not_sequenced_color,
+                )
+            if has_dynamic_alpha:
+                if alpha_param.colname != colname:
+                    self.manager.update_colname(alpha_param.colname, colname)
+                maxv = self.slider.value if self.slider else alpha_param.maxv
+                self.manager.update_param('alpha', new_minv=0, new_maxv=maxv, avoid_scaling=False)
+        else:
+            # Categorical: one colour per category, uniform alpha
+            if color_param is None or color_param.is_static or color_param.colname != colname:
+                self.add_parameter(
+                    attr='color',
+                    colname=colname,
+                    static=False,
+                    not_sequenced_val=not_sequenced_color,
+                    colname_hovered=True,
+                )
+            if has_dynamic_alpha:
+                self.manager.update_param('alpha', avoid_scaling=True)
+
+        self.update_hover_tooltips()
+
     def get_available_attrs(self):
         avail_attrs = []
         for param in self.AVAILABLE_ATTRS:
@@ -496,7 +517,9 @@ class Component:
             def on_run_clustering(doc):
                 if self.autocomplete_input:
                     self.autocomplete_input.completions = self.get_colnames()
-                    # self.autocomplete_input.value = self.clustering_manager.cluster_col
+                    # Reflect what is displayed, so the previous gene can be picked again
+                    if self.clustering_manager.cluster_col in self.autocomplete_input.completions:
+                        self.autocomplete_input.value = self.clustering_manager.cluster_col
 
                     self.add_param_form.colname_input.completions = self.get_colnames()
 
@@ -540,8 +563,6 @@ class Component:
             return self.tabs_widget
             
         except Exception as e:
-            import traceback
-            print(traceback.format_exc())
             raise
 
     def get_widgets_layout(self, doc):
@@ -593,28 +614,22 @@ class Circles(Component):
         
 class Squares(Component):
 
-    def __init__(self, angle, *args, **kwargs):
+    def __init__(self, *args, **kwargs):
         super().__init__(*args, **kwargs)
-        # self.width = width
-        # self.height = height
-        self.angle=angle
+        self.bin_info = BinInfoOverlay(self)
 
     def add_glyph(self):
-        # width = 'width' if 'width' in self.manager.source.data else self.width
-        # height = 'height' if 'height' in self.manager.source.data else self.height
-        self.glyph_renderer = self.figure.rect(
-                                x='x', 
-                                y='y', 
-                                # width=width, 
-                                # height=height,
-                                width='width', 
-                                height='height',
-                                angle=self.angle,
-                                hover_color=self.hover_color,
-                                **{param.attr: param.attr for param in self.manager.parameters},
-                                source=self.manager.source,
-                                view=CDSView(filter=BooleanFilter(booleans=self.view)),
-                            )
+        # Both native footprints and axis-aligned aggregate cells supply their
+        # corners; x/y remain scalar centers for lazy loading and selection.
+        self.glyph_renderer = self.figure.patches(
+            xs='xs',
+            ys='ys',
+            hover_color=self.hover_color,
+            **{param.attr: param.attr for param in self.manager.parameters},
+            source=self.manager.source,
+            view=CDSView(filter=BooleanFilter(booleans=self.view)),
+        )
+        self.bin_info.bind_renderer(self.glyph_renderer)
         self.attach_selection_callbacks()
         self.apply_selected_obs_names()
         

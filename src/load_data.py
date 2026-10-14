@@ -171,6 +171,5 @@ class DataSet:
                 dataset.adata,
                 dataset.df_tissue_positions
             )
-            print(f"Data with bin size {bs} loaded")
 
         return results

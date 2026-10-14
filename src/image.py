@@ -168,7 +168,6 @@ class ImageProcessor:
                 labels = pickle.load(f)
             with open(polys_path, 'rb') as f:
                 polys = pickle.load(f)
-            print("Loaded labels and polys from disk.")
         else:
             from stardist.models import StarDist2D
             from csbdeep.utils import normalize
@@ -185,11 +184,11 @@ class ImageProcessor:
                 normalizer=None, n_tiles=n_tiles
             )
 
+            os.makedirs(self.segm_path, exist_ok=True)
             with open(labels_path, 'wb') as f:
                 pickle.dump(labels, f, protocol=pickle.HIGHEST_PROTOCOL)
             with open(polys_path, 'wb') as f:
                 pickle.dump(polys, f, protocol=pickle.HIGHEST_PROTOCOL)
-            print("Computed labels and polys and saved to disk.")
 
         return labels, polys
 

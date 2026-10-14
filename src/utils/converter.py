@@ -19,7 +19,6 @@ class Converter:
             while True:
                 i += 1
                 if i == max_iters:
-                    print("Could not find a reference point. Exiting...")
                     return None
 
                 ref_point = np.random.randint(df_tissue_positions["array_row"].min(), df_tissue_positions["array_row"].max()), np.random.randint(df_tissue_positions["array_col"].min(), df_tissue_positions["array_col"].max())

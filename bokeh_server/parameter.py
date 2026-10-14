@@ -82,7 +82,6 @@ class DynamicParameter(Parameter):
     def handle_nans(self, series):
         series = series.copy().astype(object)
         not_sequenced = series.isna()
-        print(f"[handle_nans] NaN count: {not_sequenced.sum()} / {len(series)}")
         series.loc[not_sequenced] = self.not_sequenced_val
         return series, ~not_sequenced
     
@@ -90,20 +89,8 @@ class DynamicParameter(Parameter):
         pass
 
     def get_values(self, series):
-        print(f"[get_values] series unique: {series.dropna().unique()[:5]}")
         result = self.apply_filter(*self.handle_nans(series))
-        print(
-            "[get_values] result counts:",
-            pd.Series(result).value_counts()
-        )
-        print("GET_VALUES")
-        print("self id =", id(self))
-        print("CLASS =", type(self).__name__)
-        print("SELF ID =", id(self))
 
-        if hasattr(self, "category_colors"):
-            print("category_colors =", self.category_colors)
-        print("series unique =", pd.Series(series).dropna().unique())
         return result
     
 
@@ -116,8 +103,9 @@ class Scaler(DynamicParameter):
         self.avoid_scaling = False
 
     def scale_values(self, values):
+        # Uniform mode (categorical colouring): every value takes the slider max
         if self.avoid_scaling:
-            return [1.0] * len(values)
+            return [self.maxv] * len(values)
         try:
             values_array = pd.to_numeric(values, errors="raise").to_numpy(dtype=float, copy=False)
         except (ValueError, TypeError):
@@ -142,19 +130,19 @@ class Scaler(DynamicParameter):
         else:
             return self.scale_values(series)
     
-    def update(self, series, new_minv=None, new_maxv=None, avoid_scaling=False):
-        self.avoid_scaling = avoid_scaling
-        if avoid_scaling:
-            self.minv = self.maxv
-        else:
-            if new_minv is not None:
-                self.minv = new_minv
-                if new_minv > self.maxv:
-                    self.maxv = new_minv
-            if new_maxv is not None:
-                self.maxv = new_maxv
-                if new_maxv < self.minv:
-                    self.minv = new_maxv
+    def update(self, series, new_minv=None, new_maxv=None, avoid_scaling=None):
+        # avoid_scaling=None keeps the current mode, so moving the alpha slider
+        # while clusters are shown does not bring back the old gene scaling
+        if avoid_scaling is not None:
+            self.avoid_scaling = avoid_scaling
+        if new_minv is not None:
+            self.minv = new_minv
+            if new_minv > self.maxv:
+                self.maxv = new_minv
+        if new_maxv is not None:
+            self.maxv = new_maxv
+            if new_maxv < self.minv:
+                self.minv = new_maxv
         return self.get_values(series)
 
 
@@ -178,13 +166,9 @@ class CategoricalColor(DynamicParameter):
             self.category_colors[category] = self.PALETTE[idx]
 
     def apply_filter(self, series, sequenced):
-        print(f"[CategoricalColor] series unique: {series.unique()[:5]}")
-        print(f"[CategoricalColor] sequenced sum: {sequenced.sum()} / {len(sequenced)}")
         result_series = series.copy()
         sequenced_series = series[sequenced].astype(str)
         unique_categories = pd.unique(sequenced_series)
         self.ensure_colors(unique_categories)
-        print(f"[CategoricalColor] category_colors: {self.category_colors}")
         result_series.loc[sequenced] = sequenced_series.map(self.category_colors)
-        print(f"[CategoricalColor] result unique: {pd.unique(result_series)[:5]}")
         return result_series.tolist()
