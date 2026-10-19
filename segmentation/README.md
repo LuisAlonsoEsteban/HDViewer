@@ -154,4 +154,7 @@ threads can read the budget from `VHD_SEG_THREADS`.
 Runs are stored next to the dataset, in `<dataset dir>/segmentation/<plugin>/<hash>/`,
 together with `run.log`. The hash covers the image, the plugin version and the parameters.
 Loading the same dataset with the same settings reuses the result instantly. Failed runs
-stay in `<hash>.running/` with their log, for debugging.
+stay in `<hash>.running/` with their log, for debugging. The first line of `run.log` is the
+exact command that was run, and the last line says why the run ended. A run the kernel
+kills for exceeding a memory limit cannot print an error itself, so the runner writes
+`killed, most likely out of memory` there and on the loading page.
