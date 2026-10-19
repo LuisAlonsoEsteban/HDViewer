@@ -34,6 +34,10 @@ class GroupsManager(DEMixin):
         self._status_div            = None
         self._de_merged             = None
         self._de_results: dict      = {}
+        # DE has its own selection: hiding a group on the map does not change it
+        self._de_selected: set      = set()
+        self._de_groups_checkbox    = None
+        self._de_status_div         = None
         self._last_plots_html: str  = ""
 
     @property
@@ -77,13 +81,8 @@ class GroupsManager(DEMixin):
         clear_conditions_btn = Button(label="Clear",            button_type="warning",  width=80)
         create_cluster_btn   = Button(label="✓ Create cluster", button_type="success", width=130)
         delete_cluster_btn   = Button(label="🗑 Delete cluster", button_type="danger",  width=130)
-        de_mode              = RadioButtonGroup(labels=["vs Rest", "Entre clusters"], active=0)
-        run_de_btn           = Button(label="▶ Run DE", button_type="primary", width=120)
 
         self._status_div = Div(text="", width=270)
-        # Mensajes de estado/aviso del DE (Running DE..., bloqueos, sin resultados).
-        # Va debajo del botón Run DE en el layout.
-        self._de_status_div = Div(text="", width=270)
 
         if self._cluster_layout is None:
             self._cluster_layout = column(
@@ -169,6 +168,7 @@ class GroupsManager(DEMixin):
 
             self._clusters[cname] = list(self._conditions)
             self._active_clusters.add(cname)
+            self._de_selected.add(cname)
             self._conditions.clear()
 
             try:
@@ -184,6 +184,7 @@ class GroupsManager(DEMixin):
             def _update():
                 _render_conditions()
                 self._rebuild_cluster_widgets(doc)
+                self._refresh_de_groups()
 
             doc.add_next_tick_callback(_update)
 
@@ -197,7 +198,8 @@ class GroupsManager(DEMixin):
 
             del self._clusters[cname]
             self._active_clusters.discard(cname)
-            self._hide_de_if_cluster_hidden()
+            self._de_selected.discard(cname)
+            self._clear_de_if_cluster_deleted()
 
             col_key = f"grp_{cname}"
             if col_key in self.sample.adata.obs.columns:
@@ -223,33 +225,15 @@ class GroupsManager(DEMixin):
                     f"<p style='color:red;font-size:11px'>Error: {str(e)[:80]}</p>"
                 )
 
-            doc.add_next_tick_callback(lambda: self._rebuild_cluster_widgets(doc))
-
-        def on_run_de():
-            active = list(self._active_clusters)
-            if not active:
-                self._de_status_div.text = (
-                    "<p style='color:red;font-size:11px'>"
-                    "Select at least one cluster first.</p>"
-                )
-                return
-            # "Entre clusters" (de_mode.active == 1) compara clusters entre sí:
-            # con menos de 2 seleccionados no hay comparación posible y el hilo
-            # de DE se quedaba colgado en "Running DE...". Bloquear aquí.
-            if de_mode.active == 1 and len(active) < 2:
-                self._de_status_div.text = (
-                    "<p style='color:red;font-size:11px'>"
-                    "\"Entre clusters\" needs at least 2 selected clusters.</p>"
-                )
-                return
-            self._de_status_div.text = ""
-            self._run_de_thread(active, de_mode.active, doc)
+            def _update():
+                self._rebuild_cluster_widgets(doc)
+                self._refresh_de_groups()
+            doc.add_next_tick_callback(_update)
 
         add_condition_btn.on_click(on_add_condition)
         clear_conditions_btn.on_click(on_clear_conditions)
         create_cluster_btn.on_click(on_create_cluster)
         delete_cluster_btn.on_click(on_delete_cluster)
-        run_de_btn.on_click(on_run_de)
 
         # --- Layout ---
         # Gene en su propia fila y operador/valor/lógica debajo: todo en una
@@ -278,12 +262,73 @@ class GroupsManager(DEMixin):
             self._status_div,
             Div(text="<b style='color:#888888'>Created clusters</b>"),
             self._cluster_layout,
-            Div(text="<hr style='border-color:#444'>"),
+            _geom_label_div,
+        ]
+
+    # ------------------------------------------------------------------
+    # Public: get_de_widgets (differential expression between groups)
+    # ------------------------------------------------------------------
+
+    def get_de_widgets(self, doc) -> list:
+        self._de_groups_checkbox = CheckboxGroup(labels=[], active=[])
+        self._de_groups_hint = Div(width=270)
+        self._refresh_de_groups()
+
+        def _on_de_groups_change(attr, old, new):
+            names = self._de_groups_checkbox.labels
+            self._de_selected = {names[i] for i in new}
+        self._de_groups_checkbox.on_change("active", _on_de_groups_change)
+
+        de_mode    = RadioButtonGroup(labels=["vs Rest", "Entre clusters"], active=0)
+        run_de_btn = Button(label="▶ Run DE", button_type="primary", width=120)
+        # Mensajes de estado/aviso del DE (Running DE..., bloqueos, sin resultados).
+        self._de_status_div = Div(text="", width=270)
+
+        def on_run_de():
+            # In the order the groups were created: it decides overlaps in "Entre clusters"
+            selected = [c for c in self._clusters if c in self._de_selected]
+            if not selected:
+                self._de_status_div.text = (
+                    "<p style='color:red;font-size:11px'>"
+                    "Select at least one group to compare.</p>"
+                )
+                return
+            # "Entre clusters" (de_mode.active == 1) compara clusters entre sí:
+            # con menos de 2 seleccionados no hay comparación posible y el hilo
+            # de DE se quedaba colgado en "Running DE...". Bloquear aquí.
+            if de_mode.active == 1 and len(selected) < 2:
+                self._de_status_div.text = (
+                    "<p style='color:red;font-size:11px'>"
+                    "\"Entre clusters\" needs at least 2 selected groups.</p>"
+                )
+                return
+            self._de_status_div.text = ""
+            self._run_de_thread(selected, de_mode.active, doc)
+
+        run_de_btn.on_click(on_run_de)
+
+        return [
+            Div(text="<b style='color:#888888'>Groups to compare</b>"),
+            self._de_groups_hint,
+            self._de_groups_checkbox,
+            Div(text="<b style='color:#888888'>Compare against</b>"),
             de_mode,
             run_de_btn,
             self._de_status_div,
-            _geom_label_div,
         ]
+
+    def _refresh_de_groups(self):
+        """Keep the DE group list in step with the groups that exist."""
+        if self._de_groups_checkbox is None:
+            return
+        names = list(self._clusters)
+        self._de_selected &= set(names)
+        self._de_groups_checkbox.labels = names
+        self._de_groups_checkbox.active = [i for i, c in enumerate(names) if c in self._de_selected]
+        self._de_groups_hint.text = (
+            "" if names else
+            "<p style='color:#888;font-size:11px'>Create groups in the Groups tab first.</p>"
+        )
 
     # ------------------------------------------------------------------
     # Cluster widgets (checkbox list)
@@ -317,19 +362,18 @@ class GroupsManager(DEMixin):
         def _on_checkbox_change(attr, old, new):
             cluster_names = list(self._clusters.keys())
             self._active_clusters = {cluster_names[i] for i in new}
-            self._hide_de_if_cluster_hidden()
             doc.add_next_tick_callback(self._apply_visibility_mask)
 
         self._checkbox_group.on_change("active", _on_checkbox_change)
         return [self._checkbox_group]
 
-    def _hide_de_if_cluster_hidden(self):
-        """Quitar la tabla y los gráficos DE del plot si se deselecciona o borra
-        alguno de los clusters con los que se calcularon."""
+    def _clear_de_if_cluster_deleted(self):
+        """Quitar la tabla y los gráficos DE del plot si se borra alguno de los
+        grupos con los que se calcularon (ocultarlos en el mapa no les afecta)."""
         de_clusters = getattr(self, '_de_clusters', None)
         if not de_clusters:
             return
-        if all(c in self._active_clusters for c in de_clusters):
+        if all(c in self._clusters for c in de_clusters):
             return
         self._de_clusters = None
         self._de_results = {}

@@ -1,8 +1,8 @@
 name: stardist
 title: StarDist
 description: Star-convex nucleus detection with the pretrained H&E model (2D_versatile_he).
-version: 0.1.0
-image: ghcr.io/luisalonsoesteban/visium-seg-stardist:0.1.0
+version: 0.2.0
+image: ghcr.io/luisalonsoesteban/visium-seg-stardist:0.2.0
 url: https://github.com/stardist/stardist
 citation: 'Schmidt et al., "Cell Detection with Star-convex Polygons", MICCAI 2018.'
 

@@ -152,6 +152,24 @@ class LocalRunnerTests(unittest.TestCase):
         # With max_parallel = 1 the second run only starts after the first has finished
         self.assertGreaterEqual(starts[1][0], ends[first])
 
+    def test_killed_run_says_why_in_the_error_and_the_log(self):
+        plugin = self.service.plugins["watershed"]
+        killed = self.work / "killed"
+        shutil.copytree(plugin.path, killed)
+        # What the kernel does to a process over its memory limit
+        (killed / "run.py").write_text(
+            "import os, signal\nprint('##progress 0.08 Normalising image', flush=True)\n"
+            "os.kill(os.getpid(), signal.SIGKILL)\n")
+        plugin.path = killed
+        try:
+            with self.assertRaises(RunnerError) as ctx:
+                self.service.run("watershed", self.image_path, "synthetic", self.work)
+        finally:
+            self.service.plugins = discover()
+        self.assertIn("killed, most likely out of memory", str(ctx.exception))
+        log = next(self.work.glob("watershed/*.running/run.log")).read_text()
+        self.assertTrue(log.rstrip().endswith("(check the RAM limit of the session or job)"), log)
+
     def test_thread_budget_reaches_the_plugin(self):
         service = SegmentationService({"runner": "local", "threads_per_run": 3})
         plugin = service.plugins["watershed"]

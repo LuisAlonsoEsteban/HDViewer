@@ -124,6 +124,13 @@ class App:
                     bin_size_um / sample.native_width,
                     bin_size_um / sample.native_height,
                 )
+            # Figure units are full-res image pixels scaled per axis to a square
+            if self.figure_panel.roi_readout is not None:
+                self.figure_panel.roi_readout.set_scale(
+                    1 / sample.tile_scale_xfactor,
+                    1 / sample.tile_scale_yfactor,
+                    float(sample.bin_size_um) / sample.pixels_per_bin if sample.pixels_per_bin else None,
+                )
 
             geom = Squares(
                 self.figure_panel.p, 
@@ -250,7 +257,8 @@ class App:
 
         self.add_root(self.figure_panel.layout)
 
-        self.thumbnail_panel.populate(self.image_component, self.figure_panel.p)
+        self.thumbnail_panel.populate(self.image_component, self.figure_panel.p,
+                                      roi_readout=self.figure_panel.roi_readout)
         self.add_root(self.thumbnail_panel.layout)
 
         self.metadata_panel.populate(self.geometries)

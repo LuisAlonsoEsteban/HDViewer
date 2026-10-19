@@ -79,10 +79,18 @@ class DEMixin:
                     except Exception as e:
                         pass
             else:
-                obs_grp = adata_copy.obs[GROUPS_COL].astype(str)
-                in_sel = adata_copy.obs[GROUPS_COL].notna() & obs_grp.isin(active)
+                # Label each spot with the first selected group it belongs to.
+                # GROUPS_COL only holds the groups visible on the map, and DE
+                # must not depend on what is shown.
+                labels = pd.Series(None, index=adata_copy.obs.index, dtype=object)
+                for cname in active:
+                    col_key = f"grp_{cname}"
+                    if col_key in adata_copy.obs.columns:
+                        member = adata_copy.obs[col_key].astype(bool) & labels.isna()
+                        labels[member] = cname
+                in_sel = labels.notna()
                 sub = adata_copy[in_sel.values].copy()
-                sub.obs['_de_group'] = sub.obs[GROUPS_COL].astype(str)
+                sub.obs['_de_group'] = labels[in_sel].astype(str).values
                 plot_adata = sub
 
                 counts = sub.obs['_de_group'].value_counts()

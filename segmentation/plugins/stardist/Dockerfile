@@ -1,5 +1,5 @@
 # Build from the segmentation/ directory:
-#   docker build -t ghcr.io/luisalonsoesteban/visium-seg-stardist:0.1.0 -f plugins/stardist/Dockerfile .
+#   docker build -t ghcr.io/luisalonsoesteban/visium-seg-stardist:0.2.0 -f plugins/stardist/Dockerfile .
 FROM python:3.11-slim
 
 WORKDIR /app

@@ -539,6 +539,8 @@ class Component:
 
             groups_widgets = self.groups_manager.get_widgets(doc)
             self._all_widgets.extend(groups_widgets)
+            de_widgets = self.groups_manager.get_de_widgets(doc)
+            self._all_widgets.extend(de_widgets)
 
             clustering_widgets = self.clustering_manager.get_widgets(doc, on_run=on_run_clustering)
             self._all_widgets.extend(clustering_widgets)
@@ -549,6 +551,7 @@ class Component:
                 TabPanel(child=column(*color_widgets) if color_widgets else column(Div(text="No color options.")), title="Color"),
                 TabPanel(child=column(*clustering_widgets), title="Clustering"),
                 TabPanel(child=column(*groups_widgets), title="Groups"),
+                TabPanel(child=column(*de_widgets), title="DE"),
             ]
 
             for param in self.manager.parameters:

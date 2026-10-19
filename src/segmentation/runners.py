@@ -87,10 +87,18 @@ class Runner:
                 elif line:
                     tail.append(line)
         code = proc.returncode
-        log.flush()
         if code != 0:
-            details = "\n".join(tail)
-            raise RunnerError(f"exited with code {code} ({self.name} runner):\n{details}")
+            reason = f"exited with code {code} ({self.name} runner)"
+            # SIGKILL: -9 for a direct child, 128 + 9 through apptainer/docker.
+            # The kernel kills a process over its memory limit this way, so it
+            # cannot print anything itself.
+            if code in (-9, 137):
+                reason += ": killed, most likely out of memory (check the RAM limit of the session or job)"
+            # The log otherwise just stops: say why it ended
+            log.write(f"[runner] {reason}\n")
+            log.flush()
+            raise RunnerError(reason + ":\n" + "\n".join(tail))
+        log.flush()
         return list(tail)
 
 

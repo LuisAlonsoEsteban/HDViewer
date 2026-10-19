@@ -7,10 +7,11 @@ from bokeh.models import Div
 from bokeh.layouts import column
 
 from ...components.measure import MeasureTool
+from ...components.roi import ROIReadout
 
 class FigurePanel(Panel):
 
-    p, img_alpha_slider, measure_tool = None, None, None
+    p, img_alpha_slider, measure_tool, roi_readout = None, None, None, None
 
     def __init__(self):
         super().__init__(name="plot_column")
@@ -35,6 +36,7 @@ class FigurePanel(Panel):
         self.p.toolbar.active_inspect = None
 
         self.measure_tool = MeasureTool(self.p)
+        self.roi_readout = ROIReadout(self.p)
 
     def attach_image(self, image_component, w=None, h=None):
         if self.p:
