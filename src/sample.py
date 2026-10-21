@@ -172,7 +172,11 @@ class Sample:
         return data
     
     def get_marker_genes(self, n_genes=5):
+        """Top marker genes per cluster; {} until `compute_marker_genes` has run for
+        the current clustering (results of a previous clustering are not returned)."""
         if self.adata_processed is None or 'rank_genes_groups' not in self.adata_processed.uns:
+            return {}
+        if not self._is_cached("markers", self._step_params.get("leiden")):
             return {}
         
         result = self.adata_processed.uns['rank_genes_groups']
@@ -245,6 +249,7 @@ class Sample:
     _STEP_DEPENDENTS = {
         "pca": ("neighbors", "tsne", "pca_embedding"),
         "neighbors": ("umap", "leiden"),
+        "leiden": ("markers",),
     }
     _STEP_OBSM_KEYS = {
         "pca_embedding": "X_pca_2d",
@@ -366,10 +371,13 @@ class Sample:
         df = df.dropna(subset=["x", "y"]).copy()
         return df
 
-    def run_clustering(self, resolution=0.9, n_pcs=30, n_neighbors=15, key_added="leiden", resolution_level=None):
+    def run_clustering(self, resolution=0.9, n_pcs=30, n_neighbors=15, key_added="leiden",
+                       resolution_level=None, compute_markers=True):
         """Run Leiden clustering and store the labels in `adata.obs[key_added]`.
 
-        `resolution_level` is only meaningful for Bins; it is ignored here.
+        `resolution_level` is only meaningful for Bins; it is ignored here. With
+        compute_markers=False the (slower) marker genes are left for a later
+        `compute_marker_genes()`, so the clusters can be shown first.
         Returns the obs column holding the labels.
         """
         import scanpy as sc
@@ -379,9 +387,9 @@ class Sample:
         if not self._is_cached("leiden", resolution):
             report(f"Running Leiden clustering (resolution={resolution})...")
             sc.tl.leiden(adata, resolution=resolution)
-            report("Ranking marker genes...")
-            sc.tl.rank_genes_groups(adata, groupby='leiden', method='wilcoxon')
             self._mark_computed("leiden", resolution)
+        if compute_markers:
+            self.compute_marker_genes()
 
         common_idx = self.adata.obs_names.intersection(adata.obs_names)
 
@@ -392,6 +400,21 @@ class Sample:
             .values
         )
         return key_added
+
+
+    def compute_marker_genes(self):
+        """Rank marker genes of the current Leiden clusters (Wilcoxon); cached per clustering."""
+        import scanpy as sc
+
+        adata = self.adata_processed
+        if adata is None or 'leiden' not in adata.obs:
+            return
+        leiden_params = self._step_params.get("leiden")
+        if self._is_cached("markers", leiden_params):
+            return
+        report("Ranking marker genes...")
+        sc.tl.rank_genes_groups(adata, groupby='leiden', method='wilcoxon')
+        self._mark_computed("markers", leiden_params)
 
 
 class Bins(Sample):
@@ -544,7 +567,8 @@ class Bins(Sample):
         self._aggregated_cell_names[factor] = cell_names
         return aggregated_sample
 
-    def run_clustering(self, resolution=0.9, n_pcs=30, n_neighbors=15, key_added=None, resolution_level=None):
+    def run_clustering(self, resolution=0.9, n_pcs=30, n_neighbors=15, key_added=None, resolution_level=None,
+                       compute_markers=True):
         """Cluster at `resolution_level` and store labels in `adata.obs['leiden_{factor}']`.
 
         For aggregated levels every native bin gets the label of the aggregated
@@ -554,10 +578,12 @@ class Bins(Sample):
         key_added = key_added or self.get_cluster_colname(factor)
 
         if factor <= 1:
-            super().run_clustering(resolution=resolution, n_pcs=n_pcs, n_neighbors=n_neighbors, key_added=key_added)
+            super().run_clustering(resolution=resolution, n_pcs=n_pcs, n_neighbors=n_neighbors, key_added=key_added,
+                                   compute_markers=compute_markers)
         else:
             aggregated_sample = self._get_aggregated_sample(factor)
-            aggregated_sample.run_clustering(resolution=resolution, n_pcs=n_pcs, n_neighbors=n_neighbors)
+            aggregated_sample.run_clustering(resolution=resolution, n_pcs=n_pcs, n_neighbors=n_neighbors,
+                                             compute_markers=compute_markers)
             labels = aggregated_sample.adata.obs["leiden"].astype(str)
             mapped = self._aggregated_cell_names[factor].map(labels)
             self.adata.obs[key_added] = mapped.where(mapped.notna(), None).astype(object)
@@ -579,6 +605,11 @@ class Bins(Sample):
         if factor <= 1:
             return super().get_embedding_dataframe(method)
         return self._get_aggregated_sample(factor).get_embedding_dataframe(method)
+
+    def compute_marker_genes(self):
+        if self._clustering_factor > 1:
+            return self._aggregated_samples[self._clustering_factor].compute_marker_genes()
+        return super().compute_marker_genes()
 
     def get_marker_genes(self, n_genes=5):
         if self._clustering_factor > 1:

@@ -1,5 +1,17 @@
 AVAILABLE_DATASETS = {
-    "Mouse brain": {
+    "Mouse brain (2um)": {
+        "expression_path": "/scratch/lalonsoeste/PhD/VisiumVisualizer/data/Visium_HD_Mouse_Brain/binned_outputs/square_002um/filtered_feature_bc_matrix.h5",
+        "positions_path": "/scratch/lalonsoeste/PhD/VisiumVisualizer/data/Visium_HD_Mouse_Brain/binned_outputs/square_002um/spatial/tissue_positions.parquet",
+        "image_path": "/scratch/lalonsoeste/PhD/VisiumVisualizer/data/Visium_HD_Mouse_Brain/Visium_HD_Mouse_Brain_tissue_image.tif",
+        "bins_size": 2,
+    },
+    "Mouse brain (8um)": {
+        "expression_path": "/scratch/lalonsoeste/PhD/VisiumVisualizer/data/Visium_HD_Mouse_Brain/binned_outputs/square_008um/filtered_feature_bc_matrix.h5",
+        "positions_path": "/scratch/lalonsoeste/PhD/VisiumVisualizer/data/Visium_HD_Mouse_Brain/binned_outputs/square_008um/spatial/tissue_positions.parquet",
+        "image_path": "/scratch/lalonsoeste/PhD/VisiumVisualizer/data/Visium_HD_Mouse_Brain/Visium_HD_Mouse_Brain_tissue_image.tif",
+        "bins_size": 8,
+    },
+    "Mouse brain (16um)": {
         "expression_path": "/scratch/lalonsoeste/PhD/VisiumVisualizer/data/Visium_HD_Mouse_Brain/binned_outputs/square_016um/filtered_feature_bc_matrix.h5",
         "positions_path": "/scratch/lalonsoeste/PhD/VisiumVisualizer/data/Visium_HD_Mouse_Brain/binned_outputs/square_016um/spatial/tissue_positions.parquet",
         "image_path": "/scratch/lalonsoeste/PhD/VisiumVisualizer/data/Visium_HD_Mouse_Brain/Visium_HD_Mouse_Brain_tissue_image.tif",

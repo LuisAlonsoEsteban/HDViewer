@@ -8,10 +8,11 @@ from bokeh.layouts import column
 
 from ...components.measure import MeasureTool
 from ...components.roi import ROIReadout
+from ...components.zoom import ZoomBar
 
 class FigurePanel(Panel):
 
-    p, img_alpha_slider, measure_tool, roi_readout = None, None, None, None
+    p, img_alpha_slider, measure_tool, roi_readout, zoom_bar = None, None, None, None, None
 
     def __init__(self):
         super().__init__(name="plot_column")
@@ -37,6 +38,7 @@ class FigurePanel(Panel):
 
         self.measure_tool = MeasureTool(self.p)
         self.roi_readout = ROIReadout(self.p)
+        self.zoom_bar = ZoomBar(self.p, full_span=max_dim)
 
     def attach_image(self, image_component, w=None, h=None):
         if self.p:
@@ -61,6 +63,7 @@ class FigurePanel(Panel):
                 self.setup_image_alpha(image_component)
 
             self.add_children(self.img_alpha_slider)
+            self.add_children(self.zoom_bar.div)
             self.de_div = Div(text="", sizing_mode="stretch_width") 
             self.add_children(self.de_div)     
 

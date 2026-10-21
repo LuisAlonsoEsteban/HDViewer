@@ -9,6 +9,47 @@ import math
 
 import threading
 
+_TILE_SETS = {}                 # key -> tiles directory
+_TILE_SERVERS = set()           # ports with a running tile server
+_TILE_LOCK = threading.Lock()
+
+
+def register_tiles(tiles_path):
+    """Make a tiles directory servable; its key changes with the directory."""
+    import hashlib
+    path = os.path.abspath(str(tiles_path))
+    key = hashlib.sha1(path.encode()).hexdigest()[:12]
+    with _TILE_LOCK:
+        _TILE_SETS[key] = path
+    return key
+
+
+def make_tile_app():
+    app = Flask("TileSource")
+
+    @app.route("/<key>/<int:zoom>/<int:x>/<int:y>")
+    def get_tile(key, zoom, x, y):
+        tiles_path = _TILE_SETS.get(key)
+        if tiles_path is None:
+            abort(404)
+        filepath = os.path.join(tiles_path, ImageProcessor.filename_pattern.format(zoom=zoom, x=x, y=y))
+        if not os.path.exists(filepath):
+            abort(404)
+        return send_file(filepath, mimetype='image/png'), {'Access-Control-Allow-Origin': '*'}
+
+    return app
+
+
+def ensure_tile_server(host='0.0.0.0', port=5001):
+    """Start the process' tile server on `port` once."""
+    with _TILE_LOCK:
+        if port in _TILE_SERVERS:
+            return
+        _TILE_SERVERS.add(port)
+    app = make_tile_app()
+    threading.Thread(target=lambda: app.run(debug=False, host=host, port=port), daemon=True).start()
+
+
 class ImageProcessor:
     
     """
@@ -119,24 +160,14 @@ class ImageProcessor:
 
 
     def deploy_server(self, host='0.0.0.0', port=5001, overwrite=False):
+        """Serve these tiles; returns the key of their URL path (/<key>/<z>/<x>/<y>).
+
+        One tile server per process and port serves every image: starting one per
+        dataset failed silently once the port was taken, and the browser was then
+        shown the first dataset's image for every later one.
+        """
         if not os.path.exists(self.tiles_path) or overwrite:
             self.create_tiles()
-
-        app = Flask("TileSource")
-
-        @app.route("/<int:zoom>/<int:x>/<int:y>")
-        def get_tile(zoom, x, y):
-            # Assuming tiles are named based on a fixed format
-            filename = self.filename_pattern.format(zoom=zoom, x=x, y=y)
-            filepath = os.path.join(self.tiles_path, filename)
-
-            if not os.path.exists(filepath):
-                abort(404)
-
-            return send_file(filepath, mimetype='image/png'), {'Access-Control-Allow-Origin':'*'}
-        
-        def run_app():
-            app.run(debug=False, host=host, port=port)
-
-        # Run the Flask app in a separate thread
-        threading.Thread(target=run_app).start()
+        self.tile_key = register_tiles(self.tiles_path)
+        ensure_tile_server(host, port)
+        return self.tile_key

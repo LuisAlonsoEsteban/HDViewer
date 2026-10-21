@@ -10,8 +10,11 @@ class LazyLoader:
 
     assert STATIC_RANGE <= OFFSET, "Offset must be larger than the static range for efficient loading"
 
-    def __init__(self, dynamic_source_manager, p):
+    def __init__(self, dynamic_source_manager, p, max_view_span=None):
         self.manager = dynamic_source_manager
+        # Optional callable: widest view (figure units) at which the layer is loaded.
+        # Wider views unload it (cells: too many polygons, and they cannot be aggregated).
+        self.max_view_span = max_view_span
 
         self.x_range = p.x_range
         self.y_range = p.y_range
@@ -129,12 +132,26 @@ class LazyLoader:
         self._last_factor = factor
         return sample.get_resolution_level_for_factor(factor)
 
+    def gated(self):
+        """True while the view is too wide for this layer to be loaded."""
+        span = self.max_view_span() if self.max_view_span is not None else None
+        return span is not None and self.window_size[0] > span
+
+    def _unload(self):
+        if self.manager.bbox is not None or len(self.manager.source.data.get('x', [])):
+            self.manager.bbox = None            # also stops other paths from fetching
+            self.fixed_static_bbox = None
+            self.manager.clear_sources()
+
     def add_range_callback(self, component, doc):
         
         def callback(attr, old, new):
 
             def update_bbox():
                 if not self._check_ranges():
+                    return
+                if self.gated():
+                    self._unload()
                     return
                 resolution_level = self.get_resolution_level()
                 current_fetch_bbox = self.compute_bbox
@@ -176,6 +193,9 @@ class LazyLoader:
     def force_reload(self):
         """Reload current viewport data after source has been cleared."""
         if not self._check_ranges():
+            return
+        if self.gated():
+            self._unload()
             return
         resolution_level = self.get_resolution_level()
         self.manager.set_fetch_context(

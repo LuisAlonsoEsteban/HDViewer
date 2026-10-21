@@ -38,6 +38,36 @@ class DataSet:
 
         self.pixels_per_bin = self.get_pixels_per_bin() 
 
+    def read_scalefactors(self):
+        """Space Ranger's scalefactors_json.json next to the positions, or None."""
+        if self.dir_base and self.bins_size:
+            filename = os.path.join(self.dir_base, f"binned_outputs/square_{self.bins_size:03}um/spatial",
+                                    "scalefactors_json.json")
+        elif self.positions_path:
+            filename = os.path.join(Path(self.positions_path).resolve().parent, "scalefactors_json.json")
+        else:
+            return None
+        if not os.path.exists(filename):
+            return None
+        with open(filename, 'r') as f:
+            return json.load(f)
+
+    @property
+    def image_scale(self):
+        """Image pixels per full-resolution pixel.
+
+        Positions are in full-resolution pixels. Space Ranger's down-scaled
+        tissue_hires_image / tissue_lowres_image need its scale factor; any other
+        image is taken to be the full-resolution one (1).
+        """
+        name = Path(str(self.img_path)).name.lower()
+        scalefactors = self.read_scalefactors() or {}
+        if "hires" in name and "tissue_hires_scalef" in scalefactors:
+            return float(scalefactors["tissue_hires_scalef"])
+        if "lowres" in name and "tissue_lowres_scalef" in scalefactors:
+            return float(scalefactors["tissue_lowres_scalef"])
+        return 1.0
+
     def get_pixels_per_bin(self):
         if self.dir_base and self.bins_size:
             filename = os.path.join(
@@ -109,7 +139,10 @@ class DataSet:
 
     def read_positions(self):
         self._df_tissue_positions = pd.read_parquet(self.positions_path)
-        self._df_tissue_positions = self._df_tissue_positions.set_index('barcode')
+        if 'barcode' in self._df_tissue_positions.columns:
+            self._df_tissue_positions = self._df_tissue_positions.set_index('barcode')
+        else:
+            raise ValueError("No valid index column found in tissue positions DataFrame")
         self._df_tissue_positions['index'] = self._df_tissue_positions.index
         self.df_tissue_positions = self._df_tissue_positions
 

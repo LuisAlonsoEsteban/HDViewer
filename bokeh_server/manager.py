@@ -96,9 +96,27 @@ class SourceManager:
         else:
             self.reset()
 
-        
-    def update_colname(self, old_colname, new_colname):
+    def remove_parameter(self, attr):
+        """Drop the parameter bound to `attr`; the glyph falls back to its default."""
+        param = self.get_param(attr)
+        if param is None:
+            return
+        self.parameters.remove(param)
+        data = dict(self.source.data)
+        data.pop(attr, None)
+        # Its column is only needed while another parameter still uses it
+        if not param.is_static and param.colname not in self.get_colnames():
+            data.pop(param.colname, None)
+            if param.colname in self.cache.columns:
+                self.cache.drop(columns=param.colname, inplace=True)
+        self.source.data = data
+
+    def update_colname(self, old_colname, new_colname, attrs=None):
+        """Point the parameters reading `old_colname` at `new_colname`; with `attrs`,
+        only those attributes (other parameters may read the same column)."""
         for param in self.get_params_by_colname(old_colname):
+            if attrs is not None and param.attr not in attrs:
+                continue
             param.colname = new_colname
 
             if hasattr(param, "min_counts"):
@@ -220,8 +238,12 @@ class DynamicSourceManager(SourceManager):
         self.view_filter = np.empty(0, dtype=bool)
         self._notify_context_change()
 
-    def update_colname(self, old_colname, new_colname):
+    def update_colname(self, old_colname, new_colname, attrs=None):
+        """Point the parameters reading `old_colname` at `new_colname`; with `attrs`,
+        only those attributes (other parameters may read the same column)."""
         for param in self.get_params_by_colname(old_colname):
+            if attrs is not None and param.attr not in attrs:
+                continue
             param.colname = new_colname
 
             if hasattr(param, "min_counts"):
@@ -249,12 +271,20 @@ class DynamicSourceManager(SourceManager):
         elif self.sample.is_continous(param.colname):
             param.min_counts, param.max_counts = self.sample.get_range(param.colname)
 
-        if not param.is_static or self.is_empty:
-            self.clear_sources()
-            if existing_param is not None and self.bbox is not None:
-                self.fetch_data()
-        else:
-            self.source.data[param.attr] = param.get_values()
+        # The loaded rows lack the new column: reload the viewport (without this a
+        # newly added parameter left the map empty until the next pan)
+        self.clear_sources()
+        if self.bbox is not None:
+            self.fetch_data()
+
+    def remove_parameter(self, attr):
+        param = self.get_param(attr)
+        if param is None:
+            return
+        self.parameters.remove(param)
+        self.clear_sources()
+        if self.bbox is not None:
+            self.fetch_data()
 
     def update_param(self, attr, *args, **kwargs):
         param = self.get_param(attr)
@@ -401,6 +431,10 @@ class DynamicSourceManager(SourceManager):
 
 
     def fetch_data(self):
+        # No viewport yet (or the layer is unloaded, e.g. cells zoomed out): fetching
+        # with bbox=None would load every geometry of the slide
+        if self.bbox is None:
+            return
         self.add_data(bbox=self.bbox)
 
     def remove_indcs(self, rem_indcs):

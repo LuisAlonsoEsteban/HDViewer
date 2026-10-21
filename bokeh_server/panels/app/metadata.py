@@ -4,6 +4,7 @@ from bokeh.layouts import column, row
 from bokeh.models import ColumnDataSource, Div, TabPanel, Tabs, DataTable, TableColumn, NumberFormatter
 from bokeh.plotting import figure
 from . import Panel
+from ...help import help_header, tutorial_link
 import math
 
 
@@ -14,7 +15,6 @@ class MetadataPanel(Panel):
         # Mantener este diccionario para compatibilidad interna de la app
         self._marker_table_sources = {}
         self._marker_divs = {}
-        self._de_divs = {}
 
     def _compute_general_stats(self, geom):
         """Calcula las estadísticas numéricas para la tabla de resumen."""
@@ -198,7 +198,7 @@ class MetadataPanel(Panel):
             marker_tab = self._build_marker_tab(geom)
 
             # Subtabs dentro del tab del geom
-            inner_tabs = Tabs(tabs=[qc_tab, marker_tab, self._build_de_tab(geom)])
+            inner_tabs = Tabs(tabs=[qc_tab, marker_tab])
 
             main_tabs.append(TabPanel(
                 child=column(inner_tabs, sizing_mode="stretch_width"),
@@ -207,9 +207,9 @@ class MetadataPanel(Panel):
         main_tabs.insert(0, self._build_general_tab(geometries))
 
         if main_tabs:
-            self.set_children([Tabs(tabs=main_tabs)])
+            self.set_children([row(help_header("Summary", "metadata"), tutorial_link()), Tabs(tabs=main_tabs)])
         else:
-            self.set_children([Div(text="<p style='color:gray'>Esperando datos...</p>")])
+            self.set_children([Div(text="<p style='color:gray'>Waiting for data...</p>")])
 
 
     def _build_marker_tab(self, geom):
@@ -228,7 +228,13 @@ class MetadataPanel(Panel):
 
     def update_marker_table(self, geom):
         markers = geom.sample.get_marker_genes(n_genes=10)
-        if not markers or geom.key not in self._marker_divs:
+        if geom.key not in self._marker_divs:
+            return
+        if not markers:
+            # Never leave a previous clustering's markers on screen
+            self._marker_divs[geom.key].text = (
+                "<p style='color:#888;font-size:11px'>Marker genes appear here once they are "
+                "ranked after clustering.</p>")
             return
         rows_html = ""
         for cluster, gene_list in markers.items():
@@ -262,34 +268,3 @@ class MetadataPanel(Panel):
             <tbody>{rows_html}</tbody>
         </table></div>"""
         self._marker_divs[geom.key].text = html
-    
-    def _build_de_tab(self, geom):
-        de_div = Div(
-            text="<p style='color:#888; font-size:11px; padding:10px;'>"
-                "Create groups and run DE to populate.</p>"
-        )
-        self._de_divs[geom.key] = de_div
-        return TabPanel(
-            child=column(de_div, sizing_mode="stretch_width"),
-            title="Groups DE"
-        )
-    
-    def update_de_table(self, geom, cname, result_html):
-        if geom.key in self._de_divs:
-            #self._de_divs[geom.key].text = result_html
-            #result_html = """
-            #<div style="
-            #background:red;
-            #height:400px;
-            #width:100%;
-            #font-size:50px;
-            #color:white">
-            #PLOT TEST
-            #</div>
-            #"""
-            self._de_divs[geom.key].text = """
-            <h1 style="color:red">HELLO</h1>
-            <div style="background:red;height:300px;width:300px">
-            TEST
-            </div>
-            """

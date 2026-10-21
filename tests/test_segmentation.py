@@ -233,6 +233,14 @@ class ContainerImageTests(unittest.TestCase):
             self.prepare(self.fake_docker(pull_exit=1))
         self.assertIn(f"could not pull {self.plugin.image}", str(ctx.exception))
 
+    def test_plugins_ignore_packages_from_the_home_directory(self):
+        # A pip --user numpy 2 in a mounted ~/.local broke TensorFlow inside the image
+        runner = ApptainerRunner({})
+        argv, _ = runner.command(self.plugin, self.work, self.work, runner.plugin_env())
+        self.assertIn("PYTHONNOUSERSITE=1", argv)
+        for plugin in discover().values():
+            self.assertIn("ENV PYTHONNOUSERSITE=1", (plugin.path / "Dockerfile").read_text())
+
     def test_apptainer_runs_the_registry_image(self):
         runner = ApptainerRunner({})
         self.assertEqual(runner.image_uri(self.plugin), f"docker://{self.plugin.image}")

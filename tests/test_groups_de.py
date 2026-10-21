@@ -15,6 +15,12 @@ class ImmediateDoc:
     def add_next_tick_callback(self, callback):
         callback()
 
+    def add_periodic_callback(self, callback, period_ms):
+        return callback
+
+    def remove_periodic_callback(self, callback):
+        pass
+
 
 def make_manager():
     """60 spots: group A = 0-19 (gene g0 high), group B = 20-39 (gene g1 high)."""
@@ -88,6 +94,128 @@ class GroupsDETests(unittest.TestCase):
 
         del manager._clusters["B"]
         manager._clear_de_if_cluster_deleted()
+        self.assertEqual(component._figure_de_div.text, "")
+
+
+def with_clusters(manager):
+    """Leiden-like clusters: '0' = spots 0-29 (g0 high), '1' = 30-59 (g2 high)."""
+    adata = manager.sample.adata
+    adata.obs["leiden"] = np.where(np.arange(60) < 30, "0", "1")
+    adata.X[30:, 2] += 30
+    manager.component.clustering_manager = SimpleNamespace(
+        is_clustered=True, cluster_col="leiden", _cluster_labels=["0", "1"],
+        _color_map={"0": "#123456", "1": "#abcdef"})
+    return manager
+
+
+def run_and_wait(manager, component, *args, **kwargs):
+    manager._de_status_div = manager._de_status_div or Div(text="")
+    done = threading.Event()
+    component._figure_de_div.on_change("text", lambda attr, old, new: done.set())
+    manager._run_de_thread(*args, doc=ImmediateDoc(), **kwargs)
+    deadline = time.time() + 120
+    while not done.is_set() and time.time() < deadline:
+        time.sleep(0.2)
+    return done.is_set()
+
+
+class ClusterDETests(unittest.TestCase):
+    def test_groups_and_clusters_are_listed_side_by_side(self):
+        manager, _ = make_manager()
+        widgets = manager.get_de_widgets(ImmediateDoc())
+        mode = next(w for w in widgets if getattr(w, "labels", None) == ["vs Rest", "Between selected"])
+        self.assertNotIn("Entre clusters", mode.labels)
+        self.assertEqual(manager._de_groups_checkbox.labels, ["A", "B"])
+        self.assertEqual(manager._de_clusters_checkbox.labels, [])   # no clustering yet
+        self.assertIn("Run clustering in the Clustering tab", manager._de_clusters_hint.text)
+
+        with_clusters(manager).refresh_de_clusters()
+        self.assertEqual(manager._de_clusters_checkbox.labels, ["Cluster 0", "Cluster 1"])
+        # Unticked, so that one group can be compared with one cluster
+        self.assertEqual(manager._de_clusters_checkbox.active, [])
+        self.assertEqual(manager._de_groups_checkbox.active, [0, 1])
+
+    def test_a_group_named_like_a_cluster_stays_distinct(self):
+        manager, _ = make_manager()
+        manager._clusters["Cluster 0"] = []
+        with_clusters(manager)
+        self.assertEqual(manager._de_options("clusters"), ["Cluster 0 (clustering)", "Cluster 1"])
+        mask = manager._de_masks("clusters", ["Cluster 0 (clustering)"])["Cluster 0 (clustering)"]
+        self.assertEqual(int(mask.sum()), 30)
+
+    def test_group_vs_cluster_leaves_out_their_overlap(self):
+        manager, component = make_manager()
+        with_clusters(manager)
+        # Group B = spots 20-39, Cluster 1 = spots 30-59: spots 30-39 are in both
+        masks = {**manager._de_masks("groups", ["B"]), **manager._de_masks("clusters", ["Cluster 1"])}
+        self.assertTrue(run_and_wait(manager, component, ["B", "Cluster 1"], 1,
+                                     masks=masks, source="mixed"))
+        self.assertEqual(manager._de_header, "DE: B vs Cluster 1")
+        top = {name: df.sort_values("scores", ascending=False)["names"].iloc[0]
+               for name, df in manager._de_results.items()}
+        # B outside the overlap (20-29) has g1 high; Cluster 1 outside it (40-59) has g2 high
+        self.assertEqual(top, {"B": "g1", "Cluster 1": "g2"})
+        self.assertIn("10 overlapping spots left out", manager._de_status_div.text)
+
+    def test_run_button_compares_a_ticked_group_with_a_ticked_cluster(self):
+        from bokeh.events import ButtonClick
+        manager, component = make_manager()
+        with_clusters(manager)
+        widgets = manager.get_de_widgets(ImmediateDoc())
+        mode = next(w for w in widgets if getattr(w, "labels", None) == ["vs Rest", "Between selected"])
+        button = next(w for w in widgets if getattr(w, "label", None) == "▶ Run DE")
+        manager._de_groups_checkbox.active = [1]          # B
+        manager._de_clusters_checkbox.active = [1]        # Cluster 1
+        mode.active = 1
+
+        done = threading.Event()
+        component._figure_de_div.on_change("text", lambda attr, old, new: done.set())
+        button._trigger_event(ButtonClick(button))
+        self.assertTrue(done.wait(120), manager._de_status_div.text)
+        self.assertEqual(set(manager._de_results), {"B", "Cluster 1"})
+        self.assertEqual(manager._de_results_source, "mixed")
+        self.assertIn("#abcdef", component._figure_de_div.text)   # Cluster 1's colour
+
+    def test_between_clusters_de(self):
+        manager, component = make_manager()
+        with_clusters(manager)
+        names = ["Cluster 0", "Cluster 1"]
+        self.assertTrue(run_and_wait(
+            manager, component, names, 1, masks=manager._de_masks("clusters", names),
+            colors=manager._de_colors("clusters"), source="clusters"))
+        self.assertEqual(manager._de_header, "DE: Cluster 0 vs Cluster 1")
+        top = {name: df.sort_values("scores", ascending=False)["names"].iloc[0]
+               for name, df in manager._de_results.items()}
+        self.assertEqual(top, {"Cluster 0": "g0", "Cluster 1": "g2"})
+        self.assertIn("#123456", component._figure_de_div.text)   # cluster colours
+        # Same status line as the other long jobs: finished, with the elapsed time
+        status = manager._de_status_div.text
+        self.assertIn("DE done: 2 clusters, results", status)
+        self.assertRegex(status, r"\(\d+\.\ds\)")
+
+    def test_failure_is_reported_in_the_status_line(self):
+        manager, component = make_manager()
+        manager._de_logger = None
+        logger = manager._get_de_logger(ImmediateDoc())
+        finished = threading.Event()
+        logger.div.on_change("text", lambda attr, old, new: "Error" in new and finished.set())
+        # Group A has ≥3 spots but nothing else is selected: no comparison possible
+        manager._run_de_thread(["A"], 1, ImmediateDoc())
+        self.assertTrue(finished.wait(60), logger.div.text)
+        self.assertIn("needs at least 2 groups", logger.div.text)
+        self.assertFalse(logger.running)
+
+    def test_reclustering_clears_cluster_results_only(self):
+        manager, component = make_manager()
+        with_clusters(manager)
+        manager._de_status_div = Div(text="")
+        manager._de_clusters, manager._de_results_source = ["A"], "groups"
+        component._figure_de_div.text = "group results"
+        manager.refresh_de_clusters()
+        self.assertEqual(component._figure_de_div.text, "group results")
+
+        manager._de_clusters, manager._de_results_source = ["Cluster 0"], "clusters"
+        manager.refresh_de_clusters()
         self.assertEqual(component._figure_de_div.text, "")
 
 

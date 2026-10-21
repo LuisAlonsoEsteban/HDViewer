@@ -4,6 +4,7 @@ from bokeh.plotting import figure
 
 from . import Panel
 from ...components.utils.loading import LoadingLogger
+from ...help import help_header
 
 
 class EmbeddingPanel(Panel):
@@ -23,7 +24,7 @@ class EmbeddingPanel(Panel):
         self._component_views = {}
         self.tabs = Tabs(tabs=[])
 
-        self.set_children([self.tabs])
+        self.set_children([help_header("Embeddings", "embedding"), self.tabs])
 
     def set_components(self, components):
         component_map = {}

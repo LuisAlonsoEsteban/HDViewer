@@ -45,6 +45,12 @@ class App:
         if image_processor is not None:
             self.image_component = ImageComponent(image_processor)
 
+    # Cells cannot be aggregated like bins: they are drawn only when the view is at
+    # most this wide, which bounds how many cells are loaded at once
+    CELLS_MAX_VIEW_UM = 1000.0
+    # Without a physical scale (no bins), a fraction of the slide instead
+    CELLS_MAX_VIEW_FRACTION = 1 / 8
+
     # Outline colours that tell segmentation methods apart on the figure
     CELL_LAYER_COLORS = ["#6baed6", "#fd8d3c", "#74c476", "#9e9ac8", "#f768a1", "#fdd0a2"]
 
@@ -78,7 +84,8 @@ class App:
 
         if sample_type == "spots":
             sample = Spots(polygons, adata)
-            radius = b2s.converter.get_pixels(b2s.converter.VisiumV2.SPOT_DIAMETER) / 2
+            # Full-res pixels -> figure units, like the spot polygons (radius along x)
+            radius = b2s.converter.get_pixels(b2s.converter.VisiumV2.SPOT_DIAMETER) / 2 * b2s.tile_scale_xfactor
 
             geom = Circles(
                 radius, 
@@ -118,6 +125,8 @@ class App:
                 tile_scale_yfactor=b2s.tile_scale_yfactor,
             )
             # Bins carry the physical scale: one native bin is bin_size_um wide
+            if sample.native_width > 0:
+                self._um_per_unit = float(sample.bin_size_um) / sample.native_width
             if self.figure_panel.measure_tool is not None and sample.native_width > 0:
                 bin_size_um = float(sample.bin_size_um)
                 self.figure_panel.measure_tool.set_scale(
@@ -172,6 +181,9 @@ class App:
                 name=f"Cells · {title}" if title else None,
             )
             geom.method_title = title or "Cells"
+            geom.max_view_span = self.cells_max_view_span
+            self.figure_panel.zoom_bar.set_cells_gate(
+                self.cells_max_view_span, label=f"view ≤ {self.CELLS_MAX_VIEW_UM / 1000:g} mm")
             cell_color = self.CELL_LAYER_COLORS[n_cell_layers % len(self.CELL_LAYER_COLORS)]
             geom.sample_type = sample_type
 
@@ -194,6 +206,13 @@ class App:
             geom.attach_loader(self.doc)
         self.add_geometry(geom)
 
+    def cells_max_view_span(self):
+        """Widest view (figure units) at which cells layers are loaded and drawn."""
+        um_per_unit = getattr(self, "_um_per_unit", None)
+        if um_per_unit:
+            return self.CELLS_MAX_VIEW_UM / um_per_unit
+        return self.figure_panel.zoom_bar.full_span * self.CELLS_MAX_VIEW_FRACTION
+
     def add_geometry(self, geom):
         self.geometries.append(geom)
         geom._metadata_panel = self.metadata_panel #referencia metadata panel
@@ -207,23 +226,8 @@ class App:
         self.embedding_panel.set_components(self.geometries)
         self.comparison_panel.set_components(self.geometries)
 
-        # If the image is lowres, adjust the width and height to the max of geometries
-        if self.image_component:
-            if not self.image_component.are_tiles_needed:
-                for r in self.figure_panel.p.renderers:
-                    if hasattr(r, "glyph") and hasattr(r.glyph, "url"):
-                        x = min([geom.sample.gdf.total_bounds[0] for geom in self.geometries])
-                        y = min([geom.sample.gdf.total_bounds[1] for geom in self.geometries])
-                        w = max([geom.sample.gdf.total_bounds[2] - geom.sample.gdf.total_bounds[0] for geom in self.geometries])
-                        h = max([geom.sample.gdf.total_bounds[3] - geom.sample.gdf.total_bounds[1] for geom in self.geometries])
-
-                        r.glyph.x = x
-                        r.glyph.y = y
-                        r.glyph.w = w
-                        r.glyph.h = h
-
-                        self.figure_panel.p.x_range = Range1d(x, x+w)
-                        self.figure_panel.p.y_range = Range1d(y, y+h)
+        # The image (tiled or a single PNG) always covers the square 0..max_dim of the
+        # figure, like the geometries' coordinates: no need to refit it to them.
 
     def add_root(self, layout):
         placeholder = self.doc.select_one({"name": layout.name})

@@ -1,7 +1,7 @@
 
 import os
 from pathlib import Path
-from .utils.groups import GroupsManager
+from .utils.groups import GroupsManager, GROUPS_COL
 from .bin_info import BinInfoOverlay
 import numpy as np
 
@@ -31,6 +31,7 @@ from ..parameter import StaticParameter, Scaler, CategoricalColor
 from ..loader import LazyLoader
 
 from .utils.param_form import ParamForm
+from ..help import help_header
 from .utils.clustering import ClusteringManager
 
 from . import NOT_SEQUENCED_VAL
@@ -134,7 +135,8 @@ class Component:
 
     def attach_loader(self, doc):
         if self.lazy_loading and self.glyph_renderer is not None:
-            loader = LazyLoader(self.manager, self.figure)
+            loader = LazyLoader(self.manager, self.figure,
+                                max_view_span=getattr(self, "max_view_span", None))
             loader.add_range_callback(self, doc)
             self.loader = loader
 
@@ -232,7 +234,9 @@ class Component:
         pass
 
     def remove_parameter(self, attr):
-        pass
+        self.manager.remove_parameter(attr)
+        self.refresh_figure()
+        self.update_hover_tooltips()
 
     def add_parameter(
             self, 
@@ -259,15 +263,17 @@ class Component:
             assert attr in self.AVAILABLE_ATTRS, "Incorrect attribute"
             
             if "color" in attr:
-                self.manager.add_parameter(
-                    CategoricalColor(
-                        colname,
-                        attr=attr,
-                        static_not_sequenced=static_not_sequenced,
-                        not_sequenced_val=not_sequenced_val,
-                        colname_hovered=colname_hovered
-                        )
+                param = CategoricalColor(
+                    colname,
+                    attr=attr,
+                    static_not_sequenced=static_not_sequenced,
+                    not_sequenced_val=not_sequenced_val,
+                    colname_hovered=colname_hovered
                 )
+                # Clusters and groups have assigned colours: use them before any
+                # data is drawn, so the map, the DE table and the DE plots agree
+                param.category_colors = self.known_category_colors(colname)
+                self.manager.add_parameter(param)
             else:
                 self.manager.add_parameter(
                     Scaler(
@@ -281,6 +287,16 @@ class Component:
                         )
                 )
         self.refresh_figure()
+
+    def known_category_colors(self, colname):
+        """Assigned colours of the categories of `colname`, if it holds clusters or groups."""
+        clustering = getattr(self, "clustering_manager", None)
+        if clustering is not None and colname == clustering.cluster_col and clustering._color_map:
+            return dict(clustering._color_map)
+        groups = getattr(self, "groups_manager", None)
+        if groups is not None and colname == GROUPS_COL and groups._color_map:
+            return dict(groups._color_map)
+        return {}
 
     #def get_hover_tooltips(self):
     #    items = []
@@ -441,7 +457,9 @@ class Component:
                 )
             if has_dynamic_alpha:
                 if alpha_param.colname != colname:
-                    self.manager.update_colname(alpha_param.colname, colname)
+                    # Only the alpha follows the selector: extra parameters (Parameters
+                    # tab) may read the same gene and must keep it
+                    self.manager.update_colname(alpha_param.colname, colname, attrs=("alpha",))
                 maxv = self.slider.value if self.slider else alpha_param.maxv
                 self.manager.update_param('alpha', new_minv=0, new_maxv=maxv, avoid_scaling=False)
         else:
@@ -527,11 +545,15 @@ class Component:
                     if self.clustering_manager.cluster_col in self.autocomplete_input.completions:
                         self.autocomplete_input.value = self.clustering_manager.cluster_col
 
-                    self.add_param_form.colname_input.completions = self.get_colnames()
+                    self.add_param_form.refresh_completions()
 
                 self.update_hover_tooltips()
                 self.refresh_hover()
-                
+
+                self.groups_manager.refresh_de_clusters()
+                on_markers_ready(doc)       # placeholder until the new markers are ranked
+
+            def on_markers_ready(doc):
                 if hasattr(self, "_metadata_panel"):
                     def _refresh(doc=doc):
                         self._metadata_panel.update_marker_table(self)
@@ -542,31 +564,28 @@ class Component:
             de_widgets = self.groups_manager.get_de_widgets(doc)
             self._all_widgets.extend(de_widgets)
 
-            clustering_widgets = self.clustering_manager.get_widgets(doc, on_run=on_run_clustering)
+            clustering_widgets = self.clustering_manager.get_widgets(doc, on_run=on_run_clustering,
+                                                                     on_markers=on_markers_ready)
             self._all_widgets.extend(clustering_widgets)
 
             # --- Tab panels ---
+            # Each tab opens with its title and a "?" explaining it
+            def tab(title, topic, widgets):
+                return TabPanel(child=column(help_header(title, topic), *widgets), title=title)
+
             tab_panels = [
-                TabPanel(child=column(*general_widgets), title="General"),
-                TabPanel(child=column(*color_widgets) if color_widgets else column(Div(text="No color options.")), title="Color"),
-                TabPanel(child=column(*clustering_widgets), title="Clustering"),
-                TabPanel(child=column(*groups_widgets), title="Groups"),
-                TabPanel(child=column(*de_widgets), title="DE"),
+                tab("General", "general", general_widgets),
+                tab("Color", "color", color_widgets or [Div(text="No color options.")]),
+                tab("Clustering", "clustering", clustering_widgets),
+                tab("Groups", "groups", groups_widgets),
+                tab("DE", "de", de_widgets),
             ]
 
-            for param in self.manager.parameters:
-                if not param.is_static and 'alpha' not in param.attr and 'color' not in param.attr:
-                    tab_panels.append(
-                        TabPanel(child=column(Div(text=f"Parameter: <b>{param.attr}</b>")), title=param.attr)
-                    )
-
-            if len(self.get_available_attrs()) > 0:
-                self.add_param_form = ParamForm(self)
-                form_layout = self.add_param_form.get_layout(doc)
-                self._all_widgets.append(form_layout)
-                tab_panels.append(
-                    TabPanel(child=column(form_layout), title="＋ Add param")
-                )
+            # Extra parameters: list, add, edit, remove (updates in place)
+            self.add_param_form = ParamForm(self)
+            form_layout = self.add_param_form.get_layout(doc)
+            self._all_widgets.append(form_layout)
+            tab_panels.append(TabPanel(child=form_layout, title="Parameters"))
 
             self.tabs_widget = Tabs(tabs=tab_panels)
             return self.tabs_widget

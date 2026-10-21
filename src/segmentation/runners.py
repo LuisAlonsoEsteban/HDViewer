@@ -38,9 +38,13 @@ class Runner:
         threads = config.get("threads_per_run", DEFAULT_THREADS)
         self.threads = max(1, int(threads if threads != "auto" else os.cpu_count() or 1))
 
-    def thread_env(self):
+    def plugin_env(self):
+        """Environment set inside every plugin run."""
         env = {name: str(self.threads) for name in THREAD_VARIABLES}
         env["TF_NUM_INTEROP_THREADS"] = "2"
+        # Ignore pip --user packages (~/.local): Apptainer mounts the home directory,
+        # and a host numpy 2 there shadowed the image's numpy 1 (TensorFlow 2.15)
+        env["PYTHONNOUSERSITE"] = "1"
         return env
 
     def available(self):
@@ -56,7 +60,7 @@ class Runner:
     def run(self, plugin, input_dir, output_dir, on_progress, log_path):
         with open(log_path, "w") as log:
             self.prepare(plugin, on_progress, log)
-            argv, env = self.command(plugin, Path(input_dir), Path(output_dir), self.thread_env())
+            argv, env = self.command(plugin, Path(input_dir), Path(output_dir), self.plugin_env())
             log.write("$ " + " ".join(map(str, argv)) + "\n")
             log.flush()
             tail = self._stream(argv, env, log, on_progress)

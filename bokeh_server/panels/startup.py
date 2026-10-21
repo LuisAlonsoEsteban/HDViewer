@@ -15,6 +15,7 @@ import threading
 import traceback
 
 from .app.app import App
+from ..help import TUTORIAL_CARD_HTML, help_button
 from ..datasets import AVAILABLE_DATASETS
 
 sys.path.insert(0, os.path.abspath(os.path.join(os.path.dirname(__file__), "..")))
@@ -27,7 +28,7 @@ class StartupController:
 
     UPLOAD_DIR = Path("./tmp")
 
-    TILE_MEM_THRESHOLD = 0.3 # GB
+    TILE_MEM_THRESHOLD = 0.1 # GB
     PROGRESS_WIDTH = 560  # px; fixed so the bars do not resize as their text changes
 
     def __init__(self, doc):
@@ -238,10 +239,13 @@ class StartupController:
                 '<p>Paste a ZIP URL here. Loading from a URL is not available yet.</p>'),
             sizing_mode="stretch_width",
         )
+        def heading(html, topic):
+            return row(Div(text=html), help_button(topic), sizing_mode="stretch_width")
+
         self.preprocessing_panel = card(
-            Div(text='<h2 style="margin:0;font-size:19px">Preprocessing</h2>'
-                '<p style="color:#b7cbd1;margin-bottom:0">Shared across all data sources. '
-                'Choose the representations to generate.</p>'),
+            heading('<h2 style="margin:0;font-size:19px">Preprocessing</h2>'
+                    '<p style="color:#b7cbd1;margin-bottom:0">Shared across all data sources. '
+                    'Choose the representations to generate.</p>', "preprocessing"),
             self.pseudospots_checkbox,
             Div(text='<h3 style="margin:8px 0 0;font-size:16px">Cell segmentation</h3>'),
             self.segmentation_info,
@@ -249,9 +253,10 @@ class StartupController:
               for widget in (controls["checkbox"], controls["box"])],
         )
         self.progress_panel = card(
-            Div(text='<h2 style="margin:0;font-size:19px">Loading progress</h2>'
-                '<p style="color:#b7cbd1;margin-bottom:0">Tiles report completed tiles. '
-                'Preprocessing percentages track stages completed, not time remaining.</p>'),
+            heading('<h2 style="margin:0;font-size:19px">Loading progress</h2>'
+                    '<p style="color:#b7cbd1;margin-bottom:0">Tiles report completed tiles. '
+                    'Preprocessing percentages track stages completed, not time remaining.</p>',
+                    "progress"),
             *self._progress_divs,
         )
         self.layout = column(
@@ -260,8 +265,9 @@ class StartupController:
                 '<h1 style="font-size:32px;margin:10px 0">Visium HD Viewer</h1>'
                 '<p style="color:#b7cbd1;font-size:15px">Start with your data. '
                 'Bring spatial expression into focus.</p>'),
+            card(Div(text=TUTORIAL_CARD_HTML)),
             card(
-                Div(text='<h2 style="margin:0;font-size:19px">Choose your data source</h2>'),
+                heading('<h2 style="margin:0;font-size:19px">Choose your data source</h2>', "data_source"),
                 self.data_source, self.upload_panel, self.example_panel, self.url_panel,
             ),
             self.preprocessing_panel,
@@ -435,7 +441,7 @@ class StartupController:
         path = self.UPLOAD_DIR / file_input.filename
         with open(path, "wb") as f:
             f.write(base64.b64decode(file_input.value))
-        return path
+        return str(path)
 
     def _validate_inputs(self):
         if not self.h5_input.value:
@@ -502,7 +508,9 @@ class StartupController:
 
             self.image_processor = ImageProcessor(
                 self.dataset.img,
-                base_dir / "tiles",
+                # One folder per uploaded image: uploads share base_dir, and existing tiles
+                # are reused, so a previous upload's tiles would otherwise be shown
+                base_dir / "tiles" / self._image_key() if self.source_mode == "upload" else base_dir / "tiles",
             )
         
             self.doc.add_next_tick_callback(
@@ -546,8 +554,9 @@ class StartupController:
             df_tissue_positions,
             bins_size=bins_size,
             pixels_per_bin=self.dataset.pixels_per_bin,
-            tile_scale_xfactor=self.image_processor.scale_xfactor,
-            tile_scale_yfactor=self.image_processor.scale_yfactor,
+            # Full-res positions -> image pixels -> figure units
+            tile_scale_xfactor=self.image_processor.scale_xfactor * self.dataset.image_scale,
+            tile_scale_yfactor=self.image_processor.scale_yfactor * self.dataset.image_scale,
             progress_callback=on_progress
         )
         self.update_progress(self.bins_progress, 50, "Building bin geometry")
@@ -614,7 +623,8 @@ class StartupController:
         # OpenCV (png/tif) reads BGR; plugins always receive RGB
         image_path = self.segmentation.prepare_image(
             self.dataset.img, image_key, work_dir, bgr=self.dataset.img_format in ("png", "tif"))
-        um_per_px = (float(self.dataset.bins_size) / self.dataset.pixels_per_bin
+        # Plugins see the given image: µm per pixel of that image (not of the full-res one)
+        um_per_px = (float(self.dataset.bins_size) / (self.dataset.pixels_per_bin * self.dataset.image_scale)
                      if self.dataset.pixels_per_bin else None)
         # Plugins return pixel coordinates of the original image; the figure
         # stretches the image to a square (same transform as the bins)

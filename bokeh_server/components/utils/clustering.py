@@ -10,13 +10,12 @@ from bokeh.models import (
     BooleanFilter,
 )
 from bokeh.layouts import column, row
-from bokeh.palettes import Category20, Category10
 
 from .. import NOT_SEQUENCED_VAL
 from .loading import LoadingLogger
+from .palettes import CLUSTER_PALETTE, palette_color
 from ...parameter import CategoricalColor
 
-CLUSTER_PALETTES = [*Category20[20], *Category10[10]]
 
 class ClusteringManager:
     """
@@ -82,10 +81,13 @@ class ClusteringManager:
         on_done    : optional callable(doc) invoked after the source and
                      widgets have been refreshed.
         """
-        self.apply_result(self.compute(resolution), doc, on_done)
+        cluster_col = self.compute(resolution)
+        self.compute_markers()
+        self.apply_result(cluster_col, doc, on_done)
 
     def compute(self, resolution: float) -> str:
-        """Run the clustering itself (no Bokeh model updates, safe in a thread).
+        """Run Leiden (no Bokeh model updates, safe in a thread); marker genes are
+        left for `compute_markers`, so the clusters can be shown first.
 
         Returns the obs column holding the labels; pass it to `apply_result`.
         """
@@ -95,7 +97,12 @@ class ClusteringManager:
         return manager.sample.run_clustering(
             resolution=resolution,
             resolution_level=resolution_level,
+            compute_markers=False,
         )
+
+    def compute_markers(self):
+        """Rank the marker genes of the current clusters (safe in a thread)."""
+        self.component.manager.sample.compute_marker_genes()
 
     def apply_result(self, cluster_col: str, doc, on_done=None):
         """Refresh colors and cluster widgets (must run on the document thread)."""
@@ -106,13 +113,16 @@ class ClusteringManager:
         if on_done is not None:
             on_done(doc)
 
-    def get_widgets(self, doc, on_run=None) -> list:
+    def get_widgets(self, doc, on_run=None, on_markers=None) -> list:
         """
         Return the full list of widgets for the clustering section:
         resolution slider, run button, status div, reset button, and —
         after clustering — the cluster checkbox/color widgets.
 
         Safe to call multiple times; widget state is preserved.
+
+        on_run(doc) is called once the clusters are shown, on_markers(doc) once their
+        marker genes are ranked (that runs afterwards, in the background).
         """
         resolution_slider = Slider(
             start=0.1, end=2.0, value=1.0, step=0.1,
@@ -134,18 +144,39 @@ class ClusteringManager:
                 return
             resolution = resolution_slider.value
 
-            def _on_done(cluster_col):
+            def _on_markers_done(_):
                 run_button.disabled = False
+                self._markers_pending = False
+                self._rebuild_cluster_widgets(doc)
+                status.success(f"{len(self._cluster_labels)} clusters found, marker genes ready")
+                if on_markers is not None:
+                    on_markers(doc)
+
+            def _on_markers_error(exc):
+                run_button.disabled = False
+                self._markers_pending = False
+                self._rebuild_cluster_widgets(doc)
+                status.error(f"Marker genes failed: {str(exc)[:60]}")
+
+            def _on_done(cluster_col):
                 try:
+                    # Show the clusters now; the marker genes follow in the background
+                    self._markers_pending = True
                     self.apply_result(cluster_col, doc, on_done=on_run)
-                    status.success(f"{len(self._cluster_labels)} clusters found")
                 except Exception as exc:
+                    run_button.disabled = False
+                    self._markers_pending = False
                     status.error(str(exc)[:60])
+                    return
+                status.run(f"{len(self._cluster_labels)} clusters found · marker genes",
+                           self.compute_markers,
+                           on_done=_on_markers_done, on_error=_on_markers_error)
 
             def _on_error(exc):
                 run_button.disabled = False
                 status.error(str(exc)[:60])
 
+            # Stays disabled until the marker genes are ready too
             run_button.disabled = True
             status.run(
                 f"Clustering (res={resolution:g})",
@@ -178,11 +209,11 @@ class ClusteringManager:
 
         self._active_clusters = set(self._cluster_labels)
 
-        # Assign colors, preserving any colors the user already picked
-        palette = CLUSTER_PALETTES
+        # Assign colors, preserving any colors the user already picked. The map,
+        # the DE table and the DE plots all use these (see Component.add_parameter).
         for i, label in enumerate(self._cluster_labels):
             if label not in self._color_map:
-                self._color_map[label] = palette[i % len(palette)]
+                self._color_map[label] = palette_color(CLUSTER_PALETTE, i)
 
     def _update_source_colors(self):
         """
@@ -301,7 +332,12 @@ class ClusteringManager:
             cb.on_change("active", _on_any_change)
             self._cluster_checkboxes.append(cb)
             entry = markers.get(str(label)) or markers.get(label)
-            gns = ", ".join(str(t[0]) for t in entry) if entry else "-"
+            if entry:
+                gns = ", ".join(str(t[0]) for t in entry)
+            elif getattr(self, "_markers_pending", False):
+                gns = "computing marker genes…"
+            else:
+                gns = "-"
             gdiv = _Div(text="&nbsp;&nbsp;&nbsp;&nbsp;<span style='color:#aaaaaa;font-size:11px'>" + gns + "</span>", width=270)
             widgets.append(cb)
             widgets.append(gdiv)

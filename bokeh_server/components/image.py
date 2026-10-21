@@ -23,13 +23,13 @@ class ImageComponent:
         return self.image_tiles.mem > self.TILE_MEM_THRESHOLD
 
     def deploy_server(self):
-        self.image_tiles.deploy_server(port=self.port)
+        self.tile_key = self.image_tiles.deploy_server(port=self.port)
         self.server_deployed = True
 
     def generate_tile_source(self):
         self.deploy_server()
         self.tile_source = WMTSTileSource(
-                                url= f"http://localhost:{self.port}" + "/{Z}/{X}/{Y}",  # Ensure port matches deployed tile server
+                                url=f"http://localhost:{self.port}/{self.tile_key}" + "/{Z}/{X}/{Y}",
                                 tile_size=self.image_tiles.tile_size,
                                 max_zoom=self.image_tiles.max_zoom-1,
                                 min_zoom=0,
@@ -106,7 +106,7 @@ class ImageComponent:
     def add_lowres_image(self, p, w=None, h=None):
         if self.server_deployed:
             p.image_url(
-                url=[f"http://localhost:{self.port}/0/0/0"], 
+                url=[f"http://localhost:{self.port}/{self.tile_key}/0/0/0"], 
                 x=0, 
                 y=h or self.image_tiles.max_dim, 
                 w=w or self.image_tiles.max_dim, 

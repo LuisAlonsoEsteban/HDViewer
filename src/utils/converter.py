@@ -12,33 +12,18 @@ class Converter:
             self.bins_size = bins_size
             self.pixels_per_bin = pixels_per_bin or self.get_pixels_per_bin(df_tissue_positions) if df_tissue_positions is not None else None
         
-        def get_pixels_per_bin(self, df_tissue_positions:pd.DataFrame, max_iters=50):
-            # TODO: Fix function. Sometimes it is returning wrong values
-            pix_row_dist, pix_col_dist = None, None
-            i = 0
-            while True:
-                i += 1
-                if i == max_iters:
-                    return None
+        def get_pixels_per_bin(self, df_tissue_positions:pd.DataFrame, max_iters=None):
+            """Full-res pixels between neighbouring bins, from a least-squares fit of
+            pixel positions against array positions (robust to rotation and flips)."""
+            positions = df_tissue_positions
+            sampled = positions.iloc[np.linspace(0, len(positions) - 1, min(4096, len(positions)), dtype=int)]
+            design = np.column_stack((sampled["array_col"], sampled["array_row"], np.ones(len(sampled))))
+            pixels = sampled[["pxl_col_in_fullres", "pxl_row_in_fullres"]].to_numpy()
+            basis, _, rank, _ = np.linalg.lstsq(design, pixels, rcond=None)
+            if rank < 3:
+                return None
+            return float(np.linalg.norm(basis[:2], axis=1).mean())
 
-                ref_point = np.random.randint(df_tissue_positions["array_row"].min(), df_tissue_positions["array_row"].max()), np.random.randint(df_tissue_positions["array_col"].min(), df_tissue_positions["array_col"].max())
-                if ref_point in df_tissue_positions[["array_row", "array_col"]].values:
-                    pixels = df_tissue_positions[(df_tissue_positions["array_row"] == ref_point[0]) & (df_tissue_positions["array_col"] == ref_point[1])][["pxl_row_in_fullres", "pxl_col_in_fullres"]].values[0]
-                else:
-                    continue
-
-                # Note that the direction of 'array_row' and 'pxl_row_in_fullres' are switched: as one increases, the other decreases and viceversa
-                if pix_row_dist is None and (ref_point[0] + 1, ref_point[1]) in df_tissue_positions[["array_row", "array_col"]].values:
-                    pix_row_dist = df_tissue_positions[(df_tissue_positions["array_row"] == ref_point[0] - 1) & (df_tissue_positions["array_col"] == ref_point[1])][["pxl_row_in_fullres", "pxl_col_in_fullres"]].values[0]
-
-                if pix_col_dist is None and (ref_point[0], ref_point[1] + 1) in df_tissue_positions[["array_row", "array_col"]].values:
-                    pix_col_dist = df_tissue_positions[(df_tissue_positions["array_row"] == ref_point[0]) & (df_tissue_positions["array_col"] == ref_point[1] + 1)][["pxl_row_in_fullres", "pxl_col_in_fullres"]].values[0]
-
-                if pix_row_dist is not None and pix_col_dist is not None:
-                    break
-
-            return (pix_row_dist[0] - pixels[0] + pix_col_dist[1] - pixels[1]) / 2
-        
         def get_rotation(self, df_tissue_positions:pd.DataFrame, N=10, rad=True):
             rotations = []
             for i in range(N):

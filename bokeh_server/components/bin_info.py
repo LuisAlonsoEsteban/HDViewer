@@ -6,6 +6,7 @@ from html import escape
 from bokeh.layouts import column, row
 from bokeh.models import Button, Div, Node, Panel, Select
 
+from ..help import help_button
 from ..loader import LazyLoader
 
 
@@ -56,7 +57,8 @@ class BinInfoOverlay:
             position=Node(target="frame", symbol="top_right"),
             anchor="top_right", width=270,
             elements=[column(
-                row(self.header, self.toggle_button, width=244, margin=0),
+                row(self.header, help_button("bin_resolution", position="left"), self.toggle_button,
+                    width=244, margin=0),
                 self.body,
                 width=244, spacing=6, margin=0,
             )],

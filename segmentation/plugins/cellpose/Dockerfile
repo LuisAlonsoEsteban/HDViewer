@@ -2,6 +2,8 @@
 #   docker build -t ghcr.io/luisalonsoesteban/visium-seg-cellpose:0.1.0 -f plugins/cellpose/Dockerfile .
 # CPU-only torch keeps the image small; swap the index URL in requirements.txt for CUDA.
 FROM python:3.11-slim
+# Never pick up packages from a mounted home directory (~/.local)
+ENV PYTHONNOUSERSITE=1
 
 WORKDIR /app
 COPY plugins/cellpose/requirements.txt .
