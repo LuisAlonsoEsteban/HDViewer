@@ -135,8 +135,7 @@ class Component:
 
     def attach_loader(self, doc):
         if self.lazy_loading and self.glyph_renderer is not None:
-            loader = LazyLoader(self.manager, self.figure,
-                                max_view_span=getattr(self, "max_view_span", None))
+            loader = LazyLoader(self.manager, self.figure)
             loader.add_range_callback(self, doc)
             self.loader = loader
 

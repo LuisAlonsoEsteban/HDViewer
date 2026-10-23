@@ -4,6 +4,7 @@ import numpy as np
 import pandas as pd
 from collections import OrderedDict
 import math
+import shapely
 
 from .utils.progress import report
 
@@ -145,7 +146,7 @@ class Sample:
         return merged_gdf["obs_name"]
 
     
-    def fetch_data(self, bbox=None, colnames=None, return_coords=True) -> pd.DataFrame:
+    def fetch_data(self, bbox=None, colnames=None, return_coords=True, **coord_kwargs) -> pd.DataFrame:
         if bbox is not None:
             if self.has_adata():
                 cropped_gdf, cropped_adata = self.crop(*bbox, crop_adata=True)
@@ -157,7 +158,7 @@ class Sample:
         if return_coords:
             # copy(): get_coordinates devuelve un slice del gdf y asignar
             # columnas encima dispara SettingWithCopyWarning.
-            data = self.get_coordinates(cropped_gdf).copy()
+            data = self.get_coordinates(cropped_gdf, **coord_kwargs).copy()
         else:
             data = pd.DataFrame()
 
@@ -771,11 +772,65 @@ class Spots(Sample):
 
 
 class Cells(Sample):
+    # Levels of detail: level k draws the polygons simplified with tolerance
+    # LOD_BASE_TOLERANCE * 2**k (figure units); None draws the original polygons
+    LOD_PREFIX = "lod:"
+    LOD_BASE_TOLERANCE = 1.0
+    LOD_MAX_LEVEL = 8
+    # Largest outline deviation allowed, in screen pixels
+    LOD_TOLERANCE_PX = 1.0
+    LOD_HYSTERESIS = 0.15
+
     def __init__(self, *args, **kwargs):
         super().__init__(*args, **kwargs)
+        # Tolerance -> the polygons of self.gdf simplified with it, in the same order.
+        # Simplifying the whole slide takes ~1 s, so each level is computed once.
+        self._simplified = {}
 
-    def get_x(self, geom):
-        return list(zip(*geom.exterior.coords))[0]
-    
-    def get_y(self, geom):
-        return list(zip(*geom.exterior.coords))[1]
+    def get_lod_level(self, pixel_size, current=None):
+        """Resolution level for a view where one screen pixel spans `pixel_size`
+        figure units. Near a boundary `current` is kept, so that small zooms do not
+        reload the layer back and forth."""
+        tolerance = pixel_size * self.LOD_TOLERANCE_PX
+        if not math.isfinite(tolerance) or tolerance <= 0:
+            return current
+        # Continuous level: k when tolerance == LOD_BASE_TOLERANCE * 2**k (native: -1)
+        value = math.log2(tolerance / self.LOD_BASE_TOLERANCE)
+        k = self.get_lod_index(current)
+        if not (k - self.LOD_HYSTERESIS <= value < k + 1 + self.LOD_HYSTERESIS):
+            k = max(-1, min(math.floor(value), self.LOD_MAX_LEVEL))
+        return None if k < 0 else f"{self.LOD_PREFIX}{k}"
+
+    def get_lod_index(self, resolution_level):
+        if isinstance(resolution_level, str) and resolution_level.startswith(self.LOD_PREFIX):
+            return int(resolution_level[len(self.LOD_PREFIX):])
+        return -1
+
+    def get_tolerance(self, resolution_level):
+        k = self.get_lod_index(resolution_level)
+        return 0.0 if k < 0 else self.LOD_BASE_TOLERANCE * 2 ** k
+
+    def get_simplified(self, tolerance):
+        """Every cell simplified with `tolerance`, aligned with self.gdf."""
+        if tolerance not in self._simplified:
+            geoms = np.asarray(self.gdf.geometry.values, dtype=object)
+            # preserve_topology keeps every cell a valid, non-empty polygon
+            self._simplified[tolerance] = shapely.simplify(geoms, tolerance, preserve_topology=True)
+        return self._simplified[tolerance]
+
+    def get_coordinates(self, gdf, tolerance=0.0) -> pd.DataFrame:
+        """Exterior ring vertices of each cell (patches), simplified with `tolerance`."""
+        if tolerance > 0:
+            geoms = self.get_simplified(tolerance)[self.gdf.index.get_indexer(gdf.index)]
+        else:
+            geoms = np.asarray(gdf.geometry.values, dtype=object)
+        coords, owner = shapely.get_coordinates(shapely.get_exterior_ring(geoms), return_index=True)
+        bounds = np.cumsum(np.bincount(owner, minlength=len(geoms)))[:-1]
+        return pd.DataFrame({
+            "x": [v.tolist() for v in np.split(coords[:, 0], bounds)],
+            "y": [v.tolist() for v in np.split(coords[:, 1], bounds)],
+        }, index=gdf.index)
+
+    def fetch_data(self, bbox=None, colnames=None, return_coords=True, resolution_level=None) -> pd.DataFrame:
+        return super().fetch_data(bbox=bbox, colnames=colnames, return_coords=return_coords,
+                                  tolerance=self.get_tolerance(resolution_level))

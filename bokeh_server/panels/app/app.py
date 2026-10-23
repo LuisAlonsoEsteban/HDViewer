@@ -45,12 +45,6 @@ class App:
         if image_processor is not None:
             self.image_component = ImageComponent(image_processor)
 
-    # Cells cannot be aggregated like bins: they are drawn only when the view is at
-    # most this wide, which bounds how many cells are loaded at once
-    CELLS_MAX_VIEW_UM = 1000.0
-    # Without a physical scale (no bins), a fraction of the slide instead
-    CELLS_MAX_VIEW_FRACTION = 1 / 8
-
     # Outline colours that tell segmentation methods apart on the figure
     CELL_LAYER_COLORS = ["#6baed6", "#fd8d3c", "#74c476", "#9e9ac8", "#f768a1", "#fdd0a2"]
 
@@ -125,8 +119,6 @@ class App:
                 tile_scale_yfactor=b2s.tile_scale_yfactor,
             )
             # Bins carry the physical scale: one native bin is bin_size_um wide
-            if sample.native_width > 0:
-                self._um_per_unit = float(sample.bin_size_um) / sample.native_width
             if self.figure_panel.measure_tool is not None and sample.native_width > 0:
                 bin_size_um = float(sample.bin_size_um)
                 self.figure_panel.measure_tool.set_scale(
@@ -181,9 +173,6 @@ class App:
                 name=f"Cells · {title}" if title else None,
             )
             geom.method_title = title or "Cells"
-            geom.max_view_span = self.cells_max_view_span
-            self.figure_panel.zoom_bar.set_cells_gate(
-                self.cells_max_view_span, label=f"view ≤ {self.CELLS_MAX_VIEW_UM / 1000:g} mm")
             cell_color = self.CELL_LAYER_COLORS[n_cell_layers % len(self.CELL_LAYER_COLORS)]
             geom.sample_type = sample_type
 
@@ -205,13 +194,6 @@ class App:
             )
             geom.attach_loader(self.doc)
         self.add_geometry(geom)
-
-    def cells_max_view_span(self):
-        """Widest view (figure units) at which cells layers are loaded and drawn."""
-        um_per_unit = getattr(self, "_um_per_unit", None)
-        if um_per_unit:
-            return self.CELLS_MAX_VIEW_UM / um_per_unit
-        return self.figure_panel.zoom_bar.full_span * self.CELLS_MAX_VIEW_FRACTION
 
     def add_geometry(self, geom):
         self.geometries.append(geom)

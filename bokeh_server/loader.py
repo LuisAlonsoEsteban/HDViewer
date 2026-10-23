@@ -1,5 +1,7 @@
 import math
 
+from bokeh.core.property.descriptors import UnsetValueError
+
 
 class LazyLoader:
 
@@ -10,17 +12,16 @@ class LazyLoader:
 
     assert STATIC_RANGE <= OFFSET, "Offset must be larger than the static range for efficient loading"
 
-    def __init__(self, dynamic_source_manager, p, max_view_span=None):
+    def __init__(self, dynamic_source_manager, p):
         self.manager = dynamic_source_manager
-        # Optional callable: widest view (figure units) at which the layer is loaded.
-        # Wider views unload it (cells: too many polygons, and they cannot be aggregated).
-        self.max_view_span = max_view_span
 
+        self.p = p
         self.x_range = p.x_range
         self.y_range = p.y_range
 
         self.fixed_static_bbox = None
         self._last_factor = 1
+        self._last_lod = None
         self._last_valid_ranges = None
 
     def _ranges_valid(self):
@@ -95,8 +96,35 @@ class LazyLoader:
                 next_factor = factors[idx + 1]
         return prev_factor, next_factor
 
+    # Canvas width (px) assumed before the browser has reported the real one
+    DEFAULT_CANVAS_PX = 800
+
+    @staticmethod
+    def _canvas_px(*getters):
+        """First positive size among `getters` (inner_* are unset until rendered)."""
+        for get in getters:
+            try:
+                value = get()
+            except UnsetValueError:
+                continue
+            if value:
+                return value
+        return LazyLoader.DEFAULT_CANVAS_PX
+
+    @property
+    def pixel_size(self):
+        """Figure units spanned by one screen pixel (the coarser axis)."""
+        width = self._canvas_px(lambda: self.p.inner_width, lambda: self.p.width)
+        height = self._canvas_px(lambda: self.p.inner_height, lambda: self.p.height, lambda: width)
+        return max(self.window_size[0] / width, self.window_size[1] / height)
+
     def get_resolution_level(self):
         sample = self.manager.sample
+        # Cells: polygons simplified to about one screen pixel
+        get_lod_level = getattr(sample, "get_lod_level", None)
+        if get_lod_level is not None:
+            self._last_lod = get_lod_level(self.pixel_size, current=self._last_lod)
+            return self._last_lod
         # native_width/height ya vienen en el espacio (escalado) de la figura,
         # así que window_size y tamaño de bin son dimensionalmente consistentes.
         bin_w = getattr(sample, "native_width", None)
@@ -132,26 +160,12 @@ class LazyLoader:
         self._last_factor = factor
         return sample.get_resolution_level_for_factor(factor)
 
-    def gated(self):
-        """True while the view is too wide for this layer to be loaded."""
-        span = self.max_view_span() if self.max_view_span is not None else None
-        return span is not None and self.window_size[0] > span
-
-    def _unload(self):
-        if self.manager.bbox is not None or len(self.manager.source.data.get('x', [])):
-            self.manager.bbox = None            # also stops other paths from fetching
-            self.fixed_static_bbox = None
-            self.manager.clear_sources()
-
     def add_range_callback(self, component, doc):
         
         def callback(attr, old, new):
 
             def update_bbox():
                 if not self._check_ranges():
-                    return
-                if self.gated():
-                    self._unload()
                     return
                 resolution_level = self.get_resolution_level()
                 current_fetch_bbox = self.compute_bbox
@@ -193,9 +207,6 @@ class LazyLoader:
     def force_reload(self):
         """Reload current viewport data after source has been cleared."""
         if not self._check_ranges():
-            return
-        if self.gated():
-            self._unload()
             return
         resolution_level = self.get_resolution_level()
         self.manager.set_fetch_context(
