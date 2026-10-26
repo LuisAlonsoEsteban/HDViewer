@@ -56,6 +56,15 @@ HELP = {
         ranked afterwards and fill in under each cluster.<br>
         For bins, clustering runs at the <b>displayed aggregation level</b> and keeps the view at that
         level while the clusters are shown. Tick or untick clusters to show or hide them."""),
+    "deconvolution": ("Deconvolution", """
+        Load an annotated single-cell <b>.h5ad reference</b> from a server path and select its
+        cell-type column. Both datasets must use matching, unique gene identifiers and linear,
+        nonnegative expression in <code>.X</code> (not log-transformed values).<br>
+        Nonnegative least squares fits library-normalised mean cell-type profiles on shared genes.
+        Coefficients are normalised to expression mixture fractions, not calibrated cell counts.
+        Results cover all native observations of this layer, independently of the viewport.
+        Empty observations stay unassigned. Select a fraction to show it on the map;
+        coarse bin levels show the mean fraction. Results are stored in the layer's AnnData."""),
     "groups": ("Groups", """
         Define your own groups from conditions on genes or metadata, e.g.
         <code>Ttr &gt; 2 AND Pmch &gt; 0</code>. Build the conditions, name the group and create it.<br>
@@ -129,6 +138,7 @@ TUTORIAL_ANCHORS = {
     "data_source": "load-files", "preprocessing": "load-preprocessing", "progress": "load-progress",
     "general": "app-general", "color": "app-color", "clustering": "app-clustering",
     "groups": "app-groups", "de": "app-de", "parameters": "app-parameters",
+    "deconvolution": "app-deconvolution",
     "bin_resolution": "app-bin-resolution", "embedding": "app-embedding", "metadata": "app-summary",
 }
 

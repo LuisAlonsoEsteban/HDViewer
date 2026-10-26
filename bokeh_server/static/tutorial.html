@@ -243,6 +243,7 @@
     <a class="sub" href="#app-general">General tab</a>
     <a class="sub" href="#app-color">Color tab</a>
     <a class="sub" href="#app-clustering">Clustering tab</a>
+    <a class="sub" href="#app-deconvolution">Deconvolution tab</a>
     <a class="sub" href="#app-groups">Groups tab</a>
     <a class="sub" href="#app-de">DE tab</a>
     <a class="sub" href="#app-parameters">Parameters tab</a>
@@ -359,6 +360,18 @@
       <p>Tick or untick clusters (or use <span class="ui">Select all / Deselect all</span>) to show or hide them
         on the map. For bins, clustering runs at the <a href="#app-bin-resolution">displayed level</a> and the
         map stays at that level while the clusters are shown.</p>
+
+      <h3 id="app-deconvolution">Deconvolution tab</h3>
+      <p>Load a single-cell <code>.h5ad</code> reference using its path on the server, choose the
+      cell-type annotation column, then run deconvolution. Both datasets need matching, unique gene
+      identifiers and nonnegative linear expression in <code>.X</code>, not log counts.</p>
+      <p>Nonnegative least squares fits mean library-normalised reference profiles using shared genes.
+      The resulting expression mixture fractions sum to one for assigned observations; they are not
+      calibrated cell counts. Empty observations remain unassigned. The analysis runs in the
+      background on every native observation of the selected layer. Choose a cell type to display
+      its fraction on the map. Coarse bin levels average fractions. Results remain available as
+      metadata columns, with the latest fractions in <code>obsm['deconvolution']</code> and method
+      details in <code>uns['deconvolution']</code>.</p>
 
       <h3 id="app-groups">Groups tab</h3>
       <p>Define your own groups of observations from conditions on genes or metadata.</p>

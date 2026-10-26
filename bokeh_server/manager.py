@@ -186,12 +186,26 @@ class SourceManager:
 
 
 import math
+from concurrent.futures import ThreadPoolExecutor
+from functools import partial
+from time import perf_counter
+
+from . import perf
+
+# Viewport loads of every layer and session (DynamicSourceManager.fetch_data_async)
+FETCH_EXECUTOR = ThreadPoolExecutor(max_workers=4, thread_name_prefix="viewport-fetch")
+
 
 class DynamicSourceManager(SourceManager):
 
 
     def __init__(self, *args, **kwargs):
         super().__init__(*args, **kwargs)
+        # Bumped whenever the loaded rows are dropped (new level, colours...): a
+        # background load started before that is stale and must not be added
+        self._generation = 0
+        self._in_flight = False
+        self._queued_doc = None
         self.indexes = []
         self.bbox = None
         self.fetch_kwargs = {}
@@ -212,6 +226,7 @@ class DynamicSourceManager(SourceManager):
         return len(self.indexes)
 
     def clear_sources(self):
+        self._generation += 1
         self.indexes.clear()
         self.is_sequenced.clear()
 
@@ -347,13 +362,71 @@ class DynamicSourceManager(SourceManager):
         self._notify_context_change()
         return resolution_changed or extra_changed
 
-    def add_data(self, bbox=None):
-        colnames = self.get_colnames()
+    def _request(self, bbox):
+        """Arguments of Sample.fetch_data for the current context."""
         fetch_kwargs = dict(self.fetch_kwargs)
         if self.effective_resolution_level is not None:
             fetch_kwargs["resolution_level"] = self.effective_resolution_level
-            
-        fetched_data = self.sample.fetch_data(colnames=colnames, bbox=bbox, **fetch_kwargs)
+        return dict(colnames=self.get_colnames(), bbox=bbox, **fetch_kwargs)
+
+    def _fetch(self, request):
+        with self.sample.fetch_lock:
+            return self.sample.fetch_data(**request)
+
+    def add_data(self, bbox=None):
+        request = self._request(bbox)
+        start = perf_counter()
+        fetched_data = self._fetch(request)
+        self._add_fetched(fetched_data, request, fetch_ms=(perf_counter() - start) * 1e3)
+
+    def fetch_data_async(self, doc):
+        """Like fetch_data, but Sample.fetch_data runs in a worker thread and the
+        rows are added on a later tick of `doc`, so the map stays responsive. A
+        result is dropped if the rows were cleared meanwhile (new level, colours...);
+        calls made while a load runs are merged into one load that follows it."""
+        if self.bbox is None:
+            return
+        self._queued_doc = doc
+        if not self._in_flight:
+            self._start_async()
+
+    def _start_async(self):
+        doc, self._queued_doc = self._queued_doc, None
+        self._in_flight = True
+        request = self._request(list(self.bbox))
+        generation = self._generation
+        submitted = perf_counter()
+
+        def work():
+            started = perf_counter()
+            data = self._fetch(request)
+            return data, (started - submitted) * 1e3, (perf_counter() - started) * 1e3
+
+        def done(future):                                  # in the worker thread
+            try:
+                doc.add_next_tick_callback(partial(self._finish_async, future, request, generation))
+            except Exception as exc:                        # session closed meanwhile
+                print(f"[fetch] result dropped: {exc!r}")
+
+        FETCH_EXECUTOR.submit(work).add_done_callback(done)
+
+    def _finish_async(self, future, request, generation):
+        self._in_flight = False
+        try:
+            data, wait_ms, fetch_ms = future.result()
+        except Exception as exc:
+            print(f"[fetch] {type(self.sample).__name__} failed: {exc!r}")
+            data = None
+        if (data is not None and generation == self._generation
+                and request["colnames"] == self.get_colnames()):
+            self._add_fetched(data, request, wait_ms=wait_ms, fetch_ms=fetch_ms)
+        if self._queued_doc is not None and self.bbox is not None:
+            self._start_async()
+
+    def _add_fetched(self, fetched_data, request, wait_ms=None, fetch_ms=None):
+        """Add the rows of `fetched_data` that are not loaded yet."""
+        start = perf_counter()
+        colnames = request["colnames"]
         new_data = fetched_data[~fetched_data.index.isin(self.indexes)]
 
         # Sin filas nuevas no hay nada que añadir (y get_values([]) de los
@@ -399,7 +472,9 @@ class DynamicSourceManager(SourceManager):
         if extra:
             new_data = new_data.drop(columns=list(extra), inplace=False)
 
+        prepared = perf_counter()
         self.source.stream(new_data.to_dict(orient='list'))
+        streamed = perf_counter()
 
         # Actualizar índices solo tras un stream correcto: si algo falla antes,
         # self.indexes y source.data no se desincronizan (rompía remove_further_data).
@@ -428,6 +503,15 @@ class DynamicSourceManager(SourceManager):
             else:
                 self.component._view = self.view_filter.tolist()
                 self.component.change_glyph_view()
+
+        if perf.ENABLED:
+            level = request.get("resolution_level") or "native"
+            outlines = new_data["xs"] if "xs" in new_data else new_data["x"]   # cells: x holds the outline
+            vertices = sum(len(v) for v in outlines if np.ndim(v))
+            perf.log(f"{type(self.sample).__name__} {level}", len(new_data), len(self.indexes), vertices,
+                     wait=wait_ms, fetch=fetch_ms,
+                     prepare=(prepared - start) * 1e3 + (perf_counter() - streamed) * 1e3,
+                     stream=(streamed - prepared) * 1e3)
 
 
     def fetch_data(self):
@@ -461,7 +545,7 @@ class DynamicSourceManager(SourceManager):
         fetch_kwargs = dict(self.fetch_kwargs)
         if self.effective_resolution_level is not None:
             fetch_kwargs["resolution_level"] = self.effective_resolution_level
-        fetched_data = self.sample.fetch_data(bbox=bbox, **fetch_kwargs)
+        fetched_data = self._fetch(dict(bbox=bbox, **fetch_kwargs))
         removed_indexes = fetched_data['obs_name'].to_numpy()
         self.remove_indcs(removed_indexes)
 

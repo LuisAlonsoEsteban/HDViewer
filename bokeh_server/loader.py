@@ -1,6 +1,7 @@
 import math
 
 from bokeh.core.property.descriptors import UnsetValueError
+from bokeh.document import Document
 
 
 class LazyLoader:
@@ -23,6 +24,17 @@ class LazyLoader:
         self._last_factor = 1
         self._last_lod = None
         self._last_valid_ranges = None
+        self._update_pending = False
+        # Pan/zoom loads run in a worker thread (only with a real Bokeh document,
+        # whose next-tick callbacks run on the server loop; see add_range_callback)
+        self.doc = None
+        self.background = False
+
+    def _load(self):
+        if self.background:
+            self.manager.fetch_data_async(self.doc)
+        else:
+            self.manager.fetch_data()
 
     def _ranges_valid(self):
         values = (self.x_range.start, self.x_range.end, self.y_range.start, self.y_range.end)
@@ -161,10 +173,17 @@ class LazyLoader:
         return sample.get_resolution_level_for_factor(factor)
 
     def add_range_callback(self, component, doc):
-        
+        self.doc = doc
+        self.background = isinstance(doc, Document)
+
         def callback(attr, old, new):
+            # A pan or zoom changes start and end of both ranges: update once for all
+            if self._update_pending:
+                return
+            self._update_pending = True
 
             def update_bbox():
+                self._update_pending = False
                 if not self._check_ranges():
                     return
                 resolution_level = self.get_resolution_level()
@@ -176,7 +195,7 @@ class LazyLoader:
                         resolution_level=resolution_level,
                     )
                     self.fixed_static_bbox = self.static_bbox
-                    self.manager.fetch_data()
+                    self._load()
                 else:
                     x, y = self.x, self.y
                     context_changed = self.manager.set_fetch_context(
@@ -187,7 +206,7 @@ class LazyLoader:
                     if context_changed or not inside:
                         self.manager.bbox = current_fetch_bbox
                         self.fixed_static_bbox = self.static_bbox
-                        self.manager.fetch_data()
+                        self._load()
 
                     if not inside:
                         # El radio debe cubrir TODA la región fetcheada (compute_bbox),

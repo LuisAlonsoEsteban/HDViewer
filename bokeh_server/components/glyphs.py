@@ -33,6 +33,7 @@ from ..loader import LazyLoader
 from .utils.param_form import ParamForm
 from ..help import help_header
 from .utils.clustering import ClusteringManager
+from .utils.deconvolution import DeconvolutionManager
 
 from . import NOT_SEQUENCED_VAL
 
@@ -91,6 +92,7 @@ class Component:
 
         self.clustering_manager = ClusteringManager(self)
         self.groups_manager = GroupsManager(self)
+        self.deconvolution_manager = DeconvolutionManager(self)
         self.selected_obs_names = set()
         self._selection_listeners = []
         self._suspend_selection_sync = False
@@ -567,6 +569,9 @@ class Component:
                                                                      on_markers=on_markers_ready)
             self._all_widgets.extend(clustering_widgets)
 
+            deconvolution_widgets = self.deconvolution_manager.get_widgets(doc)
+            self._all_widgets.extend(deconvolution_widgets)
+
             # --- Tab panels ---
             # Each tab opens with its title and a "?" explaining it
             def tab(title, topic, widgets):
@@ -576,6 +581,7 @@ class Component:
                 tab("General", "general", general_widgets),
                 tab("Color", "color", color_widgets or [Div(text="No color options.")]),
                 tab("Clustering", "clustering", clustering_widgets),
+                tab("Deconvolution", "deconvolution", deconvolution_widgets),
                 tab("Groups", "groups", groups_widgets),
                 tab("DE", "de", de_widgets),
             ]

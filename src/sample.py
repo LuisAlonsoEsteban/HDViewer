@@ -4,13 +4,20 @@ import numpy as np
 import pandas as pd
 from collections import OrderedDict
 import math
+import threading
+
+import scipy.sparse as sp
 import shapely
 
+from .utils.geom import exterior_coords
 from .utils.progress import report
 
 class Sample:
 
     _max_y = None
+    # Genes whose values are kept as dense vectors, one float per obs each
+    # (~25 MB per gene with 2 µm bins)
+    GENE_CACHE_SIZE = 8
 
     def __init__(
             self, 
@@ -36,6 +43,14 @@ class Sample:
         if self.adata is not None:
             assert self.on in self.gdf.columns, "On parameter is incorrect. It must be a column of 'gdf'"
 
+        # Fetches may run in a worker thread (DynamicSourceManager.fetch_data_async):
+        # this lock serialises them with each other and with cache invalidations
+        self.fetch_lock = threading.RLock()
+        self._gene_cache = OrderedDict()        # gene -> dense values over self.adata obs
+        self._gene_cache_adata = None
+        self._obs_index = None                  # (gdf, adata, obs row per gdf row, obs names)
+        self._centroids = None                  # (gdf, centroid x, centroid y)
+
     @property
     def n_geometries(self):
         return self.gdf.shape[0]
@@ -50,7 +65,8 @@ class Sample:
     
     def get_range(self, colname):
         if colname in self.adata.var_names:
-            return self.adata[:, colname].X.min(), self.adata[:, colname].X.max()
+            values = self._gene_vector(colname)
+            return values.min(), values.max()
         elif colname in self.adata.obs.columns:
             col = self.adata.obs[colname]
             if hasattr(col, 'cat'):
@@ -72,19 +88,59 @@ class Sample:
         else:
             return cropped_gdf
     
-    def get_x(self, geom):
-        pass
-
-    def get_y(self, geom):
-        pass
-
     def get_unit_area_um2(self):
         return self.gdf.geometry.area.mean()
     
     def get_coordinates(self, gdf) -> pd.DataFrame:
-        gdf['x'] = gdf.geometry.apply(lambda geom: self.get_x(geom))
-        gdf['y'] = gdf.geometry.apply(lambda geom: self.get_y(geom))
-        return gdf[['x', 'y']]
+        """Centroid of each geometry (NaN for empty ones)."""
+        if self._centroids is None or self._centroids[0] is not self.gdf:
+            x, y = self._compute_centroids(self.gdf)
+            self._centroids = (self.gdf, x, y)
+        rows = self.gdf.index.get_indexer(gdf.index) if self.gdf.index.is_unique else None
+        if rows is None or (rows < 0).any():           # not a subset of self.gdf
+            x, y = self._compute_centroids(gdf)
+        else:
+            x, y = self._centroids[1][rows], self._centroids[2][rows]
+        return pd.DataFrame({"x": x, "y": y}, index=gdf.index)
+
+    @staticmethod
+    def _compute_centroids(gdf):
+        centroids = shapely.centroid(np.asarray(gdf.geometry.values, dtype=object))
+        return shapely.get_x(centroids), shapely.get_y(centroids)
+
+    def _obs_positions(self, gdf):
+        """Row of self.adata for each row of `gdf` (-1: not sequenced), or None when
+        `gdf` is not a subset of self.gdf or names are ambiguous (slow path then)."""
+        cached = self._obs_index
+        if cached is None or cached[0] is not self.gdf or cached[1] is not self.adata:
+            obs = pd.Index(self.adata.obs_names.astype(self.gdf[self.on].dtype))
+            positions = None
+            if obs.is_unique and self.gdf.index.is_unique:
+                positions = obs.get_indexer(self.gdf[self.on])
+            names = np.asarray(self.adata.obs_names.astype(str), dtype=object)
+            cached = self._obs_index = (self.gdf, self.adata, positions, names)
+        positions = cached[2]
+        if positions is None or gdf is self.gdf:
+            return positions
+        rows = self.gdf.index.get_indexer(gdf.index)
+        return None if (rows < 0).any() else positions[rows]
+
+    def _gene_vector(self, gene):
+        """Values of `gene` for every obs of self.adata, as a dense vector. A column
+        of the sparse matrix is slow to slice, so recent genes are cached."""
+        with self.fetch_lock:
+            if self._gene_cache_adata is not self.adata:
+                self._gene_cache.clear()
+                self._gene_cache_adata = self.adata
+            if gene in self._gene_cache:
+                self._gene_cache.move_to_end(gene)
+                return self._gene_cache[gene]
+            column = self.adata.X[:, [self.adata.var_names.get_loc(gene)]]
+            values = column.toarray().ravel() if sp.issparse(column) else np.asarray(column).ravel()
+            self._gene_cache[gene] = values
+            while len(self._gene_cache) > self.GENE_CACHE_SIZE:
+                self._gene_cache.popitem(last=False)
+            return values
 
     def get_adata_vector(self, adata, colname):
         if colname in adata.var_names:
@@ -105,6 +161,13 @@ class Sample:
             return gdf[colname].values.tolist()
 
         elif self.has_adata():
+            if colname in adata.var_names and adata is self.adata:
+                positions = self._obs_positions(gdf)
+                if positions is not None:
+                    values = self._gene_vector(colname)[np.maximum(positions, 0)]
+                    values = np.where(positions >= 0, values, np.nan)
+                    return pd.Series(values, index=gdf[self.on].to_numpy(), name=colname)
+
             value_df = self.get_adata_vector(adata, colname)
             
             # Columnas de obs (leiden, Group 1, etc.) → map directo por obs_names
@@ -137,6 +200,13 @@ class Sample:
         if adata is None:
             return gdf[self.on].astype(str)
 
+        if adata is self.adata:
+            positions = self._obs_positions(gdf)
+            if positions is not None:
+                names = self._obs_index[3][np.maximum(positions, 0)]
+                names = np.where(positions >= 0, names, np.nan)
+                return pd.Series(names, index=gdf[self.on].to_numpy(), name="obs_name")
+
         obs_df = pd.DataFrame({
             "obs_name": adata.obs_names.astype(str),
             self.on: adata.obs_names.astype(gdf[self.on].dtype),
@@ -147,18 +217,13 @@ class Sample:
 
     
     def fetch_data(self, bbox=None, colnames=None, return_coords=True, **coord_kwargs) -> pd.DataFrame:
-        if bbox is not None:
-            if self.has_adata():
-                cropped_gdf, cropped_adata = self.crop(*bbox, crop_adata=True)
-            else:
-                cropped_gdf = self.crop(*bbox, crop_adata=False)
-        else:
-            cropped_gdf, cropped_adata = self.gdf, self.adata
+        # The values are looked up in the whole AnnData by position: cropping it
+        # first (an AnnData view) costs more than the lookup
+        cropped_gdf = self.crop(*bbox, crop_adata=False) if bbox is not None else self.gdf
+        cropped_adata = self.adata
 
         if return_coords:
-            # copy(): get_coordinates devuelve un slice del gdf y asignar
-            # columnas encima dispara SettingWithCopyWarning.
-            data = self.get_coordinates(cropped_gdf, **coord_kwargs).copy()
+            data = self.get_coordinates(cropped_gdf, **coord_kwargs)
         else:
             data = pd.DataFrame()
 
@@ -453,12 +518,6 @@ class Bins(Sample):
         result = self.gdf.cx[left - self.half_bin_size : right + self.half_bin_size,
                               top - self.half_bin_size : bottom + self.half_bin_size]
         return result.copy()
-            
-    def get_x(self, geom):
-        return geom.centroid.x
-    
-    def get_y(self, geom):
-        return geom.centroid.y
 
     def get_unit_area_um2(self):
         return (self.half_bin_size * 2) ** 2
@@ -591,8 +650,9 @@ class Bins(Sample):
 
         self._clustering_factor = factor
         # Drop cached aggregated tiles holding stale labels of a previous run
-        for cache_key in [k for k in self._multiscale_cache if key_added in k[2]]:
-            del self._multiscale_cache[cache_key]
+        with self.fetch_lock:
+            for cache_key in [k for k in self._multiscale_cache if key_added in k[2]]:
+                del self._multiscale_cache[cache_key]
         return key_added
 
     def get_embedding_dataframe(self, method: str, resolution_level=None) -> pd.DataFrame:
@@ -659,14 +719,14 @@ class Bins(Sample):
             self._multiscale_cache.move_to_end(cache_key)
             return self._multiscale_cache[cache_key].copy()
 
-        cropped_gdf, cropped_adata = self.crop(*aligned_bbox, crop_adata=True)
+        cropped_gdf, cropped_adata = self.crop(*aligned_bbox, crop_adata=False), self.adata
         if cropped_gdf.empty:
             cols = ["x", "y", "width", "height", "angle", "xs", "ys", "obs_name"] + (list(colnames) if colnames else [])
             empty = pd.DataFrame(columns=cols)
             self._cache_result(cache_key, empty)
             return empty.copy()
 
-        coords = self.get_coordinates(cropped_gdf.copy())
+        coords = self.get_coordinates(cropped_gdf)
         grid_x = np.floor(coords["x"].to_numpy() / cell_width).astype(np.int32)
         grid_y = np.floor(coords["y"].to_numpy() / cell_height).astype(np.int32)
 
@@ -720,6 +780,8 @@ class Bins(Sample):
                     grouped[colname] = _grp.agg(
                         lambda s: s.value_counts().idxmax() if len(s.value_counts()) else np.nan
                     )
+                elif colname in self.adata.uns.get("mean_obs_columns", []):
+                    grouped[colname] = _grp.mean()
                 else:
                     grouped[colname] = _grp.sum(min_count=1)
 
@@ -749,9 +811,7 @@ class Bins(Sample):
                 # Render the same footprints used for spatial operations. A
                 # single angle/width/height cannot express anisotropic scaling
                 # of a rotated grid (the transformed bins are parallelograms).
-                footprints = self.gdf.loc[data.index].geometry
-                data["xs"] = [list(geom.exterior.coords.xy[0]) for geom in footprints]
-                data["ys"] = [list(geom.exterior.coords.xy[1]) for geom in footprints]
+                data["xs"], data["ys"] = exterior_coords(self.gdf.geometry.loc[data.index].values)
             return data
 
         return self._fetch_aggregated_data(bbox=bbox, colnames=colnames, factor=factor)
@@ -759,12 +819,6 @@ class Bins(Sample):
 class Spots(Sample):
     def __init__(self, *args, **kwargs):
         super().__init__(*args, **kwargs)
-
-    def get_x(self, geom):
-        return geom.centroid.x
-    
-    def get_y(self, geom):
-        return geom.centroid.y
 
     def get_unit_area_um2(self):
         return 3.14 * (55.0 / 2)**2
@@ -824,12 +878,8 @@ class Cells(Sample):
             geoms = self.get_simplified(tolerance)[self.gdf.index.get_indexer(gdf.index)]
         else:
             geoms = np.asarray(gdf.geometry.values, dtype=object)
-        coords, owner = shapely.get_coordinates(shapely.get_exterior_ring(geoms), return_index=True)
-        bounds = np.cumsum(np.bincount(owner, minlength=len(geoms)))[:-1]
-        return pd.DataFrame({
-            "x": [v.tolist() for v in np.split(coords[:, 0], bounds)],
-            "y": [v.tolist() for v in np.split(coords[:, 1], bounds)],
-        }, index=gdf.index)
+        xs, ys = exterior_coords(geoms)
+        return pd.DataFrame({"x": xs, "y": ys}, index=gdf.index)
 
     def fetch_data(self, bbox=None, colnames=None, return_coords=True, resolution_level=None) -> pd.DataFrame:
         return super().fetch_data(bbox=bbox, colnames=colnames, return_coords=return_coords,
