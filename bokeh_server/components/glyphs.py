@@ -1,8 +1,7 @@
 
 import os
 from pathlib import Path
-from .utils.groups import GroupsManager, GROUPS_COL
-from .bin_info import BinInfoOverlay
+
 import numpy as np
 
 from bokeh.models import (
@@ -19,7 +18,6 @@ from bokeh.models import (
     ColumnDataSource, 
     DataTable, 
     TableColumn,
-
     BooleanFilter,
     CDSView
 )
@@ -27,13 +25,15 @@ from bokeh.layouts import column
 
 from ..manager import SourceManager, DynamicSourceManager
 from ..parameter import StaticParameter, Scaler, CategoricalColor
-
 from ..loader import LazyLoader
-
-from .utils.param_form import ParamForm
 from ..help import help_header
+
 from .utils.clustering import ClusteringManager
 from .utils.deconvolution import DeconvolutionManager
+from .utils.groups import GroupsManager, GROUPS_COL
+from .utils.param_form import ParamForm
+from .utils.roi import ROIManager
+from .utils.selection import native_selection, selection_indices
 
 from . import NOT_SEQUENCED_VAL
 
@@ -97,6 +97,7 @@ class Component:
         self._selection_listeners = []
         self._suspend_selection_sync = False
         self._selection_callback_bound = False
+        self.roi_manager = ROIManager(self)
         self.sample_type = f"{self.alias.lower()}s"
 
         self._view = None
@@ -186,6 +187,9 @@ class Component:
     def get_selected_obs_names(self):
         return set(self.selected_obs_names)
 
+    def selection_indices_for(self, obs_names):
+        return selection_indices(self.sample, self.selected_obs_names, obs_names)
+
     def add_selection_listener(self, callback):
         if callback not in self._selection_listeners:
             self._selection_listeners.append(callback)
@@ -202,14 +206,14 @@ class Component:
         if obs_names.size == 0 or len(self.selected_obs_names) == 0:
             indices = []
         else:
-            indices = np.flatnonzero(np.isin(obs_names, list(self.selected_obs_names))).tolist()
+            indices = self.selection_indices_for(obs_names)
             
         self._suspend_selection_sync = True
         self.glyph_renderer.data_source.selected.indices = indices
         self._suspend_selection_sync = False
 
     def set_selected_obs_names(self, obs_names, notify=True):
-        self.selected_obs_names = {str(obs_name) for obs_name in obs_names}
+        self.selected_obs_names = native_selection(self.sample, obs_names)
         self.apply_selected_obs_names()
         if notify:
             self.notify_selection_changed()
@@ -219,8 +223,8 @@ class Component:
             return
         obs_names = self.obs_name_values
         selected_indices = np.asarray(new, dtype=int)
-        valid_indices = selected_indices[selected_indices < obs_names.size]
-        self.selected_obs_names = set(obs_names[valid_indices].tolist())
+        valid_indices = selected_indices[(selected_indices >= 0) & (selected_indices < obs_names.size)]
+        self.selected_obs_names = native_selection(self.sample, obs_names[valid_indices])
         self.notify_selection_changed()
 
     def attach_selection_callbacks(self):
@@ -299,17 +303,6 @@ class Component:
             return dict(groups._color_map)
         return {}
 
-    #def get_hover_tooltips(self):
-    #    items = []
-    #    for param in self.manager.parameters:
-    #        if not param.is_static and param.colname_hovered:
-    #            items.append(f"{param.colname}: @{param.colname}")
-#
-    #    if len(items) > 0:
-    #        return ", ".join(items)
-    #    else:
-    #        return ""
-
     def get_hover_tooltips(self):
         items = []
         for param in self.manager.parameters:
@@ -318,7 +311,6 @@ class Component:
                     and param.attr != 'alpha'):
                 items.append(f"{param.colname}: @{param.colname}")
 
-        # Añadir leiden solo si tiene valores reales (no todos None)
         if 'custom_clusters' in self.manager.source.data:
             items.append("Group: @custom_clusters")
         if 'leiden' in self.manager.source.data:
@@ -343,6 +335,7 @@ class Component:
 
     def set_visibility(self, visible:bool, apply_checkbox=False):
        self.glyph_renderer.visible = visible
+       self.roi_manager.set_visible(visible)
        for widget in self._all_widgets:
            if widget is not self.checkbox or apply_checkbox:
                widget.disabled = not visible
@@ -571,6 +564,8 @@ class Component:
 
             deconvolution_widgets = self.deconvolution_manager.get_widgets(doc)
             self._all_widgets.extend(deconvolution_widgets)
+            roi_widgets = self.roi_manager.get_widgets(doc)
+            self._all_widgets.extend(roi_widgets)
 
             # --- Tab panels ---
             # Each tab opens with its title and a "?" explaining it
@@ -583,6 +578,7 @@ class Component:
                 tab("Clustering", "clustering", clustering_widgets),
                 tab("Deconvolution", "deconvolution", deconvolution_widgets),
                 tab("Groups", "groups", groups_widgets),
+                tab("ROIs", "rois", roi_widgets),
                 tab("DE", "de", de_widgets),
             ]
 
@@ -644,7 +640,10 @@ class Circles(Component):
                                 )
         self.attach_selection_callbacks()
         self.apply_selected_obs_names()
-        
+
+
+from .bin_info import BinInfoOverlay
+
 class Squares(Component):
 
     def __init__(self, *args, **kwargs):
@@ -652,8 +651,6 @@ class Squares(Component):
         self.bin_info = BinInfoOverlay(self)
 
     def add_glyph(self):
-        # Both native footprints and axis-aligned aggregate cells supply their
-        # corners; x/y remain scalar centers for lazy loading and selection.
         self.glyph_renderer = self.figure.patches(
             xs='xs',
             ys='ys',

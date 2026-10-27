@@ -100,6 +100,24 @@ class StartupController:
             self.image_input
         )
 
+        self.reference_input = FileInput(accept=".h5ad, .h5", value="", filename="")
+        self.reference_annotations_input = FileInput(accept=".csv,.parquet", value="")
+        self.reference_upload_status = Div(text=
+            "No single-cell reference received yet. After selecting a file, wait for the upload confirmation before loading data.")
+        self.reference_input_widget = column(
+            Div(text="<b>Single-cell reference (.h5ad or .h5, optional)</b>"
+                "<p>Upload once to reuse it for deconvolution in every layer. "
+                "AnnData annotations in .obs are loaded automatically. "
+                "For a 10x .h5 counts file, supply cell-type annotations in a CSV or Parquet file below.</p>"),
+            self.reference_input,
+            self.reference_upload_status,
+            Div(text="<b>Reference annotations (.csv or .parquet, optional)</b>"
+                "<p>First column: cell barcode matching the reference. Parquet may also store "
+                "barcodes in its index or a barcode column. "
+                "Remaining columns: cell-type labels or other annotations.</p>"),
+            self.reference_annotations_input,
+        )
+
         self.pseudospots_checkbox = Checkbox(
             label="Generate Visium v2 pseudospots",
             active=True
@@ -269,6 +287,7 @@ class StartupController:
             card(
                 heading('<h2 style="margin:0;font-size:19px">Choose your data source</h2>', "data_source"),
                 self.data_source, self.upload_panel, self.example_panel, self.url_panel,
+                self.reference_input_widget,
             ),
             self.preprocessing_panel,
             self.load_button, self.status_text, self.progress_panel,
@@ -297,16 +316,35 @@ class StartupController:
         self.example_panel.visible = mode == "example"
         self.url_panel.visible = mode == "url"
         self.load_button.disabled = mode == "url"
+        bundled = self._example_config().get("reference_path")
+        self.reference_input_widget.visible = mode == "upload"
         self.status_text.text = {
             "upload": "Choose your files to get started.",
-            "example": "Choose an example and review preprocessing options.",
+            "example": "This example will load without a single-cell reference.",
             "url": "URL loading is coming soon.",
         }[mode]
+        if bundled:
+            self.status_text.text = ("The example's single-cell reference and spatial metadata will load from disk. "
+                                     "No upload is required.")
+            if self._example_config().get("reference_annotations_path"):
+                self.status_text.text += " Single-cell annotations are included for deconvolution."
+
+    def _example_config(self):
+        return AVAILABLE_DATASETS.get(self.example_select.value, {}) if self.source_mode == "example" else {}
 
     def _add_callbacks(self):
+        def reference_received(attr, old, new):
+            if new:
+                name = escape(self.reference_input.filename or "Single-cell reference")
+                self.reference_upload_status.text = f"Reference uploaded: {name}. Ready to load."
+            else:
+                self.reference_upload_status.text = "No single-cell reference received yet. Wait for upload confirmation."
+
+        self.reference_input.on_change("value", reference_received)
         self.data_source.on_change(
             "active", lambda attr, old, new: self._update_source_mode()
         )
+        self.example_select.on_change("value", lambda attr, old, new: self._update_source_mode())
 
         self.pseudospots_checkbox.on_change("active", lambda attr, old, new: self._reset_progress())
         for controls in self.segmentation_controls.values():
@@ -580,6 +618,11 @@ class StartupController:
             if self.dataset.adata is None or self.dataset.df_tissue_positions is None:
                 self.update_progress(self.bins_progress, status="Reading expression data")
                 self.dataset.load()
+            annotations_path = self._example_config().get("spatial_annotations_path")
+            if annotations_path:
+                from src.singlecell import add_annotations
+                self.update_progress(self.bins_progress, status="Reading spatial annotations")
+                add_annotations(self.dataset.adata, annotations_path)
             self.update_progress(self.bins_progress, 25, "Preparing bins")
             self.build_b2s(self.dataset.adata, self.dataset.df_tissue_positions, self.dataset.bins_size)
 
@@ -676,6 +719,11 @@ class StartupController:
     def load_data_callback(self):
         if self.loading or self.source_mode == "url":
             return
+        reference_error = self._reference_upload_error()
+        if reference_error:
+            # Leave the form enabled so the pending upload can finish and the user can retry.
+            self.status_text.text = reference_error
+            return
         if self.source_mode == "upload" and not self._validate_inputs():
             return
         if self.source_mode == "example" and self.example_select.value not in AVAILABLE_DATASETS:
@@ -698,6 +746,8 @@ class StartupController:
         for widget in (self.data_source, self.load_button, self.pseudospots_checkbox,
                        self.example_select, self.h5_input,
                        self.positions_input, self.image_input, self.resolution_select,
+                       self.reference_input,
+                       self.reference_annotations_input,
                        *[w for c in self.segmentation_controls.values()
                          for w in (c["checkbox"], *c["params"].values())]):
             widget.disabled = True
@@ -717,7 +767,46 @@ class StartupController:
 
         threading.Thread(target=prepare, daemon=True).start()
 
+    def _reference_upload_error(self):
+        if self.source_mode != "upload":
+            return None
+        if not self.reference_input.value and (self.reference_annotations_input.value or self.reference_input.filename):
+            return ("The single-cell reference file has not reached the server yet. "
+                    "Wait for the 'Reference uploaded' confirmation, then click Load data again. "
+                    "If it never appears, check the Bokeh server's WebSocket upload-size limit.")
+        return None
+
+    def _prepare_deconvolution_reference(self):
+        """Read the optional upload once, before any layer is constructed (worker thread)."""
+        from src.singlecell import read_reference
+
+        reference = None
+        name = None
+        reference_error = self._reference_upload_error()
+        if reference_error:
+            raise ValueError(reference_error)
+        config = self._example_config()
+        if config.get("reference_path"):
+            name = Path(config["reference_path"]).name
+            try:
+                reference = read_reference(config["reference_path"], config.get("reference_annotations_path"))
+            except Exception as exc:
+                raise ValueError(f"Cannot load example single-cell reference {name}: {exc}") from exc
+        elif self.source_mode == "upload" and self.reference_input.value:
+            name = Path(self.reference_input.filename or "reference.h5ad").name
+            try:
+                annotations = (base64.b64decode(self.reference_annotations_input.value, validate=True)
+                               if self.reference_annotations_input.value else None)
+                reference = read_reference(
+                    base64.b64decode(self.reference_input.value, validate=True), annotations)
+            except Exception as exc:
+                raise ValueError(f"Cannot load single-cell reference {name}: {exc}") from exc
+        self.app.deconvolution_reference = reference
+        self.app.deconvolution_reference_name = name
+        self.app.deconvolution_label_column = config.get("reference_label_column", "")
+
     def _prepare_data(self):
+        self._prepare_deconvolution_reference()
         if self.source_mode == "upload":
 
             adata_path = self._save_uploaded_file(self.h5_input)

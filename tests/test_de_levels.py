@@ -5,7 +5,7 @@ import anndata as ad
 import geopandas as gpd
 import numpy as np
 import pandas as pd
-from bokeh.models import Div
+from bokeh.layouts import column
 from bokeh.plotting import figure
 from shapely.geometry import box
 
@@ -39,7 +39,7 @@ def make_bins(n=8):
     adata.obs["grp_A"] = xs < n // 2
     component = Squares(figure(), Bins(gdf, adata, pixels_per_bin=1, bin_size_um=2),
                         lazy_loading=True, alias="Bin")
-    component._figure_de_div = Div(text="")
+    component._figure_de_layout = column()
     manager = component.groups_manager
     manager._clusters = {"A": []}
     manager._de_selected = {"A"}
@@ -57,22 +57,22 @@ class DELevelTests(unittest.TestCase):
         for k, expected in ((3, True), (1, False), (2, False)):
             mask = pd.Series(False, index=names.index)
             mask[corner[:k]] = True
-            level = manager._masks_at_level({"S": mask.to_numpy()}, 2, cells)["S"]
+            level = manager.de_analysis.masks_at_level({"S": mask.to_numpy()}, 2, cells)["S"]
             self.assertEqual(bool(level[list(cells).index(names["b0_0"])]), expected, k)
 
         # Left-half group: exactly the 8 cells of the left half
-        level = manager._masks_at_level({"A": component.sample.adata.obs["grp_A"].to_numpy()}, 2, cells)["A"]
+        level = manager.de_analysis.masks_at_level({"A": component.sample.adata.obs["grp_A"].to_numpy()}, 2, cells)["A"]
         self.assertEqual(int(level.sum()), 8)
 
     def test_de_runs_on_the_aggregated_cells(self):
         component, manager, _ = make_bins()
         done = threading.Event()
-        component._figure_de_div.on_change("text", lambda attr, old, new: done.set())
+        component._figure_de_layout.on_change("children", lambda attr, old, new: done.set())
         manager._run_de_thread(["A"], 0, ImmediateDoc(), factor=2)
         self.assertTrue(done.wait(120), manager._de_status_div.text)
 
         self.assertEqual(manager._de_header, "DE vs Rest · 2 × 2 bins")
-        self.assertEqual(manager._de_adata_by_factor[2].n_obs, 16)      # 2x2 cells, not 64 bins
+        self.assertEqual(manager.de_analysis.prepared_data[2].n_obs, 16)      # 2x2 cells, not 64 bins
         top = manager._de_results["A"].sort_values("scores", ascending=False)["names"].iloc[0]
         self.assertEqual(top, "g0")
 

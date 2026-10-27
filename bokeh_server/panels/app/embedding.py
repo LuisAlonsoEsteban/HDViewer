@@ -189,9 +189,8 @@ class EmbeddingPanel(Panel):
             return
 
         component = view["component"]
-        selected = component.get_selected_obs_names()
         obs_names = [str(value) for value in view["source"].data.get("obs_name", [])]
-        indices = [i for i, obs_name in enumerate(obs_names) if obs_name in selected]
+        indices = component.selection_indices_for(obs_names)
 
         self._syncing = True
         view["source"].selected.indices = indices

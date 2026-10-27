@@ -7,6 +7,9 @@ import anndata as ad
 import numpy as np
 import pandas as pd
 from bokeh.models import Div
+from bokeh.layouts import column
+from bokeh.document import Document
+from bokeh.models import HoverTool, Plot
 
 from bokeh_server.components.utils.groups import GROUPS_COL, GroupsManager
 
@@ -34,7 +37,7 @@ def make_manager():
     adata.obs["grp_B"] = (np.arange(60) >= 20) & (np.arange(60) < 40)
 
     component = SimpleNamespace(manager=SimpleNamespace(sample=SimpleNamespace(adata=adata)),
-                                alias="Spot", _figure_de_div=Div(text=""))
+                                alias="Spot", _figure_de_layout=column())
     manager = GroupsManager(component)
     manager._clusters = {"A": [("g0", ">", "5", "AND")], "B": [("g1", ">", "5", "AND")]}
     manager._de_selected = {"A", "B"}
@@ -44,12 +47,31 @@ def make_manager():
     return manager, component
 
 
+def result_html(component):
+    return "".join(model.text for model in component._figure_de_layout.references() if isinstance(model, Div))
+
+
 class GroupsDETests(unittest.TestCase):
+    def test_results_attach_live_figures_and_clear_them_on_group_deletion(self):
+        manager, component = make_manager()
+        document = Document()
+        document.add_root(component._figure_de_layout)
+        self.assertTrue(run_and_wait(manager, component, ["A", "B"], 1))
+        plots = list(component._figure_de_layout.select({'type': Plot}))
+        self.assertEqual(len(plots), 2)
+        self.assertTrue(all(plot.document is document for plot in plots))
+        self.assertTrue(all(any(isinstance(tool, HoverTool) for tool in plot.tools) for plot in plots))
+        document.to_json()
+        del manager._clusters['B']
+        manager._clear_de_if_cluster_deleted()
+        self.assertEqual(component._figure_de_layout.children, [])
+        self.assertFalse(any(plot.id in document.models for plot in plots))
+
     def test_between_groups_de_uses_hidden_groups_too(self):
         manager, component = make_manager()
         manager._de_status_div = Div(text="")
         done = threading.Event()
-        component._figure_de_div.on_change("text", lambda attr, old, new: done.set())
+        component._figure_de_layout.on_change("children", lambda attr, old, new: done.set())
 
         manager._run_de_thread(["A", "B"], mode=1, doc=ImmediateDoc())
         deadline = time.time() + 120
@@ -58,8 +80,8 @@ class GroupsDETests(unittest.TestCase):
 
         self.assertTrue(done.is_set(), manager._de_status_div.text)
         self.assertEqual(manager._de_header, "DE: A vs B")
-        self.assertIn("g0", component._figure_de_div.text)
-        self.assertIn("g1", component._figure_de_div.text)
+        self.assertIn("g0", result_html(component))
+        self.assertIn("g1", result_html(component))
 
     def test_de_group_list_follows_created_and_deleted_groups(self):
         manager, _ = make_manager()
@@ -86,15 +108,15 @@ class GroupsDETests(unittest.TestCase):
         manager, component = make_manager()
         manager._de_status_div = Div(text="")
         manager._de_clusters = ["A", "B"]
-        component._figure_de_div.text = "results"
+        component._figure_de_layout.children = [Div(text="results")]
 
         manager._active_clusters = set()             # hidden on the map
         manager._clear_de_if_cluster_deleted()
-        self.assertEqual(component._figure_de_div.text, "results")
+        self.assertEqual(result_html(component), "results")
 
         del manager._clusters["B"]
         manager._clear_de_if_cluster_deleted()
-        self.assertEqual(component._figure_de_div.text, "")
+        self.assertEqual(result_html(component), "")
 
 
 def with_clusters(manager):
@@ -111,7 +133,7 @@ def with_clusters(manager):
 def run_and_wait(manager, component, *args, **kwargs):
     manager._de_status_div = manager._de_status_div or Div(text="")
     done = threading.Event()
-    component._figure_de_div.on_change("text", lambda attr, old, new: done.set())
+    component._figure_de_layout.on_change("children", lambda attr, old, new: done.set())
     manager._run_de_thread(*args, doc=ImmediateDoc(), **kwargs)
     deadline = time.time() + 120
     while not done.is_set() and time.time() < deadline:
@@ -169,12 +191,12 @@ class ClusterDETests(unittest.TestCase):
         mode.active = 1
 
         done = threading.Event()
-        component._figure_de_div.on_change("text", lambda attr, old, new: done.set())
+        component._figure_de_layout.on_change("children", lambda attr, old, new: done.set())
         button._trigger_event(ButtonClick(button))
         self.assertTrue(done.wait(120), manager._de_status_div.text)
         self.assertEqual(set(manager._de_results), {"B", "Cluster 1"})
         self.assertEqual(manager._de_results_source, "mixed")
-        self.assertIn("#abcdef", component._figure_de_div.text)   # Cluster 1's colour
+        self.assertIn("#abcdef", result_html(component))   # Cluster 1's colour
 
     def test_between_clusters_de(self):
         manager, component = make_manager()
@@ -187,7 +209,7 @@ class ClusterDETests(unittest.TestCase):
         top = {name: df.sort_values("scores", ascending=False)["names"].iloc[0]
                for name, df in manager._de_results.items()}
         self.assertEqual(top, {"Cluster 0": "g0", "Cluster 1": "g2"})
-        self.assertIn("#123456", component._figure_de_div.text)   # cluster colours
+        self.assertIn("#123456", result_html(component))   # cluster colours
         # Same status line as the other long jobs: finished, with the elapsed time
         status = manager._de_status_div.text
         self.assertIn("DE done: 2 clusters, results", status)
@@ -210,13 +232,13 @@ class ClusterDETests(unittest.TestCase):
         with_clusters(manager)
         manager._de_status_div = Div(text="")
         manager._de_clusters, manager._de_results_source = ["A"], "groups"
-        component._figure_de_div.text = "group results"
+        component._figure_de_layout.children = [Div(text="group results")]
         manager.refresh_de_clusters()
-        self.assertEqual(component._figure_de_div.text, "group results")
+        self.assertEqual(result_html(component), "group results")
 
         manager._de_clusters, manager._de_results_source = ["Cluster 0"], "clusters"
         manager.refresh_de_clusters()
-        self.assertEqual(component._figure_de_div.text, "")
+        self.assertEqual(result_html(component), "")
 
 
 if __name__ == "__main__":

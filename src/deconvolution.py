@@ -67,4 +67,9 @@ def deconvolve(target, reference, label_column, batch_size=256):
                 fractions[row] = weights / weights.sum()
         report(f"Deconvolved {end:,} / {target.n_obs:,} observations")
 
-    return pd.DataFrame(fractions, index=target.obs_names.copy(), columns=types), genes.tolist()
+    proportions = pd.DataFrame(fractions, index=target.obs_names.copy(), columns=types)
+    dominant = pd.Series(np.nan, index=proportions.index, dtype=object)
+    assigned = proportions.notna().any(axis=1)
+    dominant.loc[assigned] = proportions.loc[assigned].idxmax(axis=1)
+    proportions['most_abundant'] = dominant
+    return proportions, genes.tolist()

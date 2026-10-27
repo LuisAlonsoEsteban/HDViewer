@@ -15,8 +15,7 @@ from .utils.progress import report
 class Sample:
 
     _max_y = None
-    # Genes whose values are kept as dense vectors, one float per obs each
-    # (~25 MB per gene with 2 µm bins)
+
     GENE_CACHE_SIZE = 8
 
     def __init__(
@@ -30,6 +29,7 @@ class Sample:
         self.adata = adata
 
         self.adata_processed = None
+
         self._step_params = {}
         self._embedding_keys = {
             "pca": "X_pca_2d",
@@ -43,13 +43,14 @@ class Sample:
         if self.adata is not None:
             assert self.on in self.gdf.columns, "On parameter is incorrect. It must be a column of 'gdf'"
 
-        # Fetches may run in a worker thread (DynamicSourceManager.fetch_data_async):
-        # this lock serialises them with each other and with cache invalidations
+
         self.fetch_lock = threading.RLock()
-        self._gene_cache = OrderedDict()        # gene -> dense values over self.adata obs
+
+        self._gene_cache = OrderedDict()
         self._gene_cache_adata = None
-        self._obs_index = None                  # (gdf, adata, obs row per gdf row, obs names)
-        self._centroids = None                  # (gdf, centroid x, centroid y)
+
+        self._obs_index = None
+        self._centroids = None
 
     @property
     def n_geometries(self):
@@ -72,8 +73,10 @@ class Sample:
             if hasattr(col, 'cat'):
                 col = col.cat.as_ordered()
             numeric = pd.to_numeric(col, errors='coerce')
+
         if numeric.notna().any():
             return numeric.min(), numeric.max()
+
         return 0.0, 1.0
     
     def crop_geom(self, left, right, top, bottom):
@@ -81,7 +84,7 @@ class Sample:
 
     def crop(self, left, right, top, bottom, crop_adata=False):
         cropped_gdf =  self.crop_geom(left, right, top, bottom)
-        if crop_adata:
+        if self.adata is not None and crop_adata:
             cropped_mask = self.adata.obs_names.isin(cropped_gdf.index)
             cropped_adata = self.adata[cropped_mask, :]
             return cropped_gdf, cropped_adata
@@ -92,15 +95,16 @@ class Sample:
         return self.gdf.geometry.area.mean()
     
     def get_coordinates(self, gdf) -> pd.DataFrame:
-        """Centroid of each geometry (NaN for empty ones)."""
         if self._centroids is None or self._centroids[0] is not self.gdf:
             x, y = self._compute_centroids(self.gdf)
             self._centroids = (self.gdf, x, y)
+
         rows = self.gdf.index.get_indexer(gdf.index) if self.gdf.index.is_unique else None
-        if rows is None or (rows < 0).any():           # not a subset of self.gdf
+        if rows is None or (rows < 0).any():
             x, y = self._compute_centroids(gdf)
         else:
             x, y = self._centroids[1][rows], self._centroids[2][rows]
+
         return pd.DataFrame({"x": x, "y": y}, index=gdf.index)
 
     @staticmethod
@@ -132,14 +136,18 @@ class Sample:
             if self._gene_cache_adata is not self.adata:
                 self._gene_cache.clear()
                 self._gene_cache_adata = self.adata
+
             if gene in self._gene_cache:
                 self._gene_cache.move_to_end(gene)
                 return self._gene_cache[gene]
+
             column = self.adata.X[:, [self.adata.var_names.get_loc(gene)]]
             values = column.toarray().ravel() if sp.issparse(column) else np.asarray(column).ravel()
             self._gene_cache[gene] = values
+
             while len(self._gene_cache) > self.GENE_CACHE_SIZE:
                 self._gene_cache.popitem(last=False)
+
             return values
 
     def get_adata_vector(self, adata, colname):
@@ -170,14 +178,12 @@ class Sample:
 
             value_df = self.get_adata_vector(adata, colname)
             
-            # Columnas de obs (leiden, Group 1, etc.) → map directo por obs_names
             if colname in adata.obs.columns:
                 obs_series = self.get_obs_names(adata, gdf)
                 result = obs_series.map(value_df[colname])
                 result.index = gdf.index
                 return result
             
-            # Genes (adata.var_names) → merge original por self.on
             value_df.index.name = None  # avoid ambiguity if obs index name matches self.on
             value_df[self.on] = value_df.index.astype(gdf[self.on].dtype)
             merged_gdf = gdf.reset_index().merge(value_df, on=self.on, how='left').set_index('index')
@@ -217,8 +223,6 @@ class Sample:
 
     
     def fetch_data(self, bbox=None, colnames=None, return_coords=True, **coord_kwargs) -> pd.DataFrame:
-        # The values are looked up in the whole AnnData by position: cropping it
-        # first (an AnnData view) costs more than the lookup
         cropped_gdf = self.crop(*bbox, crop_adata=False) if bbox is not None else self.gdf
         cropped_adata = self.adata
 
@@ -238,8 +242,6 @@ class Sample:
         return data
     
     def get_marker_genes(self, n_genes=5):
-        """Top marker genes per cluster; {} until `compute_marker_genes` has run for
-        the current clustering (results of a previous clustering are not returned)."""
         if self.adata_processed is None or 'rank_genes_groups' not in self.adata_processed.uns:
             return {}
         if not self._is_cached("markers", self._step_params.get("leiden")):
@@ -824,7 +826,6 @@ class Spots(Sample):
         return 3.14 * (55.0 / 2)**2
 
 
-
 class Cells(Sample):
     # Levels of detail: level k draws the polygons simplified with tolerance
     # LOD_BASE_TOLERANCE * 2**k (figure units); None draws the original polygons
@@ -873,11 +874,11 @@ class Cells(Sample):
         return self._simplified[tolerance]
 
     def get_coordinates(self, gdf, tolerance=0.0) -> pd.DataFrame:
-        """Exterior ring vertices of each cell (patches), simplified with `tolerance`."""
         if tolerance > 0:
             geoms = self.get_simplified(tolerance)[self.gdf.index.get_indexer(gdf.index)]
         else:
             geoms = np.asarray(gdf.geometry.values, dtype=object)
+            
         xs, ys = exterior_coords(geoms)
         return pd.DataFrame({"x": xs, "y": ys}, index=gdf.index)
 

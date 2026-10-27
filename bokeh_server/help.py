@@ -20,7 +20,17 @@ HELP = {
           <li><b>Resolution</b>: that bin size (2, 8 or 16 µm)</li>
           <li><b>Tissue image</b>: the full-resolution image given to Space Ranger (.btf, .tif or .png)</li>
         </ol>
-        Or pick a ready-made <b>example</b> dataset."""),
+        Or pick a ready-made <b>example</b> dataset.<br>
+        When uploading your own spatial data, optionally upload a single-cell <b>.h5ad or .h5 reference</b>.
+        AnnData .obs annotations load automatically; for 10x count matrices, upload a CSV or Parquet file with
+        cell barcodes in its first column and cell-type annotations in the other columns.
+        Parquet can also store barcodes in its index or a barcode column.
+        It is loaded once and reused in every layer's Deconvolution tab.<br>
+        Examples use their configured local reference, if available; otherwise they run without one.
+        Reference uploads are available only with your own data.<br>
+        The <b>Human CRC</b> example loads its Chromium counts, single-cell CSV annotations and spatial
+        Parquet metadata directly from disk. Deconvolution defaults to the <b>Level1</b> cell-type labels;
+        you can select Level2 or another reference annotation column."""),
     "preprocessing": ("What to compute", """
         <b>Bins</b> are always loaded.<br>
         <b>Pseudospots</b> group the HD bins into Visium v2-like 55 µm spots, e.g. to compare with
@@ -57,14 +67,30 @@ HELP = {
         For bins, clustering runs at the <b>displayed aggregation level</b> and keeps the view at that
         level while the clusters are shown. Tick or untick clusters to show or hide them."""),
     "deconvolution": ("Deconvolution", """
-        Load an annotated single-cell <b>.h5ad reference</b> from a server path and select its
-        cell-type column. Both datasets must use matching, unique gene identifiers and linear,
+        The single-cell <b>.h5ad or .h5 reference</b> uploaded on the loading screen is reused
+        for every layer. Its .obs columns (including an optional annotation CSV or Parquet file) appear here. Select its
+        cell-type column and run deconvolution. Both datasets must use matching, unique gene identifiers and linear,
         nonnegative expression in <code>.X</code> (not log-transformed values).<br>
         Nonnegative least squares fits library-normalised mean cell-type profiles on shared genes.
         Coefficients are normalised to expression mixture fractions, not calibrated cell counts.
         Results cover all native observations of this layer, independently of the viewport.
         Empty observations stay unassigned. Select a fraction to show it on the map;
         coarse bin levels show the mean fraction. Results are stored in the layer's AnnData."""),
+    "rois": ("ROIs", """
+        Save named regions in this layer for the current session. Choose <b>Bounding box</b>,
+        <b>Lasso</b>, or <b>Seed + radius</b>, then click <b>Draw</b> and draw on the map.
+        A seed radius uses µm when calibrated, otherwise full-resolution pixels.
+        On bins layers, choose <b>All bins in a group</b> as the seed source and select a group.
+        Every native bin in that group supplies a seed; all radius neighbourhoods are combined
+        into <b>one ROI</b>. The preview updates when the group or radius changes, including
+        disconnected regions and holes. Click Save ROI to keep it.
+        Inspect the draft and click <b>Save ROI</b>; Cancel discards it.<br>
+        Counts include all sequenced native observations whose shapes intersect the ROI, including
+        boundary contact, regardless of the viewport or displayed bin resolution.<br>
+        <b>Focus</b> fits the viewport, <b>Select</b> links the selection to the map and embeddings,
+        and <b>Create group</b> creates a snapshot for DE. Empty regions can be focused but cannot
+        create groups. <b>Delete</b> also deletes the ROI's linked group and clears affected DE results.
+        Outlines can be hidden independently. ROI shapes are fixed after saving; redraw to replace them."""),
     "groups": ("Groups", """
         Define your own groups from conditions on genes or metadata, e.g.
         <code>Ttr &gt; 2 AND Pmch &gt; 0</code>. Build the conditions, name the group and create it.<br>
@@ -79,7 +105,9 @@ HELP = {
         </ul>
         For bins, <b>Resolution</b> tests native bins or aggregated cells (summed counts); a cell belongs
         to a group or cluster when more than half of its bins do.<br>
-        Results appear below the map: click a column header to sort, and search any gene."""),
+        Results appear below the map: click a column header to sort, and search any gene.
+        Plots support hover, pan, zoom and selection. Hover dots or violins for gene statistics;
+        click a legend entry to hide or show a comparison."""),
     "parameters": ("Parameters", """
         Extra drawing parameters of this layer: line colour, line width, fill and line opacity.
         Each is either a <b>fixed value</b> or taken <b>from data</b> (a gene or numeric column scaled to
@@ -130,7 +158,7 @@ def help_header(text, topic, style="color:#888888"):
 
 
 # ------------------------------------------------------------- tutorial page
-# Standalone page in bokeh_server/static (served next to the app, like the DE plots)
+# Standalone tutorial page in bokeh_server/static (served next to the app)
 TUTORIAL_URL = "/bokeh_server/static/tutorial.html"
 
 # Section of the tutorial each help topic links to
@@ -138,6 +166,7 @@ TUTORIAL_ANCHORS = {
     "data_source": "load-files", "preprocessing": "load-preprocessing", "progress": "load-progress",
     "general": "app-general", "color": "app-color", "clustering": "app-clustering",
     "groups": "app-groups", "de": "app-de", "parameters": "app-parameters",
+    "rois": "app-rois",
     "deconvolution": "app-deconvolution",
     "bin_resolution": "app-bin-resolution", "embedding": "app-embedding", "metadata": "app-summary",
 }

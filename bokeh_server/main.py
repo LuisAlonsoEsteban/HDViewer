@@ -15,7 +15,8 @@ placeholders = {
     "bins_widgets": column(),
     "cells_widgets": column(),
     "comparison_panel": column(sizing_mode='stretch_width'),
-    "plot_column": column(sizing_mode='stretch_width'),
+    "plot_column": column(sizing_mode='stretch_both'),
+    "de_results": column(sizing_mode='stretch_width'),
     "thumbnail_plot": column(sizing_mode='stretch_width'),
 }
 

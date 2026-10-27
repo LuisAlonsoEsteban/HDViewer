@@ -34,6 +34,9 @@ class App:
         self.doc = doc
 
         self.geometries = []
+        self.deconvolution_reference = None
+        self.deconvolution_reference_name = None
+        self.deconvolution_label_column = ""
 
         self.thumbnail_panel = ThumbnailPanel()
         self.figure_panel = FigurePanel()
@@ -49,6 +52,8 @@ class App:
     CELL_LAYER_COLORS = ["#6baed6", "#fd8d3c", "#74c476", "#9e9ac8", "#f768a1", "#fdd0a2"]
 
     def reset_geometries(self):
+        for geometry in self.geometries:
+            geometry.roi_manager.dispose()
         self.geometries.clear()
         self.cells_tabs = None
 
@@ -196,6 +201,13 @@ class App:
         self.add_geometry(geom)
 
     def add_geometry(self, geom):
+        if self.figure_panel.roi_readout is not None:
+            geom.roi_manager.coordinate_scale = self.figure_panel.roi_readout.scale
+        geom.deconvolution_manager.reference = self.deconvolution_reference
+        geom.deconvolution_manager.reference_name = self.deconvolution_reference_name
+        geom.deconvolution_manager.label_column = self.deconvolution_label_column
+        if hasattr(self.figure_panel, "de_layout"):
+            geom._figure_de_layout = self.figure_panel.de_layout
         self.geometries.append(geom)
         geom._metadata_panel = self.metadata_panel #referencia metadata panel
 
@@ -218,6 +230,7 @@ class App:
                 placeholder.children = layout.children
             else:
                 placeholder.children = [layout]
+        return placeholder
 
     def add_widgets(self, geom):
         layout = geom.get_widgets_layout(self.doc)
@@ -238,8 +251,12 @@ class App:
 
         self.figure_panel.populate(self.image_component)
 
+        de_root = self.add_root(self.figure_panel.de_layout)
+        if de_root is not None:
+            self.figure_panel.de_layout = de_root
+
         for geom in self.geometries:
-            geom._figure_de_div = self.figure_panel.de_div
+            geom._figure_de_layout = self.figure_panel.de_layout
 
         self.add_root(self.figure_panel.layout)
 
@@ -255,4 +272,4 @@ class App:
 
         for geom in self.geometries:
             self.add_widgets(geom)
-        self._app_built = True  # ← añadir esta línea al final
+        self._app_built = True

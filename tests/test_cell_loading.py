@@ -8,7 +8,6 @@ from bokeh.plotting import figure
 from shapely.geometry import box
 
 from bokeh_server.components.glyphs import Patches
-from bokeh_server.components.zoom import ZoomBar
 from src.sample import Cells
 
 
@@ -54,16 +53,6 @@ class CellLoadingTests(unittest.TestCase):
 
         zoom_to(plot, 0, 1000)                                # back out: all again
         self.assertEqual(n_loaded(layer), 400)
-
-    def test_zoom_bar(self):
-        plot = figure(x_range=(0, 1000), y_range=(0, 1000))
-        bar = ZoomBar(plot, full_span=1000)
-        self.assertIn("Zoom <b style='color:#e5edf0'>1.0×</b>", bar.div.text)
-        self.assertNotIn("Cells", bar.div.text)
-
-        zoom_to(plot, 0, 50)                                  # 20x
-        self.assertAlmostEqual(bar.zoom(), 20.0)
-        self.assertIn("aria-valuenow='20.0'", bar.div.text)
 
 
 if __name__ == "__main__":

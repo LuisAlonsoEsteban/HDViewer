@@ -42,5 +42,37 @@ class TileServerTests(unittest.TestCase):
             self.assertEqual(plot.calls[0]["url"], [f"http://localhost:4000/{component.tile_key}/0/0/0"])
 
 
+class TileGenerationTests(unittest.TestCase):
+    def test_every_zoom_covers_rectangular_and_small_images(self):
+        for height, width in ((3, 130), (130, 3), (71, 101), (5, 7)):
+            with self.subTest(shape=(height, width)), tempfile.TemporaryDirectory() as root:
+                image = np.random.default_rng(0).integers(0, 256, (height, width, 3), dtype=np.uint8)
+                processor = ImageProcessor(image, Path(root) / "tiles", tile_size=16)
+                progress = []
+                processor.create_tiles(progress_callback=lambda done, total: progress.append((done, total)))
+                for zoom in range(processor.max_zoom + 1):
+                    count = 2 ** zoom
+                    size = processor.tile_size * count
+                    stitched = Image.new("RGB", (size, size))
+                    for x in range(count):
+                        for y in range(count):
+                            path = processor.tiles_path / processor.filename_pattern.format(zoom=zoom, x=x, y=y)
+                            with Image.open(path) as tile:
+                                self.assertEqual(tile.size, (16, 16))
+                                stitched.paste(tile, (x * 16, y * 16))
+                    expected = Image.fromarray(np.flipud(image)).resize((size, size), Image.LANCZOS)
+                    np.testing.assert_array_equal(np.asarray(stitched), np.asarray(expected))
+                total = sum(4 ** zoom for zoom in range(processor.max_zoom + 1))
+                self.assertEqual(progress, [(done, total) for done in range(1, total + 1)])
+
+    def test_tile_source_exposes_the_highest_generated_zoom(self):
+        with tempfile.TemporaryDirectory() as root:
+            for size in (8, 130):
+                processor = ImageProcessor(np.zeros((3, size, 3), np.uint8), root, tile_size=16)
+                processor.deploy_server = lambda port: register_tiles(root)
+                source = ImageComponent(processor).generate_tile_source()
+                self.assertEqual(source.max_zoom, processor.max_zoom)
+
+
 if __name__ == "__main__":
     unittest.main()

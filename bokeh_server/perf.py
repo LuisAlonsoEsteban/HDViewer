@@ -17,7 +17,6 @@ import os
 
 ENABLED = os.environ.get("VISIUM_PERF", "") not in ("", "0")
 
-
 def log(label, n_new, n_shown, n_vertices, **timings_ms):
     if not ENABLED:
         return

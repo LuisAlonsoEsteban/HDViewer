@@ -101,7 +101,6 @@ class ImageProcessor:
 
     def create_tiles(self, overwrite=True, progress_callback=None):
         image = Image.fromarray(self.image)
-        base_width, base_height = image.size
 
         if not os.path.exists(self.tiles_path):
             os.makedirs(self.tiles_path)
@@ -127,7 +126,7 @@ class ImageProcessor:
 
         try:
             for zoom, x_tiles, y_tiles, scaled_width, scaled_height in zoom_tile_counts:
-                if zoom == self.max_zoom:
+                if image.size == (scaled_width, scaled_height):
                     resized_image = image
                 else:
                     resized_image = image.resize((scaled_width, scaled_height), Image.LANCZOS)
@@ -136,13 +135,10 @@ class ImageProcessor:
                     for y in range(y_tiles):
                         left = x * self.tile_size
                         top = y * self.tile_size
-                        right = min(left + self.tile_size, base_width)
-                        bottom = min(top + self.tile_size, base_height)
+                        right = left + self.tile_size
+                        bottom = top + self.tile_size
 
                         tile = resized_image.crop((left, top, right, bottom))
-
-                        if zoom > 0:
-                            tile = tile.resize((self.tile_size, self.tile_size), Image.LANCZOS)
 
                         tile_path = os.path.join(
                             self.tiles_path,

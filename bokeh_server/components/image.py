@@ -31,7 +31,7 @@ class ImageComponent:
         self.tile_source = WMTSTileSource(
                                 url=f"http://localhost:{self.port}/{self.tile_key}" + "/{Z}/{X}/{Y}",
                                 tile_size=self.image_tiles.tile_size,
-                                max_zoom=self.image_tiles.max_zoom-1,
+                                max_zoom=self.image_tiles.max_zoom,
                                 min_zoom=0,
                                 wrap_around=False,
                                 x_origin_offset=0,

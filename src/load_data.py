@@ -39,7 +39,6 @@ class DataSet:
         self.pixels_per_bin = self.get_pixels_per_bin() 
 
     def read_scalefactors(self):
-        """Space Ranger's scalefactors_json.json next to the positions, or None."""
         if self.dir_base and self.bins_size:
             filename = os.path.join(self.dir_base, f"binned_outputs/square_{self.bins_size:03}um/spatial",
                                     "scalefactors_json.json")

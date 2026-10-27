@@ -429,8 +429,6 @@ class DynamicSourceManager(SourceManager):
         colnames = request["colnames"]
         new_data = fetched_data[~fetched_data.index.isin(self.indexes)]
 
-        # Sin filas nuevas no hay nada que añadir (y get_values([]) de los
-        # parámetros estáticos devolvería el vector completo, no uno vacío).
         if new_data.shape[0] == 0:
             return
 
@@ -440,34 +438,24 @@ class DynamicSourceManager(SourceManager):
 
         for param in self.parameters:
             if not param.is_static:
-                
-                # ─── PARCHE DE RESCATE DE CLUSTERS ───────────────────────────
-                # Si el parámetro que se va a pintar coincide con tus grupos personalizados,
-                # nos aseguramos de mapear los posibles NaNs o valores vacíos 
-                # al estado de 'No asignado' para que el mapeador de color los reconozca.
                 vector_datos = new_data[param.colname].copy()
                 if param.colname.startswith("Group"):
                     vector_datos = vector_datos.fillna("No asignado").astype(str)
-                # ─────────────────────────────────────────────────────────────
 
                 new_data[param.attr] = param.get_values(vector_datos)
             else:
                 new_data[param.attr] = param.get_values(is_sequenced_values=new_is_sequenced)
 
-        #new_data = new_data.drop(self.get_colnames(), axis=1, inplace=False)
         cols_to_drop = [param.colname for param in self.parameters 
                 if not param.is_static and not param.colname_hovered]
         new_data = new_data.drop(cols_to_drop, axis=1, inplace=False)
         
-        # Reconciliar columnas con el esquema del source (p.ej. cells no trae width/height)
         existing_cols = set(self.source.data.keys())
         present_cols  = set(new_data.columns)
 
-        # Columnas que el source espera pero new_data no trae → rellenar con NaN
         for missing in existing_cols - present_cols:
             new_data[missing] = np.nan
 
-        # Columnas extra que el source no conoce → descartar (evita el error inverso)
         extra = present_cols - existing_cols
         if extra:
             new_data = new_data.drop(columns=list(extra), inplace=False)
@@ -476,8 +464,6 @@ class DynamicSourceManager(SourceManager):
         self.source.stream(new_data.to_dict(orient='list'))
         streamed = perf_counter()
 
-        # Actualizar índices solo tras un stream correcto: si algo falla antes,
-        # self.indexes y source.data no se desincronizan (rompía remove_further_data).
         self.indexes.extend(new_data.index.tolist())
         new_visible = np.ones(new_data.shape[0], dtype=bool)
         if (self.component is not None and not self.component.show_not_sequenced
@@ -515,8 +501,6 @@ class DynamicSourceManager(SourceManager):
 
 
     def fetch_data(self):
-        # No viewport yet (or the layer is unloaded, e.g. cells zoomed out): fetching
-        # with bbox=None would load every geometry of the slide
         if self.bbox is None:
             return
         self.add_data(bbox=self.bbox)
@@ -561,8 +545,6 @@ class DynamicSourceManager(SourceManager):
 
     @staticmethod
     def _centers(values):
-        """Una coordenada por fila. En cells cada fila es la lista de vértices
-        del polígono (patches): se usa su media para que el array sea 1D."""
         if len(values) > 0 and np.ndim(values[0]) > 0:
             return np.array([np.mean(v) if len(v) else np.nan for v in values], dtype=float)
         return np.asarray(values, dtype=float)

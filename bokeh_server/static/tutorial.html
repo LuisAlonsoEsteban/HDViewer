@@ -244,6 +244,7 @@
     <a class="sub" href="#app-color">Color tab</a>
     <a class="sub" href="#app-clustering">Clustering tab</a>
     <a class="sub" href="#app-deconvolution">Deconvolution tab</a>
+    <a class="sub" href="#app-rois">ROIs tab</a>
     <a class="sub" href="#app-groups">Groups tab</a>
     <a class="sub" href="#app-de">DE tab</a>
     <a class="sub" href="#app-parameters">Parameters tab</a>
@@ -274,8 +275,10 @@
         Only the visible region is loaded, so new areas fill in as you move. <b>Hover</b> an observation to see its
         values: the gene shown, and its group and cluster when there are any.</p>
       <p><b>Image alpha</b>, below the map, fades the tissue image so the layers stand out.</p>
-      <p>The <b>zoom bar</b> below it shows how far you are zoomed in (1× = whole slide). Cells layers are
-        drawn at every zoom; zoomed out, their outlines are simplified to the detail the screen can show.</p>
+      <p>Drag the horizontal divider below the map controls to adjust the map's height.
+        Differential-expression results scroll separately in the section below it.</p>
+      <p>Cells layers are drawn at every zoom; zoomed out, their outlines are simplified to the detail
+        the screen can show.</p>
 
       <h3 id="app-toolbar">Toolbar and selection</h3>
       <p>The toolbar appears at the right of the map when the mouse is over it.</p>
@@ -362,7 +365,19 @@
         map stays at that level while the clusters are shown.</p>
 
       <h3 id="app-deconvolution">Deconvolution tab</h3>
-      <p>Load a single-cell <code>.h5ad</code> reference using its path on the server, choose the
+      <p>Optionally upload a single-cell <code>.h5ad</code> or <code>.h5</code> reference on the initial loading screen,
+      when uploading your own spatial data. Examples use a configured local reference when available
+      and otherwise run without one; reference upload controls are hidden for all examples.
+      A supplied reference is loaded once and available in every layer's
+      Deconvolution tab. AnnData .obs annotations load automatically, including from files named .h5.
+      The Human CRC example loads the count matrix, SingleCell_MetaData.csv and P1CRC_Metadata.parquet
+      from its local Chromium folder without uploads. The CSV annotates the reference cells; deconvolution
+      defaults to Level1, with Level2 and the other reference columns available in the selector.
+      The Parquet labels spatial bins and is attached to the spatial expression data.
+      Standard 10x .h5 files contain counts without cell-type labels: upload an annotation CSV or Parquet file alongside
+      the reference, with matching cell barcodes in the first column and annotations in the other columns.
+      Parquet may also store barcodes in its index or a column named <code>barcode</code>.
+      These annotation columns are offered in the tab. Choose the
       cell-type annotation column, then run deconvolution. Both datasets need matching, unique gene
       identifiers and nonnegative linear expression in <code>.X</code>, not log counts.</p>
       <p>Nonnegative least squares fits mean library-normalised reference profiles using shared genes.
@@ -372,6 +387,27 @@
       its fraction on the map. Coarse bin levels average fractions. Results remain available as
       metadata columns, with the latest fractions in <code>obsm['deconvolution']</code> and method
       details in <code>uns['deconvolution']</code>.</p>
+
+      <h3 id="app-rois">ROIs tab</h3>
+      <p>Each layer has its own session-only ROIs. Enter a name or leave it blank for an automatic
+      name. Choose Bounding box, Lasso, or Seed + radius and click Draw. Drag a box or lasso on the map;
+      for a radius ROI, set the radius and click the seed. The radius is in µm when physical calibration
+      is available and full-resolution pixels otherwise. Separate x/y scaling preserves physical circles.</p>
+      <p>For a bins layer, Seed + radius also offers <b>All bins in a group</b>. Select an existing group
+      to use every native member bin's center as a seed, regardless of displayed bin aggregation or
+      viewport. Their radius neighbourhoods are united into one ROI, retaining disconnected pieces
+      and holes. The preview updates automatically when the group or radius changes; Preview group
+      also rebuilds it on demand. Save ROI commits that single region. Other group members and nearby
+      bins can belong to the ROI through the normal shape-intersection rule.</p>
+      <p>A white outline previews the draft. Save ROI commits it; Cancel discards it. Membership is
+      computed over all native, sequenced observations whose shapes intersect or touch the region,
+      independently of visible data and bin aggregation. Empty ROIs can still be saved and focused.</p>
+      <p>Focus fits the viewport with a small margin. Select highlights the members on the map and
+      in embeddings; aggregated observations highlight when any member is selected. Create group
+      makes a fixed-membership group for existing group controls and DE comparisons. Deleting an ROI
+      also deletes its generated group and clears affected DE results. If you delete just the group,
+      you can recreate it from the ROI. Hide outlines with the Outline checkbox. Saved shapes cannot
+      be edited or exported in this version; redraw to replace them.</p>
 
       <h3 id="app-groups">Groups tab</h3>
       <p>Define your own groups of observations from conditions on genes or metadata.</p>
@@ -410,7 +446,10 @@
             the adjusted p-value (white when &lt; 0.05). <b>Click a column header</b> to sort (again to reverse);
             the <b>search box</b> finds any gene, not only the 200 rows shown.</li>
         <li><b>Plots</b> of the top genes of each group or cluster: a dot plot for spots (fold change, and the
-            share of observations expressing the gene), violin plots for bins and cells.</li>
+            share of observations expressing the gene), violin plots for bins and cells.
+            Hover dots or violins for gene, group, adjusted p-value, fold change and expression statistics.
+            Use the plot toolbar to pan, zoom, select, reset or save. Click a legend entry to hide or
+            show that comparison; violin hover also reports the median and quartiles.</li>
       </ul>
       <p>Method: Wilcoxon rank-sum test on log1p counts, genes detected in at least three observations,
         Benjamini–Hochberg adjusted p-values. Each group or cluster needs at least three observations.</p>

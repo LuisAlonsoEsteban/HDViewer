@@ -47,11 +47,28 @@
         flex-direction: column;
     }
     #center {
+        display: flex;
+        flex-direction: column;
         flex-grow: 1;
-        overflow: auto;
+        min-width: 0;
+        overflow: hidden;
         background: #333;
         border-right: 2px solid #555; /* Add borders */
     }
+    #map-container, #de-results-container {
+        min-height: 0;
+        min-width: 0;
+        flex-shrink: 0;
+    }
+    #map-container { overflow: hidden; }
+    #map-container > div { height: 100%; }
+    #de-results-container { overflow: auto; }
+    #center > .gutter-vertical {
+        flex-shrink: 0;
+        cursor: row-resize;
+        background: #606060;
+    }
+    #center > .gutter-vertical:hover { background: #88f5dc; }
 
     #right {
         display: flex;
@@ -222,7 +239,10 @@
                 </div>
             </div>
 
-            <div id="center">{{ embed(roots.plot_column) }}</div>
+            <div id="center">
+                <div id="map-container">{{ embed(roots.plot_column) }}</div>
+                <div id="de-results-container">{{ embed(roots.de_results) }}</div>
+            </div>
 
             <div id="right">
                 <div id="top-right" style="height: 50%;">
@@ -261,6 +281,14 @@
         minSize: 100,
         gutterSize: 5,
         gutterClass: 'custom-gutter',
+        cursor: 'row-resize'
+    });
+
+    Split(['#map-container', '#de-results-container'], {
+        direction: 'vertical',
+        sizes: [75, 25],
+        minSize: [200, 80],
+        gutterSize: 8,
         cursor: 'row-resize'
     });
     
