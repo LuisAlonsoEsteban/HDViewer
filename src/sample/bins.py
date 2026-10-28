@@ -191,27 +191,31 @@ class Bins(Sample):
         return aggregated_sample
 
     def run_clustering(self, resolution=0.9, n_pcs=30, n_neighbors=15, key_added=None, resolution_level=None,
-                       compute_markers=True):
-        """Cluster at `resolution_level` and store labels in `adata.obs['leiden_{factor}']`.
+                       compute_markers=True, *, algorithm="leiden", **algorithm_options):
+        """Cluster at `resolution_level` and project labels to native observations.
 
         For aggregated levels every native bin gets the label of the aggregated
         cell containing it, so the column can be looked up like any other obs column.
         """
         factor = self.get_aggregation_factor(resolution_level)
-        key_added = key_added or self.get_cluster_colname(factor)
+        key_added = key_added or (self.get_cluster_colname(factor) if algorithm == "leiden" else f"{algorithm}_{factor}")
 
         if factor <= 1:
             super().run_clustering(resolution=resolution, n_pcs=n_pcs, n_neighbors=n_neighbors, key_added=key_added,
-                                   compute_markers=compute_markers)
+                                   compute_markers=False, algorithm=algorithm, **algorithm_options)
         else:
             aggregated_sample = self._get_aggregated_sample(factor)
             aggregated_sample.run_clustering(resolution=resolution, n_pcs=n_pcs, n_neighbors=n_neighbors,
-                                             compute_markers=compute_markers)
+                                             compute_markers=False, algorithm=algorithm,
+                                             key_added=self.cluster_col, **algorithm_options)
             labels = aggregated_sample.adata.obs[self.cluster_col].astype(str)
             mapped = self._aggregated_cell_names[factor].map(labels)
             self.adata.obs[key_added] = mapped.where(mapped.notna(), None).astype(object)
 
         self._clustering_factor = factor
+        self.adata.uns["clustering"] = {"algorithm": algorithm, "key": key_added, "factor": factor}
+        if compute_markers:
+            self.compute_marker_genes()
         # Drop cached aggregated tiles holding stale labels of a previous run
         with self.fetch_lock:
             for cache_key in [k for k in self._multiscale_cache if key_added in k[2]]:

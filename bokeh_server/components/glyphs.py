@@ -316,16 +316,17 @@ class Component:
 
     def get_hover_tooltips(self):
         items = []
+        cluster_col = getattr(getattr(self, "clustering_manager", None), "cluster_col", settings.CLUSTER_COL)
         for param in self.manager.parameters:
             if (not param.is_static and param.colname_hovered
-                    and param.colname not in (settings.GROUPS_COL, settings.CLUSTER_COL)
+                    and param.colname not in (settings.GROUPS_COL, cluster_col)
                     and param.attr != 'alpha'):
                 items.append(f"{param.colname}: @{param.colname}")
 
         if settings.GROUPS_COL in self.manager.source.data:
             items.append(f"Group: @{{{settings.GROUPS_COL}}}")
-        if settings.CLUSTER_COL in self.manager.source.data:
-            items.append(f"Cluster: @{{{settings.CLUSTER_COL}}}")
+        if cluster_col in self.manager.source.data:
+            items.append(f"Cluster: @{{{cluster_col}}}")
 
         if len(items) > 0:
             return ", ".join(items)

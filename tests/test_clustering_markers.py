@@ -47,7 +47,7 @@ class ImmediateDoc(Document):
 class SampleMarkerTests(unittest.TestCase):
     def test_markers_are_a_separate_step_and_never_stale(self):
         sample = make_layer().sample
-        sample.run_clustering(resolution=0.5, compute_markers=False)
+        sample.run_clustering(resolution=1.0, compute_markers=False)
         self.assertEqual(sample.get_marker_genes(), {})
         sample.compute_marker_genes()
         clusters = set(sample.adata_processed.obs["leiden"].astype(str))
@@ -80,7 +80,7 @@ class ClusteringTabTests(unittest.TestCase):
         button = next(w for w in widgets if isinstance(w, Button))
         status = widgets[widgets.index(button) + 1]            # the status line below it
         self.assertIsInstance(status, Div)
-        slider.value = 0.5
+        slider.value = 1.0
         button._trigger_event(ButtonClick(button))
 
         self.assertTrue(ranking.wait(120), status.text)

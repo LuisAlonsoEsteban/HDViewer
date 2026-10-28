@@ -352,18 +352,23 @@
       </ul>
 
       <h3 id="app-clustering">Clustering tab</h3>
-      <p>Groups the observations by similar expression (Leiden clustering).</p>
+      <p>Groups observations by similar expression using the selected algorithm.</p>
       <ol>
-        <li>Set the <b>Clustering resolution</b> (0.1–2.0): higher gives more, smaller clusters.</li>
+        <li>Choose <b>Leiden, K-means, DBSCAN, HDBSCAN, Gaussian mixtures or agglomerative clustering</b>.
+            For Leiden, higher resolution gives more, smaller clusters. K-means, mixtures and agglomerative
+            clustering take a number of clusters. DBSCAN takes an epsilon distance in PCA space and minimum
+            samples; HDBSCAN takes minimum cluster size and minimum samples. Mixtures offer covariance
+            types, and agglomerative clustering offers linkage choices.</li>
         <li>Click <span class="ui">Run clustering</span>. Behind the scenes: normalisation, log transform,
-            highly variable genes and scaling, then PCA (30 components), a 15-neighbour graph and Leiden.
-            These steps are cached, so re-clustering at another resolution is quick.</li>
-        <li>As soon as Leiden finishes, the map is coloured by cluster and the list of clusters appears, each
+            highly variable genes, then PCA. Leiden also builds a neighbour graph.
+            Preprocessing and clustering results are cached for reuse with the same parameters.</li>
+        <li>As soon as clustering finishes, the map is coloured by cluster and the list of clusters appears, each
             with its number of observations.</li>
         <li>Then the <b>marker genes</b> (Wilcoxon test, each cluster vs the rest) are ranked in the
             background: the top five fill in under each cluster, and the top ten appear in the
             <a href="#app-summary">Summary</a>. <span class="ui">Run clustering</span> is available again
-            when they are ready.</li>
+            when they are ready. Density-method outliers appear as <b>Noise</b>. Noise and groups with fewer
+            than two observations have no marker ranking; neither does a single resulting group.</li>
       </ol>
       <p>Tick or untick clusters (or use <span class="ui">Select all / Deselect all</span>) to show or hide them
         on the map. For bins, clustering runs at the <a href="#app-bin-resolution">displayed level</a> and the
@@ -512,7 +517,7 @@
       <h2>A typical analysis</h2>
       <ol>
         <li><b>Color</b>: type a gene you know to check the tissue and the data line up.</li>
-        <li><b>Clustering</b>: run Leiden; look at the clusters on the map and their marker genes.</li>
+        <li><b>Clustering</b>: choose and run a clustering algorithm; look at the clusters on the map and their marker genes.</li>
         <li><b>Groups</b>: define regions of interest, e.g. <code>Ttr &gt; 2</code>.</li>
         <li><b>DE</b>: compare a group with a cluster, or clusters with each other, and browse the table.</li>
         <li><b>Embeddings</b>: run a UMAP and select a cluster to see where it lies in the tissue.</li>
@@ -533,7 +538,7 @@
         <tr><td>UMI</td><td>A counted RNA molecule; "counts".</td></tr>
         <tr><td>L2FC</td><td>log2 fold change: how much higher (positive) or lower (negative) a gene is.</td></tr>
         <tr><td>p-adj</td><td>p-value adjusted for testing many genes (Benjamini–Hochberg).</td></tr>
-        <tr><td>Leiden</td><td>The clustering algorithm.</td></tr>
+        <tr><td>Leiden</td><td>A graph-based clustering algorithm; one of six available choices.</td></tr>
         <tr><td>Marker gene</td><td>A gene ranked as specific to a cluster.</td></tr>
       </table>
     </section>

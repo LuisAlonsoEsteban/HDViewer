@@ -163,7 +163,7 @@ class BackendConfigurationTests(unittest.TestCase):
     def test_application_analysis_calls_pass_configured_values(self):
         from bokeh.events import ButtonClick
         from bokeh.models import Button
-        from bokeh_server.components.utils.loading import LoadingLogger
+        from bokeh_server.utils.loading import LoadingLogger
         from bokeh_server.panels.app.embedding import EmbeddingPanel
         from tests.test_deconvolution import reference, ImmediateDoc
         from tests.test_param_form import make_layer

@@ -13,7 +13,7 @@ from bokeh.layouts import column, row
 from .de import DEAnalysis
 from .de.presentation import DEPresenter
 from .de.plots import build_de_plots
-from .loading import LoadingLogger
+from ...utils.loading import LoadingLogger
 from .palettes import GROUP_PALETTE, palette_color
 
 OPERATORS  = [">", "<", ">=", "<=", "=="]

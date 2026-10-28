@@ -59,11 +59,14 @@ HELP = {
               in the cluster/group lists and the DE results.</li>
         </ul>"""),
     "clustering": ("Clustering", """
-        Leiden clustering of this layer: normalisation, log, highly variable genes and scaling, then
-        PCA (30 components), a 15-neighbour graph and Leiden. A higher <b>resolution</b> gives more,
-        smaller clusters.<br>
-        Clusters appear on the map as soon as Leiden finishes; their <b>marker genes</b> (Wilcoxon) are
-        ranked afterwards and fill in under each cluster.<br>
+        Choose <b>Leiden, K-means, DBSCAN, HDBSCAN, Gaussian mixtures or agglomerative clustering</b>.
+        All methods use normalised, log-transformed highly variable gene expression and PCA.
+        Leiden uses a neighbour graph and resolution; K-means, mixtures and agglomerative clustering
+        use a chosen number of clusters. DBSCAN uses an epsilon distance in PCA space and minimum
+        samples; HDBSCAN uses minimum cluster size and minimum samples. Density-method outliers
+        appear as <b>Noise</b>. Mixtures offer covariance types and agglomerative clustering offers linkage choices.
+        Clusters appear first; marker genes are ranked afterwards. Noise and groups with fewer than
+        two observations have no marker ranking. A single resulting group also has no marker ranking.
         For bins, clustering runs at the <b>displayed aggregation level</b> and keeps the view at that
         level while the clusters are shown. Tick or untick clusters to show or hide them."""),
     "deconvolution": ("Deconvolution", """

@@ -1,5 +1,5 @@
 
-from ... import settings
+from .. import settings
 import html
 import threading
 import time

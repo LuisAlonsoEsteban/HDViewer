@@ -9,7 +9,7 @@ from html import escape
 from bokeh.models import Button, Div, Select
 
 from src.utils.deconvolution import deconvolve
-from .loading import LoadingLogger
+from ...utils.loading import LoadingLogger
 
 
 class DeconvolutionManager:

@@ -15,7 +15,7 @@ from bokeh.events import SelectionGeometry, Tap
 from bokeh.layouts import column, row
 from bokeh.models import BoxSelectTool, Button, Checkbox, ColumnDataSource, Div, LassoSelectTool, NumericInput, Select, TapTool, TextInput
 
-from .loading import LoadingLogger
+from ...utils.loading import LoadingLogger
 from .palettes import GROUP_PALETTE, palette_color
 from src.utils.progress import report
 

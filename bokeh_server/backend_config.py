@@ -43,7 +43,11 @@ def image_kwargs():
 
 
 def clustering_kwargs():
-    return dict(resolution=settings.CLUSTER_RESOLUTION, n_pcs=settings.N_PCS, n_neighbors=settings.N_NEIGHBORS)
+    return dict(resolution=settings.CLUSTER_RESOLUTION, n_pcs=settings.N_PCS, n_neighbors=settings.N_NEIGHBORS,
+                algorithm=settings.CLUSTER_ALGORITHM, n_clusters=settings.CLUSTER_N_CLUSTERS,
+                eps=settings.CLUSTER_DBSCAN_EPS, min_samples=settings.CLUSTER_MIN_SAMPLES,
+                min_cluster_size=settings.CLUSTER_MIN_SIZE, covariance_type=settings.CLUSTER_COVARIANCE_TYPE,
+                linkage=settings.CLUSTER_LINKAGE, random_state=settings.CLUSTER_RANDOM_STATE)
 
 
 def embedding_kwargs():

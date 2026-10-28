@@ -5,7 +5,7 @@ from bokeh.models import Button, ColumnDataSource, Select, TabPanel, Tabs
 from bokeh.plotting import figure
 
 from . import Panel
-from ...components.utils.loading import LoadingLogger
+from ...utils.loading import LoadingLogger
 from ...help import help_header
 
 

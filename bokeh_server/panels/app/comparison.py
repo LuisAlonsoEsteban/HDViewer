@@ -27,8 +27,8 @@ from bokeh.models.dom import HTML
 from bokeh.plotting import figure
 
 from . import Panel
-from .comparison_help import GENE_HELP, LOCAL_HELP, global_help
-from ...components.utils.loading import LoadingLogger
+from ...help.comparison import GENE_HELP, LOCAL_HELP, global_help
+from ...utils.loading import LoadingLogger
 
 
 class ComparisonPanel(Panel):

@@ -92,7 +92,6 @@ class DynamicParameter(Parameter):
 
     def get_values(self, series):
         result = self.apply_filter(*self.handle_nans(series))
-
         return result
     
 
@@ -108,10 +107,12 @@ class Scaler(DynamicParameter):
         # Uniform mode (categorical colouring): every value takes the slider max
         if self.avoid_scaling:
             return [self.maxv] * len(values)
+
         try:
             values_array = pd.to_numeric(values, errors="raise").to_numpy(dtype=float, copy=False)
         except (ValueError, TypeError):
             values_array = np.arange(len(values), dtype=float)
+        
         range_val = self.max_counts - self.min_counts if self.max_counts != self.min_counts else 1
         scaled_values = self.minv + (values_array - self.min_counts) * (self.maxv - self.minv) / range_val
         return scaled_values.tolist()

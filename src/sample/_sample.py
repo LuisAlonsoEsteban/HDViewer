@@ -198,13 +198,6 @@ class Sample:
             value_df[self.on] = value_df.index.astype(gdf[self.on].dtype)
             merged_gdf = gdf.reset_index().merge(value_df, on=self.on, how='left').set_index('index')
             return merged_gdf[colname]
-        
-    # def get_dummy_colname(self, dtype="numpy"):
-    #     colname = self.get_value(colname=self.get_colnames()[0]).isna()
-    #     if dtype == "numpy":
-    #         return colname.to_numpy()
-    #     elif dtype == "list":
-    #         return colname.values.tolist()
 
     def get_obs_names(self, adata=None, gdf=None):
         if gdf is None:
@@ -263,9 +256,10 @@ class Sample:
         cluster_labels = self.adata_processed.obs[self.cluster_col]
 
         for cluster in clusters:
-            genes = [result['names'][cluster][i] for i in range(n_genes)]
-            scores = [result['scores'][cluster][i] for i in range(n_genes)]
-            pvals = [result['pvals_adj'][cluster][i] for i in range(n_genes)]
+            count = min(n_genes, len(result["names"]))
+            genes = [result['names'][cluster][i] for i in range(count)]
+            scores = [result['scores'][cluster][i] for i in range(count)]
+            pvals = [result['pvals_adj'][cluster][i] for i in range(count)]
             
             cluster_mask = cluster_labels == cluster
             logfcs = []
@@ -444,9 +438,11 @@ class Sample:
         n_neighbors=15,
         key_added=None,
         compute_markers=False,
+        *, algorithm="leiden", n_clusters=8, eps=0.5, min_samples=5,
+        min_cluster_size=5, covariance_type="full", linkage="ward", random_state=0,
         **kwargs
     ):
-        """Run Leiden clustering and store the labels in `adata.obs[key_added]`.
+        """Run expression clustering and store the labels in `adata.obs[key_added]`.
 
         `resolution_level` is only meaningful for Bins; it is ignored here. With
         compute_markers=False the (slower) marker genes are left for a later
@@ -455,13 +451,40 @@ class Sample:
         """
         import scanpy as sc
 
-        key_added = self.cluster_col if key_added is None else key_added
-        adata = self._ensure_neighbors(n_pcs, n_neighbors)
+        key_added = (self.cluster_col if algorithm == "leiden" else algorithm) if key_added is None else key_added
+        from ..utils.clustering import ALGORITHMS, fit_clusters
+        if algorithm not in ALGORITHMS:
+            raise ValueError(f"Unsupported clustering algorithm: {algorithm}")
+        if algorithm == "leiden":
+            adata = self._ensure_neighbors(n_pcs, n_neighbors)
+            params = (algorithm, resolution, n_pcs, n_neighbors, random_state)
+        else:
+            adata = self._ensure_pca(n_pcs)
+            # Only parameters relevant to the selected algorithm affect its cache.
+            specific = {
+                "kmeans": (n_clusters, random_state),
+                "dbscan": (eps, min_samples),
+                "hdbscan": (min_cluster_size, min_samples),
+                "gaussian_mixture": (n_clusters, covariance_type, random_state),
+                "agglomerative": (n_clusters, linkage),
+            }
+            params = (algorithm, n_pcs, specific[algorithm])
 
-        if not self._is_cached("leiden", resolution):
-            report(f"Running Leiden clustering (resolution={resolution})...")
-            sc.tl.leiden(adata, resolution=resolution, key_added=self.cluster_col)
-            self._mark_computed("leiden", resolution)
+        if not self._is_cached("leiden", params):
+            report(f"Running {algorithm} clustering...")
+            if algorithm == "leiden":
+                sc.tl.leiden(adata, resolution=resolution, key_added=self.cluster_col,
+                             random_state=random_state)
+            else:
+                labels = fit_clusters(np.asarray(adata.obsm["X_pca"])[:, :n_pcs], algorithm,
+                    n_clusters=n_clusters, eps=eps, min_samples=min_samples,
+                    min_cluster_size=min_cluster_size, covariance_type=covariance_type,
+                    linkage=linkage, random_state=random_state)
+                adata.obs[self.cluster_col] = pd.Categorical(
+                    ["Noise" if label < 0 else str(label) for label in labels])
+            self._mark_computed("leiden", params)
+            adata.uns.pop("rank_genes_groups", None)
+        self.adata.uns["clustering"] = {"algorithm": algorithm, "key": key_added}
         if compute_markers:
             self.compute_marker_genes()
 
@@ -486,6 +509,12 @@ class Sample:
         if self._is_cached("markers", leiden_params):
             return
         report("Ranking marker genes...")
-        sc.tl.rank_genes_groups(adata, groupby=self.cluster_col, method=self.marker_method)
+        counts = adata.obs[self.cluster_col].value_counts()
+        groups = [str(label) for label, count in counts.items()
+                  if str(label) != "Noise" and count >= 2]
+        adata.uns.pop("rank_genes_groups", None)
+        if groups and len(counts[counts > 0]) > 1:
+            sc.tl.rank_genes_groups(adata, groupby=self.cluster_col, method=self.marker_method,
+                                   groups=groups)
         self._mark_computed("markers", leiden_params)
 
