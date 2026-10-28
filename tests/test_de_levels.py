@@ -37,7 +37,7 @@ def make_bins(n=8):
     X[xs < n // 2, 0] += 20
     adata = ad.AnnData(X, obs=pd.DataFrame(index=names), var=pd.DataFrame(index=[f"g{i}" for i in range(20)]))
     adata.obs["grp_A"] = xs < n // 2
-    component = Squares(figure(), Bins(gdf, adata, pixels_per_bin=1, bin_size_um=2),
+    component = Squares(figure(), Bins(gdf, adata, pixels_per_bin=1, bin_size=2),
                         lazy_loading=True, alias="Bin")
     component._figure_de_layout = column()
     manager = component.groups_manager

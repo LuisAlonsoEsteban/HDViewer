@@ -245,7 +245,7 @@ class DynamicSourceManager(SourceManager):
             'y': [], 
             'width': [],
             'height': [],
-            **({'angle': [], 'xs': [], 'ys': []} if hasattr(self.sample, 'native_angle') else {}),
+            **({'angle': []} if hasattr(self.sample, 'native_angle') else {}),
             'obs_name': [],
             **attr_dict, 
             **hovered_dict

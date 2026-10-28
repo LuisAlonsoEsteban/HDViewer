@@ -39,9 +39,9 @@ class MeasureTool:
         self.figure = figure
 
         self.points = ColumnDataSource(data=dict(x=[], y=[]))
-        # µm per figure unit along each axis: tiles stretch the image to a square,
-        # so the two axes can have different scales
-        self.scale = ColumnDataSource(data=dict(um_x=[None], um_y=[None]))
+        # The inverse affine linear part maps displacement into original-image
+        # physical units; set_scale also supports scale-only callers.
+        self.scale = ColumnDataSource(data=dict(um_x=[None], um_y=[None], a=[1.], b=[0.], c=[0.], d=[1.]))
 
         line = figure.line('x', 'y', source=self.points, line_color=self.COLOR,
                            line_width=2, line_dash="dashed")
@@ -78,12 +78,15 @@ class MeasureTool:
             const [x0, x1] = [xs[xs.length - 2], xs[xs.length - 1]]
             const [y0, y1] = [ys[ys.length - 2], ys[ys.length - 1]]
             const um_x = scale.data.um_x[0], um_y = scale.data.um_y[0]
+            const dx = x1 - x0, dy = y1 - y0
+            const distance = Math.hypot(scale.data.a[0]*dx + scale.data.b[0]*dy,
+                                        scale.data.c[0]*dx + scale.data.d[0]*dy)
             let text
             if (um_x != null && um_y != null) {
-                const d = Math.hypot((x1 - x0) * um_x, (y1 - y0) * um_y)
+                const d = distance
                 text = d >= 1000 ? `${(d / 1000).toFixed(2)} mm` : `${d.toFixed(d < 10 ? 2 : 1)} µm`
             } else {
-                text = `${Math.hypot(x1 - x0, y1 - y0).toFixed(1)} px`
+                text = `${distance.toFixed(1)} px`
             }
             label.setv({x: (x0 + x1) / 2, y: (y0 + y1) / 2, text: text, visible: true})
         """)
@@ -91,4 +94,12 @@ class MeasureTool:
         self.scale.js_on_change('change', update)
 
     def set_scale(self, um_per_unit_x, um_per_unit_y):
-        self.scale.data = dict(um_x=[float(um_per_unit_x)], um_y=[float(um_per_unit_y)])
+        self.scale.data = dict(um_x=[float(um_per_unit_x)], um_y=[float(um_per_unit_y)],
+                               a=[float(um_per_unit_x)], b=[0.], c=[0.], d=[float(um_per_unit_y)])
+
+
+    def set_transform(self, transform, um_per_px=None):
+        matrix = transform.inverse[:2, :2] * (um_per_px if um_per_px is not None else 1.)
+        self.scale.data = dict(um_x=[um_per_px], um_y=[um_per_px],
+                               a=[matrix[0, 0]], b=[matrix[0, 1]],
+                               c=[matrix[1, 0]], d=[matrix[1, 1]])

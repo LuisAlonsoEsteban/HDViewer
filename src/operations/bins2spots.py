@@ -9,6 +9,8 @@ import scanpy as sc
 from .converter import Converter
 from .pooler import Pooler
 
+from ..data.image.transform import fit_grid_basis
+
 
 class Bins2Spots:
 
@@ -20,8 +22,10 @@ class Bins2Spots:
                  tile_scale_xfactor=1.0, 
                  tile_scale_yfactor=1.0,
                  progress_callback=None,
+                 spatial_transform=None,
                  ):
         
+        self.spatial_transform = spatial_transform
         self.adata_hd = adata
         self.df_tissue_positions = tissue_positions
 
@@ -30,6 +34,7 @@ class Bins2Spots:
 
         self._bin_squares = None
         self._spot_polygons = None
+
         self.adata_v2 = None
 
         self.tile_scale_xfactor = tile_scale_xfactor
@@ -54,27 +59,15 @@ class Bins2Spots:
         return self.converter.visiumHD.get_rotation(self.df_tissue_positions, rad=rad)
 
     def grid_basis(self):
-        """Affine map (array_col, array_row, 1) -> full-res pixels (col, row), fitted to
-        the positions. Captures the grid's origin, pitch, rotation and the flipped row
-        direction; bins and pseudospots both go through it, so they always line up."""
         if getattr(self, "_grid_basis", None) is not None:
             return self._grid_basis
-        positions = self.df_tissue_positions
-        # Sampling bounds the cost for high-resolution position tables.
-        sampled = positions.iloc[np.linspace(
-            0, len(positions) - 1, min(4096, len(positions)), dtype=int
-        )]
-        design = np.column_stack((sampled["array_col"], sampled["array_row"],
-                                  np.ones(len(sampled))))
-        pixel_centers = sampled[["pxl_col_in_fullres", "pxl_row_in_fullres"]].to_numpy()
-        basis, _, rank, _ = np.linalg.lstsq(design, pixel_centers, rcond=None)
-        if rank < 3:
-            # A single row/column cannot determine both directions.
-            pitch = self.converter.visiumHD.pixels_per_bin
-            origin = pixel_centers.mean(axis=0) if len(pixel_centers) else np.zeros(2)
-            basis = np.array([[pitch, 0], [0, pitch], origin])
-        self._grid_basis = basis
-        return basis
+
+        if self.spatial_transform is not None:
+            self._grid_basis = (self.spatial_transform.inverse @ self.spatial_transform.grid_forward)[:2].T
+            return self._grid_basis
+
+        self._grid_basis = fit_grid_basis(self.df_tissue_positions)
+        return self._grid_basis
 
     @property
     def display_scale(self):
@@ -83,18 +76,17 @@ class Bins2Spots:
 
     def create_bin_squares(self, subset=False):
         positions = self.df_tissue_positions
-        # A reflected or rotated array cannot be represented by swapping rectangle
-        # dimensions: offset the corners along the fitted grid directions.
-        basis = self.grid_basis()
-        offsets = np.array([[-.5, -.5], [.5, -.5], [.5, .5], [-.5, .5]]) @ basis[:2]
         centers = positions[["pxl_col_in_fullres", "pxl_row_in_fullres"]].to_numpy()
-        corners = (centers[:, None, :] + offsets) * self.display_scale
-        geometry = shapely.polygons(corners)
+        if self.spatial_transform is not None:
+            centers = self.spatial_transform.points(centers)
+            geometry = self.spatial_transform.rectangles(centers)
+        else:
+            basis = self.grid_basis()
+            offsets = np.array([[-.5, -.5], [.5, -.5], [.5, .5], [-.5, .5]]) @ basis[:2]
+            corners = (centers[:, None, :] + offsets) * self.display_scale
+            geometry = shapely.polygons(corners)
         self._bin_squares = gpd.GeoDataFrame(self.df_tissue_positions, geometry=geometry)
         return self._bin_squares[self._bin_squares["in_tissue"] == 1] if subset else self._bin_squares
-
-    # Vertices of each pseudospot outline
-    SPOT_VERTICES = 32
 
     def create_spot_polygons(self):
         """Visium v2-like spots (55 µm, 100 µm centre to centre, hexagonal) over the bins.
@@ -103,6 +95,7 @@ class Bins2Spots:
         pixels with the same fitted transform as the bins, so it shares their origin,
         rotation and orientation, then scaled like them for display.
         """
+
         v2 = self.converter.visiumV2
         bin_um = float(self.bins_size)
         positions = self.df_tissue_positions
@@ -110,8 +103,6 @@ class Bins2Spots:
         nbins_cols = positions["array_col"].max() - col_min + 1
         nbins_rows = positions["array_row"].max() - row_min + 1
 
-        # Spacing in bins: neighbouring columns 50 µm apart (alternate rows shifted),
-        # rows sqrt(100² - 50²) µm apart; the first spot sits one radius from the edge
         col_step, row_step = v2.col_distance / bin_um, v2.row_distance / bin_um
         radius = v2.SPOT_DIAMETER / 2 / bin_um
         nspots_cols = int(nbins_cols * bin_um / v2.col_distance)
@@ -135,11 +126,16 @@ class Bins2Spots:
             design = np.stack([cols, rows, np.ones_like(cols)], axis=-1)
             return design @ basis
 
-        angles = np.linspace(0, 2 * np.pi, self.SPOT_VERTICES, endpoint=False)
-        outline_cols = centre_col[:, None] + radius * np.cos(angles)
-        outline_rows = centre_row[:, None] + radius * np.sin(angles)
-        outlines = to_pixels(outline_cols, outline_rows) * self.display_scale
         centres = to_pixels(centre_col, centre_row)
+
+        if self.spatial_transform is not None:
+            display_centres = self.spatial_transform.points(centres)
+            geometries = shapely.buffer(shapely.points(display_centres),
+                                        radius * self.spatial_transform.pitch, quad_segs=16)
+        else:
+            seeds = shapely.points(np.column_stack((centre_col, centre_row)))
+            geometries = shapely.buffer(seeds, radius, quad_segs=16)
+            geometries = shapely.transform(geometries, lambda xy: (xy @ basis[:2] + basis[2]) * self.display_scale)
 
         metadata = {
             'index': np.arange(len(grid_rows)),
@@ -149,7 +145,8 @@ class Bins2Spots:
             'pxl_row_in_fullres': centres[:, 1],
             'pxl_col_in_fullres': centres[:, 0],
         }
-        self._spot_polygons = gpd.GeoDataFrame(metadata, geometry=shapely.polygons(outlines))
+
+        self._spot_polygons = gpd.GeoDataFrame(metadata, geometry=geometries)
         self._spot_polygons.index.name = 'spot_id'  # avoid conflict with 'index' column in reset_index()
 
         return self._spot_polygons

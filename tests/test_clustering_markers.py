@@ -26,7 +26,7 @@ def make_layer(n_per=60, n_types=3, n_genes=400):
     index = pd.Index(names, name="barcode")
     gdf = gpd.GeoDataFrame({"index": names}, geometry=[box(i, 0, i + 1, 1) for i in range(n)], index=index)
     adata = ad.AnnData(X, obs=pd.DataFrame(index=names), var=pd.DataFrame(index=[f"g{i}" for i in range(n_genes)]))
-    layer = Squares(figure(), Bins(gdf, adata, pixels_per_bin=1, bin_size_um=16), lazy_loading=True, alias="Bin")
+    layer = Squares(figure(), Bins(gdf, adata, pixels_per_bin=1, bin_size=16), lazy_loading=True, alias="Bin")
     layer.add_parameter(attr="alpha", colname="g0", colname_hovered=True)
     layer.add_parameter(attr="color", static=True, val="#6baed6", not_sequenced_val="#b8b8b8")
     return layer

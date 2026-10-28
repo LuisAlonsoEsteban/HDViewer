@@ -20,7 +20,7 @@ def make_component(n=40):
     adata = ad.AnnData(np.ones((n, 2)), obs=pd.DataFrame(index=index.astype(str)),
                        var=pd.DataFrame(index=["g0", "g1"]))
     adata.obs["leiden"] = pd.Categorical([str(i % 25) for i in range(n)])
-    return Squares(figure(), Bins(gdf, adata, pixels_per_bin=1, bin_size_um=16),
+    return Squares(figure(), Bins(gdf, adata, pixels_per_bin=1, bin_size=16),
                    lazy_loading=True, alias="Bin")
 
 

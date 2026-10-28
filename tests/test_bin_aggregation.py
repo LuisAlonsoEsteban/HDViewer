@@ -40,18 +40,17 @@ class BinAggregationGeometryTests(unittest.TestCase):
     def test_native_rotation_and_resolution_switching(self):
         sample = self.make_sample()
         manager = DynamicSourceManager(sample)
-        for level, expected_angle in ((None, sample.native_angle), ('agg:2', 0),
-                                      ('agg:4', 0), (None, sample.native_angle)):
+        for level, expected_angle in ((None, 0), ('agg:2', 0), ('agg:4', 0), (None, 0)):
             manager.set_fetch_context(resolution_level=level)
             manager.clear_sources()
             manager.add_data()
             self.assertTrue(manager.source.data['angle'])
             self.assertTrue(all(a == expected_angle for a in manager.source.data['angle']))
 
-    def test_renderer_uses_native_and_aggregated_corners(self):
+    def test_renderer_uses_rectangles_without_polygon_sources(self):
         from bokeh.document import Document
         from bokeh.plotting import figure
-        from bokeh.models import Patches
+        from bokeh.models import Rect
         from bokeh_server.components.glyphs import Squares
 
         sample = self.make_sample()
@@ -61,9 +60,11 @@ class BinAggregationGeometryTests(unittest.TestCase):
         component.add_glyph()
         component.manager.add_data()
         glyph = component.glyph_renderer.glyph
-        self.assertIsInstance(glyph, Patches)
-        self.assertEqual(glyph.xs, 'xs')
-        self.assertEqual(glyph.ys, 'ys')
+        self.assertIsInstance(glyph, Rect)
+        self.assertEqual(glyph.width, 'width')
+        self.assertEqual(glyph.height, 'height')
+        self.assertNotIn('xs', component.manager.source.data)
+        self.assertNotIn('ys', component.manager.source.data)
         component.manager.set_fetch_context(resolution_level='agg:2')
         component.manager.add_data()
         doc = Document()
@@ -78,8 +79,10 @@ class BinAggregationGeometryTests(unittest.TestCase):
 
 class NativeBinFootprintTests(unittest.TestCase):
     def test_rotated_reflected_grids_with_unequal_axis_scaling(self):
-        from src.utils.bins2spots import Bins2Spots
-        from shapely.geometry import Polygon
+        from src.operations.bins2spots import Bins2Spots
+        from shapely.geometry import box
+        from shapely.affinity import rotate
+        from src.data.image.transform import SpatialTransform
 
         for angle in (0.0, np.deg2rad(179), np.deg2rad(25)):
             for scale_x, scale_y in ((1, 2), (2, 1), (1, 1)):
@@ -96,13 +99,15 @@ class NativeBinFootprintTests(unittest.TestCase):
                         'pxl_col_in_fullres': centers[:, 0],
                         'pxl_row_in_fullres': centers[:, 1], 'index': ids,
                     }, index=pd.Index(ids, name='barcode'))
+                    transform = SpatialTransform.fit(positions, (100, 120, 3))
                     b2s = Bins2Spots(None, positions, bins_size=2, pixels_per_bin=2,
+                                    spatial_transform=transform,
                                     tile_scale_xfactor=scale_x, tile_scale_yfactor=scale_y)
                     polygons = b2s.bin_squares
-                    expected_centers = centers * [scale_x, scale_y]
+                    expected_centers = transform.points(centers)
                     np.testing.assert_allclose(polygons.geometry.centroid.x, expected_centers[:, 0])
                     np.testing.assert_allclose(polygons.geometry.centroid.y, expected_centers[:, 1])
-                    np.testing.assert_allclose(polygons.geometry.area, 4 * scale_x * scale_y)
+                    np.testing.assert_allclose(polygons.geometry.area, transform.pitch ** 2)
                     first = polygons.geometry.iloc[0]
                     for neighbor in (1, 4):
                         other = polygons.geometry.iloc[neighbor]
@@ -110,19 +115,21 @@ class NativeBinFootprintTests(unittest.TestCase):
                         self.assertLess(first.intersection(other).area, 1e-10)
                     adata = ad.AnnData(np.ones((16, 1)), obs=pd.DataFrame(index=ids),
                                       var=pd.DataFrame(index=['gene']))
-                    sample = Bins(polygons, adata, pixels_per_bin=2,
+                    sample = Bins(polygons, adata, pixels_per_bin=2, spatial_transform=transform,
                                   tile_scale_xfactor=scale_x, tile_scale_yfactor=scale_y)
                     native = sample.fetch_data(colnames=['gene'])
                     for index, item in native.iterrows():
-                        rendered = Polygon(zip(item['xs'], item['ys']))
-                        self.assertTrue(rendered.equals(polygons.loc[index].geometry))
+                        rendered = box(item.x-item.width/2, item.y-item.height/2,
+                                       item.x+item.width/2, item.y+item.height/2)
+                        rendered = rotate(rendered, item.angle, origin=(item.x,item.y), use_radians=True)
+                        self.assertLess(rendered.symmetric_difference(polygons.loc[index].geometry).area, 1e-10)
                     manager = DynamicSourceManager(sample)
                     for level in (None, 'agg:2', None):
                         manager.set_fetch_context(resolution_level=level)
                         manager.clear_sources()
                         manager.add_data()
-                        self.assertEqual(len(manager.source.data['xs']), len(manager.source.data['x']))
-                        self.assertTrue(all(len(xs) == 5 for xs in manager.source.data['xs']))
+                        self.assertNotIn('xs', manager.source.data)
+                        self.assertNotIn('ys', manager.source.data)
 
 
 if __name__ == '__main__':

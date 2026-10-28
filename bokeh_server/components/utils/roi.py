@@ -90,7 +90,7 @@ class _DrawingController:
             return
         try:
             factors, _ = owner.radius_scale()
-            shape = owner.radius_geometry(event.x, event.y, owner.radius.value, *factors)
+            shape = owner.seed_radius_geometry(event.x, event.y, owner.radius.value, *factors)
             owner.set_draft(shape, "radius")
         except (ValueError, TypeError) as exc:
             owner._error(exc)
@@ -159,11 +159,21 @@ class ROIManager:
         circle = Point(x, y).buffer(radius, quad_segs=64)
         return cls.validate_geometry(scale(circle, xfact=1 / units_x, yfact=1 / units_y, origin=(x, y)))
 
+    def seed_radius_geometry(self, x, y, radius, units_x=1., units_y=1.):
+        transform = getattr(self.sample, 'spatial_transform', None)
+        if transform is None:
+            return self.radius_geometry(x, y, radius, units_x, units_y)
+        seed = transform.points([x, y], inverse=True)
+        circle = self.radius_geometry(*seed, radius, units_x, units_y)
+        return self.validate_geometry(transform.geometry(circle))
+
     def radius_scale(self):
         data = None if self.coordinate_scale is None else self.coordinate_scale.data
         fx = (data['px_x'][0] if data else None) or 1 / getattr(self.sample, 'tile_scale_xfactor', 1.)
         fy = (data['px_y'][0] if data else None) or 1 / getattr(self.sample, 'tile_scale_yfactor', 1.)
         um = data['um_per_px'][0] if data else None
+        if getattr(self.sample, 'spatial_transform', None) is not None:
+            fx = fy = 1.
         return ((fx * um, fy * um), 'µm') if um is not None and um > 0 else ((fx, fy), 'full-res px')
 
     def compute_membership(self, geometry):
@@ -194,6 +204,9 @@ class ROIManager:
             coordinates = np.column_stack((shapely.get_x(centers), shapely.get_y(centers)))
             if len(rows) != len(names) or not np.isfinite(coordinates).all():
                 raise ValueError("Every grouped bin must have valid geometry for its seed.")
+        transform = getattr(self.sample, "spatial_transform", None)
+        if transform is not None:
+            coordinates = transform.points(coordinates, inverse=True)
         coordinates *= np.asarray(factors)
         levels = []
         # Bound temporary geometry memory; nearby circles merge within each chunk.
@@ -218,6 +231,8 @@ class ROIManager:
             report(f"Buffered {min(start + 256, len(coordinates)):,} / {len(coordinates):,} group-bin seeds")
         region = shapely.union_all([region for region in levels if region is not None])
         region = scale(region, xfact=1 / factors[0], yfact=1 / factors[1], origin=(0, 0))
+        if transform is not None:
+            region = transform.geometry(region)
         return self.validate_geometry(region), len(names)
 
     def _group_mode(self):

@@ -13,23 +13,7 @@ def _summary_factors(names, sample):
 
 def aggregation_names(sample, factor):
     """Native obs -> display cell, without aggregating the expression matrix."""
-    existing = getattr(sample, "_aggregated_cell_names", {}).get(factor)
-    if existing is not None:
-        return existing
-    cache = getattr(sample, "_selection_cell_names", None)
-    identity = (id(sample.gdf), id(sample.adata))
-    if cache is None or cache[0] != identity:
-        sample._selection_cell_names = cache = (identity, {})
-    if factor not in cache[1]:
-        coordinates = sample.get_coordinates(sample.gdf)
-        valid = np.isfinite(coordinates.x) & np.isfinite(coordinates.y)
-        labels = pd.Series(None, index=sample.gdf.index, dtype=object)
-        x = np.floor(coordinates.loc[valid, "x"] / (sample.native_width * factor)).astype(np.int64)
-        y = np.floor(coordinates.loc[valid, "y"] / (sample.native_height * factor)).astype(np.int64)
-        labels.loc[valid] = "summary:" + x.astype(str) + ":" + y.astype(str) + f":{factor}"
-        labels.index = sample.gdf[sample.on].astype(str)
-        cache[1][factor] = labels[~labels.index.duplicated()].reindex(sample.adata.obs_names)
-    return cache[1][factor]
+    return sample.aggregation_names(factor)
 
 
 def native_selection(sample, names):

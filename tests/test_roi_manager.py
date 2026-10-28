@@ -42,7 +42,7 @@ def make_layer(kind='bins', plot=None):
     data = ad.AnnData(counts, obs=pd.DataFrame(index=names), var=pd.DataFrame(index=['g0', 'g1']))
     plot = plot or figure(x_range=(-1, 5), y_range=(-1, 5))
     if kind == 'bins':
-        sample = Bins(gdf, data, pixels_per_bin=1, bin_size_um=2)
+        sample = Bins(gdf, data, pixels_per_bin=1, bin_size=2)
         component = Squares(plot, sample, lazy_loading=True, alias='Bin')
     elif kind == 'spots':
         component = Circles(.5, plot, Spots(gdf, data), alias='Spot')

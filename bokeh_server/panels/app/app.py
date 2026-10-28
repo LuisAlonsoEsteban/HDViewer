@@ -81,18 +81,15 @@ class App:
         if not self.figure_panel.alpha_setup:
             self.figure_panel.setup_image_alpha(self.image_component)
 
-        if sample_type == "spots":
-            sample = Spots(polygons, adata)
-            # Full-res pixels -> figure units, like the spot polygons (radius along x)
-            radius = b2s.converter.get_pixels(b2s.converter.VisiumV2.SPOT_DIAMETER) / 2 * b2s.tile_scale_xfactor
+        spatial_transform = getattr(b2s, "spatial_transform", None)
 
-            geom = Circles(
-                radius, 
-                self.figure_panel.p, 
-                sample, 
-                hover_color='green', 
-                alias='Spot',
-            )
+        if sample_type == "spots":
+            radius = (spatial_transform.pitch * 55. / (2 * b2s.bins_size)
+                      if spatial_transform is not None else
+                      b2s.converter.get_pixels(55.) / 2 * b2s.tile_scale_xfactor)
+            sample = Spots(polygons, adata, radius=radius)
+            sample.spatial_transform = spatial_transform
+            geom = Circles('radius', self.figure_panel.p, sample, hover_color='green', alias='Spot')
             geom.sample_type = sample_type
             
             geom.add_parameter(
@@ -119,24 +116,25 @@ class App:
                 adata,
                 on='index',
                 pixels_per_bin=b2s.converter.visiumHD.pixels_per_bin,
+                spatial_transform=spatial_transform,
                 bin_size=b2s.bins_size,
                 tile_scale_xfactor=b2s.tile_scale_xfactor,
                 tile_scale_yfactor=b2s.tile_scale_yfactor,
             )
-            # Bins carry the physical scale: one native bin is bin_size_um wide
-            if self.figure_panel.measure_tool is not None and sample.native_width > 0:
-                bin_size_um = float(sample.bin_size)
-                self.figure_panel.measure_tool.set_scale(
-                    bin_size_um / sample.native_width,
-                    bin_size_um / sample.native_height,
-                )
-            # Figure units are full-res image pixels scaled per axis to a square
-            if self.figure_panel.roi_readout is not None:
-                self.figure_panel.roi_readout.set_scale(
-                    1 / sample.tile_scale_xfactor,
-                    1 / sample.tile_scale_yfactor,
-                    float(sample.bin_size) / sample.pixels_per_bin if sample.pixels_per_bin else None,
-                )
+            um_per_px = (float(sample.bin_size) / sample.pixels_per_bin
+                         if sample.pixels_per_bin and sample.bin_size > 0 else None)
+            if spatial_transform is not None:
+                if self.figure_panel.measure_tool is not None:
+                    self.figure_panel.measure_tool.set_transform(spatial_transform, um_per_px)
+                if self.figure_panel.roi_readout is not None:
+                    self.figure_panel.roi_readout.set_transform(spatial_transform, um_per_px)
+            else:
+                if self.figure_panel.measure_tool is not None and sample.native_width > 0:
+                    self.figure_panel.measure_tool.set_scale(sample.bin_size / sample.native_width,
+                                                            sample.bin_size / sample.native_height)
+                if self.figure_panel.roi_readout is not None:
+                    self.figure_panel.roi_readout.set_scale(1 / sample.tile_scale_xfactor,
+                                                          1 / sample.tile_scale_yfactor, um_per_px)
 
             geom = Squares(
                 self.figure_panel.p, 
@@ -167,6 +165,7 @@ class App:
 
         elif sample_type == "cells":
             sample = Cells(polygons, adata)
+            sample.spatial_transform = spatial_transform
             n_cell_layers = sum(g.sample_type == "cells" for g in self.geometries)
             geom = Patches(
                 self.figure_panel.p, 

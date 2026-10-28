@@ -28,7 +28,6 @@ class StartupController:
 
     UPLOAD_DIR = Path("./tmp")
 
-    TILE_MEM_THRESHOLD = 0.1 # GB
     PROGRESS_WIDTH = 560  # px; fixed so the bars do not resize as their text changes
 
     def __init__(self, doc):
@@ -294,28 +293,35 @@ class StartupController:
             sizing_mode="stretch_width", spacing=20,
             styles=dict(color="#e5edf0"), name="startup",
         )
+
         for model in self.layout.references():
             if isinstance(model, (FileInput, Select, TextInput, NumericInput, Checkbox,
                                   Button, RadioButtonGroup, Div)):
                 model.stylesheets = [widget_css]
                 model.sizing_mode = "stretch_width"
                 model.width = None
+
         for widget in (self.h5_input_widget, self.positions_input_widget,
                        self.resolution_select_widget, self.image_input_widget):
             widget.sizing_mode = "stretch_width"
+
         self.load_button.label = "Load data"
+
         for div in self._progress_divs:
             div.height = 76
             div.stylesheets = [widget_css]
+
         self._reset_progress()
 
 
     def _update_source_mode(self):
         mode = self.source_mode
+
         self.upload_panel.visible = mode == "upload"
         self.example_panel.visible = mode == "example"
         self.url_panel.visible = mode == "url"
         self.load_button.disabled = mode == "url"
+
         bundled = self._example_config().get("reference_path")
         self.reference_input_widget.visible = mode == "upload"
         self.status_text.text = {
@@ -396,16 +402,17 @@ class StartupController:
         with self._progress_lock:
             self._progress_cache.clear()
         self._progress_displayed.clear()
+
         enabled_by_div = [(self.tiles_progress_bar, True),
                           (self.bins_progress, True),
                           (self.pseudospots_progress, self.pseudospots_checkbox.active)]
         enabled_by_div += [(c["progress"], c["checkbox"].active)
                            for c in self.segmentation_controls.values()]
+
         for div, enabled in enabled_by_div:
             div.text = self._progress_html(div, status="Waiting" if enabled else "Skipped")
 
     def update_progress(self, div, pct=None, status="Processing"):
-        # Workers publish only the latest target; do not queue one UI patch per event.
         with self._progress_lock:
             previous_pct = self._progress_cache.get(div.id, (0, ""))[0]
             pct = previous_pct if pct is None else max(previous_pct, min(100, int(pct)))
@@ -523,8 +530,7 @@ class StartupController:
                 finish()
                 return
 
-            # The task is only complete once the sample is in the viewer: adding
-            # it runs on the document thread and can fail too
+            # The task is only complete once the sample is in the viewer: adding it runs on the document thread and can fail too
             def update_doc():
                 try:
                     self.app.add_sample(*output, self.b2s, sample_type=sample_type,
@@ -533,50 +539,54 @@ class StartupController:
                     finish(exc)
                 else:
                     finish()
+
             self.doc.add_next_tick_callback(update_doc)
         
         threading.Thread(target=wrapper).start()
 
     def generate_tiles(self, base_dir):
-        from src.data.image import ImageProcessor
+        from src.data.image.image import ImageProcessor
+        from src.data.image.transform import SpatialTransform
+        from ..components.image import ImageComponent
 
-        if self.dataset:
-            if self.dataset.img is None:
-                self.dataset.read_img()
+        if self.dataset.df_tissue_positions is None:
+            self.dataset.read_positions()
 
-            self.image_processor = ImageProcessor(
-                self.dataset.img,
-                # One folder per uploaded image: uploads share base_dir, and existing tiles
-                # are reused, so a previous upload's tiles would otherwise be shown
-                base_dir / "tiles" / self._image_key() if self.source_mode == "upload" else base_dir / "tiles",
-            )
-        
-            self.doc.add_next_tick_callback(
-                lambda: self.app.add_image_component(self.image_processor))
+        self.spatial_transform = SpatialTransform.fit(
+            self.dataset.df_tissue_positions,
+            self.dataset.image_shape,
+            self.dataset.image_scale
+        )
 
-            def worker():
-                def on_progress(done, total):
-                    pct = int(100 * done / total) if total else 0
-                    self.update_progress(self.tiles_progress_bar, pct, "Creating tiles")
+        cache_key = f"padded-v2-{self._image_key()}-{self.spatial_transform.fingerprint}"
+        dataset = self.dataset
+        def load_image():
+            if dataset.img is None:
+                dataset.read_img()
+            return dataset.img
 
-                self.image_processor.create_tiles(overwrite=False, progress_callback=on_progress)
+        self.image_processor = ImageProcessor(
+            dataset.img, 
+            base_dir / 'tiles' / cache_key,
+            spatial_transform=self.spatial_transform, 
+            image_loader=load_image
+        )
 
-            if self.image_processor.mem > self.TILE_MEM_THRESHOLD:
-                self.run_in_thread(worker, sample_type="tiles")
-            else:
-                from PIL import Image
-                import numpy as np
+        single_image = self.image_processor.mem <= ImageComponent.TILE_MEM_THRESHOLD
 
-                im = Image.fromarray(np.flipud(self.dataset.img))
-                self.image_processor.tiles_path.mkdir(parents=True, exist_ok=True)
-                im.save(self.image_processor.tiles_path / "z0_x0_y0.png")
-                
-                self.update_progress(self.tiles_progress_bar, 100, "Complete")
-                self.tasks["tiles"] = True
-                self._check_all_done()
-                
-        else:
-            raise ValueError
+        def worker():
+            def on_progress(done, total):
+                self.update_progress(self.tiles_progress_bar, int(100 * done / total) if total else 0,
+                                     "Creating padded image tiles")
+            return self.image_processor.create_tiles(overwrite=False, progress_callback=on_progress,
+                                                     single_image=single_image)
+
+        generated = worker()
+
+        self.doc.add_next_tick_callback(lambda: self.app.add_image_component(self.image_processor))
+        self.update_progress(self.tiles_progress_bar, 100, "Complete" if generated else "Using cached tiles")
+        self.tasks['tiles'] = True
+
 
     def build_b2s(self, adata, df_tissue_positions, bins_size):
         from src.operations.bins2spots import Bins2Spots
@@ -592,11 +602,12 @@ class StartupController:
             df_tissue_positions,
             bins_size=bins_size,
             pixels_per_bin=self.dataset.pixels_per_bin,
-            # Full-res positions -> image pixels -> figure units
+            spatial_transform=self.spatial_transform,
             tile_scale_xfactor=self.image_processor.scale_xfactor * self.dataset.image_scale,
             tile_scale_yfactor=self.image_processor.scale_yfactor * self.dataset.image_scale,
             progress_callback=on_progress
         )
+
         self.update_progress(self.bins_progress, 50, "Building bin geometry")
         bin_squares = self.b2s.bin_squares
         self.update_progress(self.bins_progress, 75, "Adding bins to the viewer")
@@ -615,14 +626,20 @@ class StartupController:
 
     def ensure_b2s(self):
         if self.b2s is None:
+
             if self.dataset.adata is None or self.dataset.df_tissue_positions is None:
                 self.update_progress(self.bins_progress, status="Reading expression data")
-                self.dataset.load()
+                if self.dataset.adata is None:
+                    self.dataset.read_adata()
+                if self.dataset.df_tissue_positions is None:
+                    self.dataset.read_positions()
+
             annotations_path = self._example_config().get("spatial_annotations_path")
             if annotations_path:
                 from src.data.singlecell import add_annotations
                 self.update_progress(self.bins_progress, status="Reading spatial annotations")
                 add_annotations(self.dataset.adata, annotations_path)
+
             self.update_progress(self.bins_progress, 25, "Preparing bins")
             self.build_b2s(self.dataset.adata, self.dataset.df_tissue_positions, self.dataset.bins_size)
 
@@ -649,7 +666,6 @@ class StartupController:
 
     def generate_segmentations(self, base_dir):
         from src.operations.pooler import CellsPooler
-        import shapely
 
         selected = [c for c in self.segmentation_controls.values() if c["checkbox"].active]
         if not selected:
@@ -664,14 +680,20 @@ class StartupController:
         work_dir = Path(base_dir) / "segmentation"
         image_key = self._image_key()
         # OpenCV (png/tif) reads BGR; plugins always receive RGB
+        if self.dataset.img is None:
+            self.dataset.read_img()
+
         image_path = self.segmentation.prepare_image(
-            self.dataset.img, image_key, work_dir, bgr=self.dataset.img_format in ("png", "tif"))
+            self.dataset.img, 
+            image_key, 
+            work_dir, 
+            bgr=self.dataset.img_format in ("png", "tif", "tiff")
+        )
+
         # Plugins see the given image: µm per pixel of that image (not of the full-res one)
         um_per_px = (float(self.dataset.bins_size) / (self.dataset.pixels_per_bin * self.dataset.image_scale)
                      if self.dataset.pixels_per_bin else None)
-        # Plugins return pixel coordinates of the original image; the figure
-        # stretches the image to a square (same transform as the bins)
-        scale = (self.image_processor.scale_xfactor, self.image_processor.scale_yfactor)
+        # Segment the original image; transform only the resulting outlines.
 
         for controls in selected:
             plugin = controls["plugin"]
@@ -689,7 +711,7 @@ class StartupController:
                 if cells.empty:
                     raise RuntimeError(f"{plugin.title} found no cells")
 
-                cells.geometry = shapely.transform(cells.geometry.values, lambda xy: xy * scale)
+                cells.geometry = self.spatial_transform.image_geometry(cells.geometry.values)
                 cells["index"] = [f"{plugin.name}_{i + 1}" for i in range(len(cells))]
                 cells.index = cells["index"].values
 
@@ -698,6 +720,7 @@ class StartupController:
                     self.b2s.bin_squares, self.b2s.adata_hd, cells, keep_cols=[]
                 ).run(predicate="intersects")
                 self.update_progress(div, 95, "Adding cells to the viewer")
+
                 return cells, cells_adata
 
             self.run_in_thread(
@@ -719,13 +742,16 @@ class StartupController:
     def load_data_callback(self):
         if self.loading or self.source_mode == "url":
             return
+
         reference_error = self._reference_upload_error()
         if reference_error:
             # Leave the form enabled so the pending upload can finish and the user can retry.
             self.status_text.text = reference_error
             return
+
         if self.source_mode == "upload" and not self._validate_inputs():
             return
+            
         if self.source_mode == "example" and self.example_select.value not in AVAILABLE_DATASETS:
             self.status_text.text = "Please choose an example dataset"
             return
@@ -751,7 +777,8 @@ class StartupController:
                        *[w for c in self.segmentation_controls.values()
                          for w in (c["checkbox"], *c["params"].values())]):
             widget.disabled = True
-        self.update_progress(self.tiles_progress_bar, status="Reading image and preparing tiles")
+
+        self.update_progress(self.tiles_progress_bar, status="Checking image metadata and cached tiles")
 
         def prepare():
             try:

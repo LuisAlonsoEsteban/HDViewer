@@ -79,7 +79,8 @@ HELP = {
     "rois": ("ROIs", """
         Save named regions in this layer for the current session. Choose <b>Bounding box</b>,
         <b>Lasso</b>, or <b>Seed + radius</b>, then click <b>Draw</b> and draw on the map.
-        A seed radius uses µm when calibrated, otherwise full-resolution pixels.
+        A seed radius uses µm when calibrated, otherwise full-resolution pixels. Radii and ruler
+        measurements account for image scale and padding.
         On bins layers, choose <b>All bins in a group</b> as the seed source and select a group.
         Every native bin in that group supplies a seed; all radius neighbourhoods are combined
         into <b>one ROI</b>. The preview updates when the group or radius changes, including

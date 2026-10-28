@@ -16,8 +16,8 @@ from bokeh.models import Button, FileInput, Select, TextInput
 from bokeh.plotting import figure
 from scipy import sparse
 
-from src.deconvolution import deconvolve
-from src.singlecell import read_reference
+from src.utils.deconvolution import deconvolve
+from src.data.singlecell import read_reference
 from src.sample import Cells, Spots
 from bokeh_server.components.glyphs import Circles, Patches
 from bokeh_server.panels.startup import StartupController
@@ -100,7 +100,7 @@ class DeconvolutionTests(unittest.TestCase):
         # Exercise the actual preparation entry point without loading spatial data.
         with patch("anndata.read_h5ad", wraps=ad.read_h5ad) as read, \
              patch.object(startup, "_save_uploaded_file", return_value="unused"), \
-             patch("bokeh_server.panels.startup.DataSet"), \
+             patch("bokeh_server.panels.startup.VisiumHD"), \
              patch.object(startup, "generate_tiles"), \
              patch.object(startup, "generate_pseudospots"), \
              patch.object(startup, "generate_segmentations"), \

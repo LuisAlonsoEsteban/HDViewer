@@ -101,7 +101,7 @@ class VisiumHD:
         
     @staticmethod
     def get_format(path:str) -> str:
-        return path.split(".")[-1]
+        return Path(path).suffix[1:]
         
     def get_available_sizes(self):
         if self.dir_base and os.path.exists(self.dir_base):
@@ -125,11 +125,38 @@ class VisiumHD:
         elif data == 'both':
             return self.get_default_path(bins_size, data='adata'), self.get_default_path(bins_size, data='positions')
         
+    @property
+    def image_shape(self):
+        if self.img is not None:
+            return self.img.shape
+
+        image_format = VisiumHD.get_format(str(self.img_path)).lower()
+
+        if image_format in ('btf', 'tif', 'tiff'):
+            from tifffile import TiffFile
+            with TiffFile(self.img_path) as image:
+                if image_format == 'btf':
+                    return image.series[0].shape
+                # OpenCV reads the first TIFF page in colour by default.
+                page = image.pages[0]
+                return (page.imagelength, page.imagewidth, 3)
+
+        if image_format == 'png':
+            import struct
+            with open(self.img_path, 'rb') as image:
+                header = image.read(24)
+            if len(header) != 24 or header[:8] != b'\x89PNG\r\n\x1a\n' or header[12:16] != b'IHDR':
+                raise ValueError('Invalid PNG image header.')
+            width, height = struct.unpack('>II', header[16:24])
+            return (height, width, 3)
+
+        raise ValueError('Image format not supported')
+
     def read_img(self):
-        self.img_format = VisiumHD.get_format(self.img_path)
+        self.img_format = VisiumHD.get_format(str(self.img_path)).lower()
         if self.img_format == "btf":
             from tifffile import imread
-        elif self.img_format in ["png", "tif"]:
+        elif self.img_format in ("png", "tif", "tiff"):
             from cv2 import imread
         else:
             raise ValueError("Image format not supported")

@@ -1,6 +1,7 @@
 """Readout of the region currently visible on the main plot, in image coordinates."""
 
 from html import escape
+import numpy as np
 
 from bokeh.layouts import row
 from bokeh.models import Button, ColumnDataSource, CustomJS, Div, Node, Panel, SVGIcon
@@ -18,10 +19,20 @@ function roi(x0, x1, y0, y1, scale) {
     const px_x = scale.data.px_x[0], px_y = scale.data.px_y[0], um = scale.data.um_per_px[0]
     const scaled = px_x != null && px_y != null
     const fx = scaled ? px_x : 1, fy = scaled ? px_y : 1
-    const box = [x0 * fx, y0 * fy, x1 * fx, y1 * fy].map(Math.round)
+    let box
+    const inverse = scale.data.inverse?.[0]
+    if (inverse != null) {
+        const corners = [[x0,y0], [x1,y0], [x1,y1], [x0,y1]].map(([x,y]) =>
+            [inverse[0]*x + inverse[1]*y + inverse[2], inverse[3]*x + inverse[4]*y + inverse[5]])
+        box = [Math.min(...corners.map(p=>p[0])), Math.min(...corners.map(p=>p[1])),
+               Math.max(...corners.map(p=>p[0])), Math.max(...corners.map(p=>p[1]))].map(Math.round)
+    } else {
+        box = [x0 * fx, y0 * fy, x1 * fx, y1 * fy].map(Math.round)
+    }
     const n = (v) => v.toLocaleString("en-US")
     const lines = [`x  ${n(box[0])} – ${n(box[2])}`,
                    `y  ${n(box[1])} – ${n(box[3])}`]
+    if (inverse != null) { lines.unshift("Original image · enclosing bounds") }
     if (scaled && um != null) {
         lines.push(`${fmt_len((box[2] - box[0]) * um)} × ${fmt_len((box[3] - box[1]) * um)}`)
     }
@@ -47,9 +58,9 @@ class ROIReadout:
 
     def __init__(self, figure):
         self.figure = figure
-        # Figure units -> full-res pixels per axis (tiles stretch the image to a
-        # square), and µm per full-res pixel; None until the bins are loaded
-        self.scale = ColumnDataSource(data=dict(px_x=[None], px_y=[None], um_per_px=[None]))
+        # Inverse affine calibration for original full-res image coordinates.
+        # Per-axis scale fields retain support for scale-only callers.
+        self.scale = ColumnDataSource(data=dict(px_x=[None], px_y=[None], um_per_px=[None], inverse=[None]))
 
         self.text = Div(styles=self.STYLE)
         self.copy_button = Button(
@@ -114,12 +125,24 @@ class ROIReadout:
 
     def set_scale(self, px_per_unit_x, px_per_unit_y, um_per_px=None):
         self.scale.data = dict(px_x=[float(px_per_unit_x)], px_y=[float(px_per_unit_y)],
-                               um_per_px=[None if um_per_px is None else float(um_per_px)])
+                               um_per_px=[None if um_per_px is None else float(um_per_px)], inverse=[None])
+        self.render()
+
+    def set_transform(self, transform, um_per_px=None):
+        self.scale.data = dict(px_x=[1.], px_y=[1.], um_per_px=[um_per_px],
+                               inverse=[transform.inverse.ravel().tolist()])
         self.render()
 
     def bbox(self):
         """Visible region as (x0, y0, x1, y1), in full-res pixels once scaled."""
         x_range, y_range = self.figure.x_range, self.figure.y_range
+        inverse = self.scale.data.get('inverse', [None])[0]
+        if inverse is not None:
+            matrix = np.asarray(inverse).reshape(3, 3)
+            corners = np.array([[x_range.start, y_range.start], [x_range.end, y_range.start],
+                                [x_range.end, y_range.end], [x_range.start, y_range.end]])
+            points = corners @ matrix[:2, :2].T + matrix[:2, 2]
+            return tuple(round(v) for v in (*points.min(axis=0), *points.max(axis=0)))
         fx = self.scale.data["px_x"][0] or 1
         fy = self.scale.data["px_y"][0] or 1
         return tuple(round(v) for v in (x_range.start * fx, y_range.start * fy,
@@ -132,6 +155,8 @@ class ROIReadout:
         scaled = self.scale.data["px_x"][0] is not None
         x0, y0, x1, y1 = self.bbox()
         lines = [f"x  {x0:,} – {x1:,}", f"y  {y0:,} – {y1:,}"]
+        if self.scale.data.get("inverse", [None])[0] is not None:
+            lines.insert(0, "Original image · enclosing bounds")
         um = self.scale.data["um_per_px"][0]
         if scaled and um is not None:
             lines.append(f"{_fmt_len((x1 - x0) * um)} × {_fmt_len((y1 - y0) * um)}")

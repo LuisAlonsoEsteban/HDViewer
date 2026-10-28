@@ -37,7 +37,7 @@ class GroupRadiusROITests(unittest.TestCase):
         data = ad.AnnData(np.ones((len(names), 1)), obs=pd.DataFrame(index=names),
                           var=pd.DataFrame(index=['g0']))
         data.obs['grp_All'] = True
-        layer.manager.sample = Bins(gdf, data, pixels_per_bin=1, bin_size_um=2)
+        layer.manager.sample = Bins(gdf, data, pixels_per_bin=1, bin_size=2)
         shape, count = layer.roi_manager.compute_group_radius('All', .8, (1., 1.))
         self.assertEqual(count, 529)
         self.assertTrue(shape.is_valid)

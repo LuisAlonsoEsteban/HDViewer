@@ -2,12 +2,13 @@ import tempfile
 import unittest
 from pathlib import Path
 from types import SimpleNamespace
+from unittest.mock import Mock, patch
 
 import numpy as np
 from PIL import Image
 
 from bokeh_server.components.image import ImageComponent
-from src.image import ImageProcessor, make_tile_app, register_tiles
+from src.data.image.image import ImageProcessor, make_tile_app, register_tiles
 
 
 def tile_dir(root, name, colour):
@@ -64,6 +65,52 @@ class TileGenerationTests(unittest.TestCase):
                     np.testing.assert_array_equal(np.asarray(stitched), np.asarray(expected))
                 total = sum(4 ** zoom for zoom in range(processor.max_zoom + 1))
                 self.assertEqual(progress, [(done, total) for done in range(1, total + 1)])
+
+    def test_cache_hit_never_loads_or_pads_image_pixels(self):
+        from tests.test_spatial_alignment import fixture
+        from src.data.image.transform import SpatialTransform
+        _, transform, _, _ = fixture()
+        image = np.zeros((140,180,3), np.uint8)
+        with tempfile.TemporaryDirectory() as root:
+            load = Mock(return_value=image)
+            first = ImageProcessor(None, Path(root)/'tiles', spatial_transform=transform, image_loader=load)
+            self.assertEqual(first.shape, (transform.output_size, transform.output_size, 4))
+            self.assertGreater(first.max_zoom, -1)
+            self.assertGreater(first.mem, 0)
+            self.assertEqual(first.scale_xfactor, 1)
+            load.assert_not_called()
+            self.assertTrue(first.create_tiles(overwrite=False))
+            load.assert_called_once_with()
+            cached = ImageProcessor(None, Path(root)/'tiles', spatial_transform=transform,
+                                    image_loader=Mock(side_effect=AssertionError('Cache must not decode pixels')))
+            with patch.object(SpatialTransform, 'warp_image', side_effect=AssertionError('Cache must not pad pixels')):
+                self.assertFalse(cached.create_tiles(overwrite=False))
+                self.assertIsNone(cached._image)
+                self.assertFalse(ImageComponent(cached).are_tiles_needed)
+            # A missing manifest forces a fresh generation and exactly one decode.
+            (cached.tiles_path/'manifest.json').unlink()
+            reload_image = Mock(return_value=image)
+            missing = ImageProcessor(None, cached.tiles_path, spatial_transform=transform, image_loader=reload_image)
+            self.assertTrue(missing.create_tiles(overwrite=False))
+            reload_image.assert_called_once_with()
+
+    def test_image_dimensions_are_read_without_decoding(self):
+        import tifffile
+        from src.data.VisiumHD import VisiumHD
+        with tempfile.TemporaryDirectory() as root:
+            for suffix, channels in (('png',3), ('png',4), ('tif',3), ('btf',3)):
+                with self.subTest(suffix=suffix, channels=channels):
+                    path = Path(root)/f'image{channels}.{suffix}'
+                    image = np.zeros((7,11,channels), np.uint8)
+                    if suffix=='png':
+                        Image.fromarray(image).save(path)
+                    else:
+                        tifffile.imwrite(path, image, bigtiff=suffix=='btf')
+                    data = VisiumHD(img_path=str(path), adata_path='unused', positions_path='unused', bins_size=2)
+                    with patch('cv2.imread', side_effect=AssertionError('Header lookup must not decode')), \
+                         patch('tifffile.TiffPage.asarray', side_effect=AssertionError('Header lookup must not decode')):
+                        self.assertEqual(data.image_shape, (7,11,3))
+                        self.assertIsNone(data.img)
 
     def test_tile_source_exposes_the_highest_generated_zoom(self):
         with tempfile.TemporaryDirectory() as root:

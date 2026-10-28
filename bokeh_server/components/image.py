@@ -10,38 +10,45 @@ from bokeh.plotting import figure
 
 class ImageComponent:
 
-    TILE_MEM_THRESHOLD = 0.3 # GB
+    TILE_MEM_THRESHOLD = 0.5 # GB
 
-    def __init__(self, image_tiles, port=4000):
-        self.image_tiles = image_tiles
+    def __init__(self, image_processor, port=4000):
+        self.image_processor = image_processor
         self.port = port
 
         self.server_deployed = False
 
     @property
     def are_tiles_needed(self):
-        return self.image_tiles.mem > self.TILE_MEM_THRESHOLD
+        return self.image_processor.mem > self.TILE_MEM_THRESHOLD
 
     def deploy_server(self):
-        self.tile_key = self.image_tiles.deploy_server(port=self.port)
+        self.tile_key = self.image_processor.deploy_server(port=self.port)
         self.server_deployed = True
 
     def generate_tile_source(self):
-        self.deploy_server()
+        try:
+            self.deploy_server()
+        except:
+            raise ValueError("An error has occurred deploying the server providing the tiles")
+
         self.tile_source = WMTSTileSource(
                                 url=f"http://localhost:{self.port}/{self.tile_key}" + "/{Z}/{X}/{Y}",
-                                tile_size=self.image_tiles.tile_size,
-                                max_zoom=self.image_tiles.max_zoom,
+                                tile_size=self.image_processor.tile_size,
+                                max_zoom=self.image_processor.max_zoom,
                                 min_zoom=0,
                                 wrap_around=False,
                                 x_origin_offset=0,
                                 y_origin_offset=0,
-                                initial_resolution=self.image_tiles.max_dim / self.image_tiles.tile_size
+                                initial_resolution=self.image_processor.max_dim / self.image_processor.tile_size
                             )
+        
         return self.tile_source
     
     def add_tile_source(self, p):
-        p.add_tile(self.generate_tile_source())
+        tile_source = self.generate_tile_source()
+        if tile_source is not None:
+            p.add_tile(tile_source)
 
     def attach_image(self, p, w=None, h=None):
         if self.are_tiles_needed:
@@ -52,10 +59,10 @@ class ImageComponent:
 
     def get_overlay_source(self):
         self.overlay_source = ColumnDataSource({
-                    'x': [self.image_tiles.max_dim / 2],
-                    'y': [self.image_tiles.max_dim / 2],
-                    'width': [self.image_tiles.max_dim],
-                    'height': [self.image_tiles.max_dim],
+                    'x': [self.image_processor.max_dim / 2],
+                    'y': [self.image_processor.max_dim / 2],
+                    'width': [self.image_processor.max_dim],
+                    'height': [self.image_processor.max_dim],
                     'alpha': [0.0]  # Initial transparent state
                 })
         return self.overlay_source
@@ -85,8 +92,8 @@ class ImageComponent:
         thumb_p = figure(
             sizing_mode='scale_width',
             tooltips="Thumbnail overview", 
-            x_range=(0, self.image_tiles.max_dim), 
-            y_range=(0, self.image_tiles.max_dim),
+            x_range=(0, self.image_processor.max_dim), 
+            y_range=(0, self.image_processor.max_dim),
             match_aspect=True
         )
 
@@ -108,9 +115,9 @@ class ImageComponent:
             p.image_url(
                 url=[f"http://localhost:{self.port}/{self.tile_key}/0/0/0"], 
                 x=0, 
-                y=h or self.image_tiles.max_dim, 
-                w=w or self.image_tiles.max_dim, 
-                h=h or self.image_tiles.max_dim)
+                y=h or self.image_processor.max_dim, 
+                w=w or self.image_processor.max_dim, 
+                h=h or self.image_processor.max_dim)
         else:
             pass
     

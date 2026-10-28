@@ -32,7 +32,7 @@ class BinInfoOverlayTests(unittest.TestCase):
         adata = ad.AnnData(np.ones((1, 1)), obs=pd.DataFrame(index=['bin']),
                           var=pd.DataFrame(index=['gene']))
         self.sample = Bins(gdf, adata, pixels_per_bin=2, tile_scale_yfactor=2,
-                           native_angle=89, bin_size_um=16)
+                           native_angle=89, bin_size=16)
         self.manager = DynamicSourceManager(self.sample)
         self.plot = figure(x_range=(0, 20), y_range=(0, 20))
         self.overlay = BinInfoOverlay(SimpleNamespace(

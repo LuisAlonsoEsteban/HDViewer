@@ -42,7 +42,6 @@ STATIC_PATH = Path("/bokeh_server/static/data")
 
 BASE_DIR = Path(__file__).resolve().parent  
 DOWNLOADABLE_DATA_PATH = (BASE_DIR.parent / "static" / "data").resolve()
-# static/data está en .gitignore: en un clon nuevo no existe y save_adata fallaría.
 DOWNLOADABLE_DATA_PATH.mkdir(parents=True, exist_ok=True)
 
 class Component:
@@ -651,18 +650,22 @@ class Squares(Component):
         self.bin_info = BinInfoOverlay(self)
 
     def add_glyph(self):
-        self.glyph_renderer = self.figure.patches(
-            xs='xs',
-            ys='ys',
+        self.glyph_renderer = self.figure.rect(
+            x='x',
+            y='y',
+            width='width',
+            height='height',
+            angle='angle',
             hover_color=self.hover_color,
             **{param.attr: param.attr for param in self.manager.parameters},
             source=self.manager.source,
             view=CDSView(filter=BooleanFilter(booleans=self.view)),
         )
+
         self.bin_info.bind_renderer(self.glyph_renderer)
         self.attach_selection_callbacks()
         self.apply_selected_obs_names()
-        
+
 class Patches(Component):
 
     def __init__(self, *args, **kwargs):

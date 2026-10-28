@@ -94,7 +94,8 @@ class BinInfoOverlay:
         sample = self.component.sample
         factor = sample.get_aggregation_factor(manager.effective_resolution_level)
         if factor > 1:
-            geometry = sample.native_width * factor, sample.native_height * factor, 0.0
+            geometry = (sample.native_width * factor, sample.native_height * factor,
+                        self._native_geometry[2] if sample.spatial_transform and self._native_geometry else 0.0)
         else:
             geometry = self._native_geometry
         return {

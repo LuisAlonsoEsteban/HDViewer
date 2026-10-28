@@ -9,6 +9,9 @@ from .loading import LoadingLogger
 
 
 class DeconvolutionManager:
+
+    DECONV_RESULT_PREFIX = "deconv_"
+
     def __init__(self, component):
         self.component = component
         self.reference = None
@@ -22,11 +25,11 @@ class DeconvolutionManager:
         sample = self.component.sample
         if not fractions.index.equals(sample.adata.obs_names):
             raise ValueError("Layer observations changed during deconvolution. Run it again.")
-        # Versioned names keep previous runs usable by drawing parameters/groups.
+
         run = 1
-        while any(str(c).startswith(f"deconv_{run}:") for c in sample.get_colnames()):
+        while any(str(c).startswith(f"{self.DECONV_RESULT_PREFIX}{run}:") for c in sample.get_colnames()):
             run += 1
-        columns = [f"deconv_{run}:{name}" for name in fractions.columns]
+        columns = [f"{self.DECONV_RESULT_PREFIX}{run}:{name}" for name in fractions.columns]
         # The dominant-type label makes the whole NumPy matrix object-typed.
         # Preserve each column's dtype so fractions stay continuous on the map.
         numeric = set(fractions.select_dtypes(include="number").columns)

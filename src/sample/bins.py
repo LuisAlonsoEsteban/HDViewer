@@ -1,7 +1,6 @@
 
 from ._sample import Sample
 
-from ..utils.geom import exterior_coords
 from ..utils.progress import report
 
 import pandas as pd
@@ -9,6 +8,7 @@ import numpy as np
 from collections import OrderedDict
 
 class Bins(Sample):
+
     AGGREGATED_PREFIX = "agg:"
     AGGREGATION_FACTORS = (1, 2, 4, 8, 12)
     MAX_CACHE_ENTRIES = 24
@@ -19,7 +19,8 @@ class Bins(Sample):
         *args, 
         pixels_per_bin=None,
         bin_size=None,
-        native_angle=0.0, 
+        native_angle=0.0,
+        spatial_transform=None,
         tile_scale_xfactor=1.0, 
         tile_scale_yfactor=1.0,
         **kwargs
@@ -27,6 +28,10 @@ class Bins(Sample):
 
         super().__init__(*args, **kwargs)
 
+        self.spatial_transform = spatial_transform
+        self._grid_cache = {}
+        self._grid_source = self.gdf
+        self._aggregation_labels = None
         self.pixels_per_bin = pixels_per_bin
         self.bin_size = bin_size or 0
         self.native_angle = float(native_angle)
@@ -62,11 +67,11 @@ class Bins(Sample):
 
     @property
     def native_width(self):
-        return float((self.pixels_per_bin or 0) * self.tile_scale_xfactor)
+        return self.spatial_transform.bin_width if self.spatial_transform else float((self.pixels_per_bin or 0) * self.tile_scale_xfactor)
 
     @property
     def native_height(self):
-        return float((self.pixels_per_bin or 0) * self.tile_scale_yfactor)
+        return self.spatial_transform.bin_height if self.spatial_transform else float((self.pixels_per_bin or 0) * self.tile_scale_yfactor)
 
     def get_aggregation_factor(self, resolution_level):
         if resolution_level is None:
@@ -107,6 +112,40 @@ class Bins(Sample):
                 return factor
         return None
 
+    def aggregation_grid(self, factor):
+        """One array-block definition for display, expression and selections."""
+        if self._grid_source is not self.gdf:
+            self._grid_cache.clear()
+            self._grid_source = self.gdf
+        if factor not in self._grid_cache:
+            if self.spatial_transform is not None:
+                cols = np.floor(self.gdf['array_col'].to_numpy() / factor).astype(np.int64)
+                rows = np.floor(self.gdf['array_row'].to_numpy() / factor).astype(np.int64)
+                # Integer array coordinates are native centres, not boundaries.
+                centres = self.spatial_transform.array_points(
+                    np.column_stack(((cols + .5) * factor - .5, (rows + .5) * factor - .5)))
+            else:
+                # Compatibility for in-memory samples without original positions.
+                coordinates = self.get_coordinates(self.gdf)
+                cols = np.floor(coordinates.x.to_numpy() / (self.native_width * factor)).astype(np.int64)
+                rows = np.floor(coordinates.y.to_numpy() / (self.native_height * factor)).astype(np.int64)
+                centres = np.column_stack(((cols + .5) * self.native_width * factor,
+                                           (rows + .5) * self.native_height * factor))
+            self._grid_cache[factor] = pd.DataFrame(dict(grid_x=cols, grid_y=rows,
+                x=centres[:, 0], y=centres[:, 1]), index=self.gdf.index)
+        return self._grid_cache[factor]
+
+    def aggregation_names(self, factor):
+        cache = self._aggregation_labels
+        if cache is None or cache[0] is not self.gdf or cache[1] is not self.adata:
+            cache = self._aggregation_labels = (self.gdf, self.adata, {})
+        if factor not in cache[2]:
+            grid = self.aggregation_grid(factor)
+            names = 'summary:' + grid.grid_x.astype(str) + ':' + grid.grid_y.astype(str) + f':{factor}'
+            names.index = self.gdf[self.on].astype(str)
+            cache[2][factor] = names[~names.index.duplicated()].reindex(self.adata.obs_names.astype(str))
+        return cache[2][factor]
+
     def _get_aggregated_sample(self, factor):
         import anndata as ad
         import scipy.sparse as sp
@@ -116,29 +155,8 @@ class Bins(Sample):
 
         report(f"Aggregating bins ({self._describe_factor(factor)})...")
 
-        cell_width = self.native_width * factor
-        cell_height = self.native_height * factor
-
-        centroids = self.gdf.geometry.centroid
-        grid = pd.DataFrame(
-            {
-                "grid_x": np.floor(centroids.x.to_numpy() / cell_width),
-                "grid_y": np.floor(centroids.y.to_numpy() / cell_height),
-            },
-            index=self.gdf[self.on].astype(str).to_numpy(),
-        )
-        grid = grid[~grid.index.duplicated()].reindex(self.adata.obs_names.astype(str))
-        valid = grid.notna().all(axis=1).to_numpy()
-
-        # Same naming as in _fetch_aggregated_data, so obs_names match the plotted cells
-        cell_names = pd.Series(np.nan, index=self.adata.obs_names, dtype=object)
-        cell_names[valid] = (
-            "summary:"
-            + grid.loc[valid, "grid_x"].astype(np.int64).astype(str)
-            + ":"
-            + grid.loc[valid, "grid_y"].astype(np.int64).astype(str)
-            + f":{factor}"
-        ).to_numpy()
+        cell_names = self.aggregation_names(factor)
+        valid = cell_names.notna().to_numpy()
 
         codes, uniques = pd.factorize(cell_names[valid])
         membership = sp.csr_matrix(
@@ -212,20 +230,6 @@ class Bins(Sample):
         while len(self._multiscale_cache) > self.MAX_CACHE_ENTRIES:
             self._multiscale_cache.popitem(last=False)
 
-    def _align_bbox(self, bbox, cell_width, cell_height):
-        if bbox is None:
-            min_x, min_y, max_x, max_y = self.gdf.total_bounds
-            bbox = [min_x, max_x, min_y, max_y]
-
-        left, right, bottom, top = bbox
-
-        aligned_left = np.floor(left / cell_width) * cell_width
-        aligned_right = np.ceil(right / cell_width) * cell_width
-        aligned_bottom = np.floor(bottom / cell_height) * cell_height
-        aligned_top = np.ceil(top / cell_height) * cell_height
-
-        return [aligned_left, aligned_right, aligned_bottom, aligned_top]
-
     def _get_numeric_value(self, adata, gdf, colname):
         values = self.get_value(adata=adata, gdf=gdf, colname=colname)
         if not isinstance(values, pd.Series):
@@ -236,38 +240,29 @@ class Bins(Sample):
         cell_width = self.native_width * factor
         cell_height = self.native_height * factor
 
-        aligned_bbox = self._align_bbox(bbox, cell_width, cell_height)
-
-        cache_key = (
-            factor,
-            tuple(round(value, 4) for value in aligned_bbox),
-            tuple(sorted(colnames or [])),
-        )
-        
+        cache_key = (factor, None if bbox is None else tuple(round(v, 4) for v in bbox),
+                     tuple(sorted(colnames or [])))
         if cache_key in self._multiscale_cache:
             self._multiscale_cache.move_to_end(cache_key)
             return self._multiscale_cache[cache_key].copy()
 
-        cropped_gdf, cropped_adata = self.crop(*aligned_bbox, crop_adata=False), self.adata
+        grid = self.aggregation_grid(factor)
+        if bbox is None:
+            mask = np.ones(len(grid), dtype=bool)
+        else:
+            left, right, bottom, top = bbox
+            angle = self.spatial_transform.angle if self.spatial_transform else 0.
+            half_x = (abs(np.cos(angle))*cell_width + abs(np.sin(angle))*cell_height) / 2
+            half_y = (abs(np.sin(angle))*cell_width + abs(np.cos(angle))*cell_height) / 2
+            mask = ((grid.x + half_x >= left) & (grid.x - half_x <= right)
+                    & (grid.y + half_y >= bottom) & (grid.y - half_y <= top))
+        cropped_gdf, cropped_adata = self.gdf.loc[mask], self.adata
         if cropped_gdf.empty:
-            cols = ["x", "y", "width", "height", "angle", "xs", "ys", "obs_name"] + (list(colnames) if colnames else [])
-            empty = pd.DataFrame(columns=cols)
-            self._cache_result(cache_key, empty)
-            return empty.copy()
-
-        coords = self.get_coordinates(cropped_gdf)
-        grid_x = np.floor(coords["x"].to_numpy() / cell_width).astype(np.int32)
-        grid_y = np.floor(coords["y"].to_numpy() / cell_height).astype(np.int32)
-
-        data = pd.DataFrame(
-            {
-                "grid_x": grid_x,
-                "grid_y": grid_y,
-                "x": (grid_x + 0.5) * cell_width,
-                "y": (grid_y + 0.5) * cell_height,
-            },
-            index=coords.index,
-        )
+            cols = ["x", "y", "width", "height", "angle", "obs_name"] + (list(colnames) if colnames else [])
+            return pd.DataFrame(columns=cols)
+        data = grid.loc[mask].copy()
+        grid_x, grid_y = data.grid_x.to_numpy(), data.grid_y.to_numpy()
+        
         data["width"] = cell_width
         data["height"] = cell_height
         data["obs_name"] = (
@@ -289,6 +284,7 @@ class Bins(Sample):
         if colnames is not None:
             if isinstance(colnames, str):
                 colnames = [colnames]
+                
             for colname in colnames:
                 is_categorical = colname in self.adata.obs.columns and not self.is_continous(colname)
                 if is_categorical:
@@ -314,14 +310,7 @@ class Bins(Sample):
                 else:
                     grouped[colname] = _grp.sum(min_count=1)
 
-        # These cells are defined in an axis-aligned display-space grid.
-        # Applying the native tissue rotation would rotate their dimensions
-        # away from their center spacing, creating overlaps and gaps.
-        grouped["angle"] = 0.0
-        left, right = grouped.x - cell_width / 2, grouped.x + cell_width / 2
-        bottom, top = grouped.y - cell_height / 2, grouped.y + cell_height / 2
-        grouped["xs"] = np.column_stack((left, right, right, left, left)).tolist()
-        grouped["ys"] = np.column_stack((bottom, bottom, top, top, bottom)).tolist()
+        grouped["angle"] = self.spatial_transform.angle if self.spatial_transform else 0.0
         grouped.reset_index(drop=True, inplace=True)
         grouped.index = grouped["obs_name"]
         self._cache_result(cache_key, grouped)
@@ -336,8 +325,7 @@ class Bins(Sample):
             if return_coords:
                 data["width"] = self.native_width
                 data["height"] = self.native_height
-                data["angle"] = self.native_angle
-                data["xs"], data["ys"] = exterior_coords(self.gdf.geometry.loc[data.index].values)
+                data["angle"] = self.spatial_transform.angle if self.spatial_transform else 0.0
             return data
 
         return self._fetch_aggregated_data(bbox=bbox, colnames=colnames, factor=factor)

@@ -7,8 +7,8 @@ import numpy as np
 import pandas as pd
 from scipy.spatial import cKDTree
 
-from src.utils.bins2spots import Bins2Spots
-from src.utils.converter import Converter
+from src.operations.bins2spots import Bins2Spots
+from src.operations.converter import Converter
 
 PITCH = 58.4                      # full-res pixels per 16 µm bin
 BIN_UM = 16
@@ -50,6 +50,27 @@ class SpotGridTests(unittest.TestCase):
         tolerance = 55 / BIN_UM * PITCH * 1.34
         for got, expected in zip(spots, bins):
             self.assertLess(abs(got - expected), tolerance)
+
+    def test_buffer_radius_in_aligned_plot_units(self):
+        import shapely
+        from src.data.image.transform import SpatialTransform
+
+        b2s = make_b2s()
+        transform = SpatialTransform.fit(b2s.df_tissue_positions, (4000, 5000, 3), image_scale=.5)
+        b2s.spatial_transform = transform
+        spots = b2s.spot_polygons
+        pixel_centres = spots[['pxl_col_in_fullres', 'pxl_row_in_fullres']].to_numpy()
+        centres = transform.points(pixel_centres)
+        expected_radius = 27.5 / BIN_UM * transform.pitch
+        coordinates, owners = shapely.get_coordinates(spots.geometry.to_numpy(), return_index=True)
+        distances = np.linalg.norm(coordinates - centres[owners], axis=1)
+        np.testing.assert_allclose(distances, expected_radius, atol=1e-9)
+        np.testing.assert_allclose(spots.geometry.centroid.x, centres[:, 0], atol=1e-9)
+        np.testing.assert_allclose(spots.geometry.centroid.y, centres[:, 1], atol=1e-9)
+
+    def test_buffering_empty_spot_grid(self):
+        b2s = Bins2Spots(None, positions(n=2), bins_size=BIN_UM)
+        self.assertTrue(b2s.spot_polygons.empty)
 
     def test_visium_geometry_and_bins_inside_each_spot(self):
         b2s = make_b2s(scale=(1.0, 1.0))

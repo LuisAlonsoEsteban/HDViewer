@@ -26,7 +26,7 @@ def make_layer(n=6):
                        obs=pd.DataFrame(index=index.astype(str)), var=pd.DataFrame(index=["g0", "g1"]))
     adata.obs["region"] = pd.Categorical(["a", "b"] * (n // 2))
     adata.obs["score"] = np.linspace(0, 1, n)
-    layer = Squares(figure(), Bins(gdf, adata, pixels_per_bin=1, bin_size_um=16),
+    layer = Squares(figure(), Bins(gdf, adata, pixels_per_bin=1, bin_size=16),
                     lazy_loading=True, alias="Bin")
     # As the app sets layers up
     layer.add_parameter(attr="alpha", colname="g0", colname_hovered=True)
