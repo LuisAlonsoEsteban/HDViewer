@@ -1,4 +1,5 @@
 
+
 import numpy as np
 from PIL import Image
 
@@ -45,7 +46,7 @@ def make_tile_app():
     return app
 
 
-def ensure_tile_server(host='0.0.0.0', port=5001):
+def ensure_tile_server(host='0.0.0.0', port=4000):
     """Start the process' tile server on `port` once."""
     with _TILE_LOCK:
         if port in _TILE_SERVERS:
@@ -233,7 +234,7 @@ class ImageProcessor:
             raise
 
 
-    def deploy_server(self, host='0.0.0.0', port=5001, overwrite=False):
+    def deploy_server(self, host='0.0.0.0', port=4000, overwrite=False):
         """Serve these tiles; returns the key of their URL path (/<key>/<z>/<x>/<y>).
 
         One tile server per process and port serves every image: starting one per

@@ -35,7 +35,7 @@ class TileServerTests(unittest.TestCase):
     def test_image_urls_carry_the_key(self):
         with tempfile.TemporaryDirectory() as root:
             processor = ImageProcessor(np.zeros((8, 8, 3), np.uint8), tile_dir(root, "img", 0))
-            processor.deploy_server = lambda port: register_tiles(processor.tiles_path)   # no real server
+            processor.deploy_server = lambda port, host=None: register_tiles(processor.tiles_path)   # no real server
             component = ImageComponent(processor)
             component.deploy_server()
             plot = SimpleNamespace(calls=[], image_url=lambda **kw: plot.calls.append(kw))
@@ -116,7 +116,7 @@ class TileGenerationTests(unittest.TestCase):
         with tempfile.TemporaryDirectory() as root:
             for size in (8, 130):
                 processor = ImageProcessor(np.zeros((3, size, 3), np.uint8), root, tile_size=16)
-                processor.deploy_server = lambda port: register_tiles(root)
+                processor.deploy_server = lambda port, host=None: register_tiles(root)
                 source = ImageComponent(processor).generate_tile_source()
                 self.assertEqual(source.max_zoom, processor.max_zoom)
 

@@ -1,4 +1,5 @@
 
+
 import numpy as np
 import pandas as pd
 from collections import OrderedDict
@@ -11,6 +12,12 @@ from ..utils.progress import report
 
 
 class Sample:
+    """Native observations and analysis with standalone constructor defaults.
+
+    Applications can supply cache/preprocessing/naming options explicitly. These
+    per-instance values are inherited by aggregate samples; method arguments
+    override analysis defaults without depending on any application settings.
+    """
 
     _max_y = None
 
@@ -20,9 +27,19 @@ class Sample:
             self, 
             gdf, 
             adata=None, 
-            on='index'
+            on='index',
+            *, gene_cache_size=None, cluster_col='leiden', min_gene_cells=3,
+            normalization_target_sum=1e4, marker_method='wilcoxon'
         ):
         
+        self.GENE_CACHE_SIZE = self.GENE_CACHE_SIZE if gene_cache_size is None else gene_cache_size
+        self.cluster_col = cluster_col
+        self.min_gene_cells = min_gene_cells
+        self.normalization_target_sum = normalization_target_sum
+        self.marker_method = marker_method
+        self._sample_options = dict(gene_cache_size=self.GENE_CACHE_SIZE, cluster_col=cluster_col,
+                                    min_gene_cells=min_gene_cells, normalization_target_sum=normalization_target_sum,
+                                    marker_method=marker_method)
         self.gdf = gdf
         self.adata = adata
 
@@ -243,7 +260,7 @@ class Sample:
         clusters = result['names'].dtype.names
         markers = {}
         
-        cluster_labels = self.adata_processed.obs['leiden']
+        cluster_labels = self.adata_processed.obs[self.cluster_col]
 
         for cluster in clusters:
             genes = [result['names'][cluster][i] for i in range(n_genes)]
@@ -336,8 +353,8 @@ class Sample:
         adata = self.adata.copy()
         adata.var_names_make_unique()
 
-        sc.pp.filter_genes(adata, min_cells=3)
-        sc.pp.normalize_total(adata, target_sum=1e4)
+        sc.pp.filter_genes(adata, min_cells=self.min_gene_cells)
+        sc.pp.normalize_total(adata, target_sum=self.normalization_target_sum)
         sc.pp.log1p(adata)
         sc.pp.highly_variable_genes(adata)
         adata = adata[:, adata.var.highly_variable].copy()
@@ -411,9 +428,9 @@ class Sample:
         self._mark_computed(step, params)
         return self.adata.obsm[key]
 
-    def get_embedding_dataframe(self, method: str, resolution_level=None) -> pd.DataFrame:
+    def get_embedding_dataframe(self, method: str, resolution_level=None, *, n_pcs=30, n_neighbors=15) -> pd.DataFrame:
         method = method.lower()
-        values = np.asarray(self.compute_embedding(method), dtype=float)
+        values = np.asarray(self.compute_embedding(method, n_pcs=n_pcs, n_neighbors=n_neighbors), dtype=float)
         df = pd.DataFrame(values, columns=["x", "y"], index=self.adata.obs_names.astype(str))
         df.index.name = "obs_name"
         df.reset_index(inplace=True)
@@ -422,10 +439,10 @@ class Sample:
 
     def run_clustering(
         self, 
-        resolution=0.9, 
-        n_pcs=30, 
-        n_neighbors=15, 
-        key_added="leiden",
+        resolution=0.9,
+        n_pcs=30,
+        n_neighbors=15,
+        key_added=None,
         compute_markers=False,
         **kwargs
     ):
@@ -438,11 +455,12 @@ class Sample:
         """
         import scanpy as sc
 
+        key_added = self.cluster_col if key_added is None else key_added
         adata = self._ensure_neighbors(n_pcs, n_neighbors)
 
         if not self._is_cached("leiden", resolution):
             report(f"Running Leiden clustering (resolution={resolution})...")
-            sc.tl.leiden(adata, resolution=resolution)
+            sc.tl.leiden(adata, resolution=resolution, key_added=self.cluster_col)
             self._mark_computed("leiden", resolution)
         if compute_markers:
             self.compute_marker_genes()
@@ -451,7 +469,7 @@ class Sample:
 
         self.adata.obs[key_added] = None
         self.adata.obs.loc[common_idx, key_added] = (
-            adata.obs.loc[common_idx, "leiden"]
+            adata.obs.loc[common_idx, self.cluster_col]
             .astype(str)
             .values
         )
@@ -462,12 +480,12 @@ class Sample:
         import scanpy as sc
 
         adata = self.adata_processed
-        if adata is None or 'leiden' not in adata.obs:
+        if adata is None or self.cluster_col not in adata.obs:
             return
         leiden_params = self._step_params.get("leiden")
         if self._is_cached("markers", leiden_params):
             return
         report("Ranking marker genes...")
-        sc.tl.rank_genes_groups(adata, groupby='leiden', method='wilcoxon')
+        sc.tl.rank_genes_groups(adata, groupby=self.cluster_col, method=self.marker_method)
         self._mark_computed("markers", leiden_params)
 

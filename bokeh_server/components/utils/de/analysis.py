@@ -1,3 +1,5 @@
+
+from .... import settings
 from dataclasses import dataclass
 
 import numpy as np
@@ -6,8 +8,6 @@ import scanpy as sc
 import anndata as ad
 
 from src.utils.progress import report
-
-
 
 @dataclass
 class DEResult:
@@ -70,7 +70,7 @@ class DEAnalysis:
         if factor not in cache:
             report(f"Preparing expression data ({level.n_obs} {obs_word})")
             _a = level.copy()
-            sc.pp.filter_genes(_a, min_cells=3)
+            sc.pp.filter_genes(_a, min_cells=settings.MIN_GENE_CELLS)
             sc.pp.log1p(_a)
             cache[factor] = _a
 
@@ -85,8 +85,8 @@ class DEAnalysis:
                 if cname not in level_masks:
                     continue
                 in_cluster = pd.Series(level_masks[cname], index=adata_copy.obs.index)
-                if (~in_cluster).sum() == 0 or in_cluster.sum() < 3:
-                    report(f"Skipping {cname}: fewer than 3 {obs_word}")
+                if (~in_cluster).sum() == 0 or in_cluster.sum() < settings.DE_MIN_OBSERVATIONS:
+                    report(f"Skipping {cname}: fewer than {settings.DE_MIN_OBSERVATIONS} {obs_word}")
                     continue
                 report(f"Testing {cname} vs rest")
                 adata_copy.obs['_de_group'] = in_cluster.map(
@@ -96,7 +96,7 @@ class DEAnalysis:
                     sc.tl.rank_genes_groups(
                         adata_copy, groupby='_de_group',
                         groups=[cname], reference='Rest',
-                        method='wilcoxon',
+                        method=settings.DE_METHOD,
                     )
                     results[cname] = sc.get.rank_genes_groups_df(adata_copy, group=cname)
                 except Exception as exc:
@@ -123,24 +123,24 @@ class DEAnalysis:
             tested_data = sub
 
             counts = sub.obs['_de_group'].value_counts()
-            usable = [c for c in active if counts.get(c, 0) >= 3]
+            usable = [c for c in active if counts.get(c, 0) >= settings.DE_MIN_OBSERVATIONS]
             if len(usable) < 2:
                 raise ValueError(f"\"Between selected\" needs at least 2 {units} "
-                                 f"with ≥3 {obs_word} each"
+                                 f"with ≥{settings.DE_MIN_OBSERVATIONS} {obs_word} each"
                                  + (" outside their overlap." if n_overlap else "."))
 
             report(f"Testing {len(usable)} {units} against each other")
             sc.tl.rank_genes_groups(
                 sub, groupby='_de_group',
                 groups=usable, reference='rest',
-                method='wilcoxon',
+                method=settings.DE_METHOD,
             )
             for cname in usable:
                 results[cname] = sc.get.rank_genes_groups_df(sub, group=cname)
 
         if not results:
             raise ValueError(f"No DE results for the selected {units} "
-                             f"(each needs ≥3 {obs_word}).")
+                             f"(each needs ≥{settings.DE_MIN_OBSERVATIONS} {obs_word}).")
 
         comparison_masks = {
             name: (np.asarray(tested_data.obs['_de_group'].astype(str) == name, dtype=bool)

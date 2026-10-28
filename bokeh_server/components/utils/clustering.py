@@ -1,3 +1,7 @@
+
+from ...backend_config import clustering_kwargs
+
+from ... import settings
 import pandas as pd
 import numpy as np
 from bokeh.models import (
@@ -40,7 +44,7 @@ class ClusteringManager:
         self.widgets.extend(self.clustering_manager.get_widgets(doc))
     """
 
-    CLUSTER_COL = "leiden"
+    CLUSTER_COL = settings.CLUSTER_COL
 
     def __init__(self, component):
         """
@@ -94,8 +98,10 @@ class ClusteringManager:
         manager = self.component.manager
         # Cluster at the level currently displayed (Bins store it as 'leiden_{factor}')
         resolution_level = getattr(manager, "effective_resolution_level", None)
+        options = clustering_kwargs()
+        options["resolution"] = resolution
         return manager.sample.run_clustering(
-            resolution=resolution,
+            **options,
             resolution_level=resolution_level,
             compute_markers=False,
         )
@@ -125,7 +131,8 @@ class ClusteringManager:
         marker genes are ranked (that runs afterwards, in the background).
         """
         resolution_slider = Slider(
-            start=0.1, end=2.0, value=1.0, step=0.1,
+            start=settings.CLUSTER_SLIDER_MIN, end=settings.CLUSTER_SLIDER_MAX,
+            value=settings.CLUSTER_SLIDER_DEFAULT, step=settings.CLUSTER_SLIDER_STEP,
             title="Clustering resolution",
         )
         run_button = Button(label="Run clustering", button_type="success")
@@ -310,7 +317,7 @@ class ClusteringManager:
             return []
         from bokeh.models import CheckboxGroup, Button
         from bokeh.models import Div as _Div
-        markers = self.component.manager.sample.get_marker_genes(n_genes=5)
+        markers = self.component.manager.sample.get_marker_genes(n_genes=settings.MARKER_GENE_COUNT)
         self._cluster_checkboxes = []
         widgets = []
         select_all_btn = Button(label="Select all / Deselect all", button_type="default", name="cluster_select_all")

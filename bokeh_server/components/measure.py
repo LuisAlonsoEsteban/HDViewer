@@ -1,5 +1,7 @@
 """Ruler tool: click two points on the plot to measure the distance between them."""
 
+from .. import settings
+
 import base64
 
 from bokeh.models import (
@@ -33,7 +35,7 @@ class MeasureTool:
     is shown in µm once `set_scale` has been called (figure units otherwise).
     """
 
-    COLOR = "#ffd166"
+    COLOR = settings.RULER_COLOR
 
     def __init__(self, figure):
         self.figure = figure

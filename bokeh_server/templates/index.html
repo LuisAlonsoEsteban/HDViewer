@@ -267,36 +267,29 @@
     }
 </script>
 <script>
+    const layoutSettings = {{ layout_settings | tojson }};
     Split(['#left', '#center', '#right'], {
-        sizes: [30, 45, 25],
-        minSize: 100,
-        gutterSize: 5,
+        ...layoutSettings.columns,
         gutterClass: 'custom-gutter',
         cursor: 'col-resize'
     });
     
     Split(['#metadata-container', '#widgets-container'], {
         direction: 'vertical',
-        sizes: [50, 50],
-        minSize: 100,
-        gutterSize: 5,
+        ...layoutSettings.metadata,
         gutterClass: 'custom-gutter',
         cursor: 'row-resize'
     });
 
     Split(['#map-container', '#de-results-container'], {
         direction: 'vertical',
-        sizes: [75, 25],
-        minSize: [200, 80],
-        gutterSize: 8,
+        ...layoutSettings.map,
         cursor: 'row-resize'
     });
     
     Split(['#top-right', '#bottom-right'], {
         direction: 'vertical',
-        sizes: [50, 50],
-        minSize: 100,
-        gutterSize: 5,
+        ...layoutSettings.right,
         gutterClass: 'custom-gutter',
         cursor: 'row-resize'
     });

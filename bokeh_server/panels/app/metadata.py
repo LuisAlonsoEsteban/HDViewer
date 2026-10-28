@@ -1,3 +1,5 @@
+
+from ... import settings
 import numpy as np
 import scanpy as sc
 from bokeh.layouts import column, row
@@ -227,7 +229,7 @@ class MetadataPanel(Panel):
         )
 
     def update_marker_table(self, geom):
-        markers = geom.sample.get_marker_genes(n_genes=10)
+        markers = geom.sample.get_marker_genes(n_genes=settings.METADATA_MARKER_GENE_COUNT)
         if geom.key not in self._marker_divs:
             return
         if not markers:

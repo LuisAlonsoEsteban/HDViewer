@@ -1,5 +1,6 @@
 """One invertible coordinate system shared by images and spatial layers."""
 
+
 from dataclasses import dataclass
 import hashlib
 import json
@@ -8,8 +9,8 @@ import numpy as np
 import shapely
 
 
-def fit_grid_basis(positions):
-    sampled = positions.iloc[np.linspace(0, len(positions) - 1, min(4096, len(positions)), dtype=int)]
+def fit_grid_basis(positions, *, max_points=4096, max_condition_number=1e10):
+    sampled = positions.iloc[np.linspace(0, len(positions) - 1, min(max_points, len(positions)), dtype=int)]
     design = np.column_stack((sampled['array_col'], sampled['array_row'], np.ones(len(sampled))))
     pixels = sampled[['pxl_col_in_fullres', 'pxl_row_in_fullres']].to_numpy(dtype=float)
 
@@ -18,7 +19,7 @@ def fit_grid_basis(positions):
 
     basis, _, rank, _ = np.linalg.lstsq(design, pixels, rcond=None)
 
-    if rank < 3 or np.linalg.cond(basis[:2]) > 1e10:
+    if rank < 3 or np.linalg.cond(basis[:2]) > max_condition_number:
         raise ValueError('Cannot align image: the tissue grid is singular or underdetermined.')
     
     return basis
@@ -98,7 +99,7 @@ class SpatialTransform:
         return shapely.transform(geometry, self.image_points)
 
     @classmethod
-    def fit(cls, positions, image_shape, image_scale=1.):
+    def fit(cls, positions, image_shape, image_scale=1., *, max_points=4096, max_condition_number=1e10):
         if not np.isfinite(image_scale) or image_scale <= 0:
             raise ValueError('Cannot align image: image scale must be positive.')
 
@@ -106,7 +107,7 @@ class SpatialTransform:
             if not np.isfinite(positions[name].to_numpy(dtype=float)).all():
                 raise ValueError('Cannot display image: tissue positions must be finite.')
 
-        basis = fit_grid_basis(positions)
+        basis = fit_grid_basis(positions, max_points=max_points, max_condition_number=max_condition_number)
 
         array_to_pixel = np.eye(3)
         array_to_pixel[:2, :] = basis.T

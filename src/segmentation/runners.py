@@ -5,6 +5,7 @@ All runners share one contract: the plugin reads <input>/image.tif and
 "##progress <fraction> <message>" lines to report progress.
 """
 
+
 import os
 import shutil
 import subprocess
@@ -32,7 +33,9 @@ class RunnerError(RuntimeError):
 class Runner:
     name = None
 
-    def __init__(self, config):
+    def __init__(self, config, *, sdk_dir=SDK_DIR, segmentation_root=SEGMENTATION_ROOT):
+        self.sdk_dir = Path(sdk_dir)
+        self.segmentation_root = Path(segmentation_root)
         self.config = config
         self.gpu = bool(config.get("gpu", False))
         threads = config.get("threads_per_run", DEFAULT_THREADS)
@@ -111,7 +114,7 @@ class DockerRunner(Runner):
 
     @property
     def binary(self):
-        return self.config.get("docker", {}).get("binary", "docker")
+        return self.config.get("docker", {}).get("binary", 'docker')
 
     def available(self):
         if shutil.which(self.binary) is None:
@@ -142,7 +145,7 @@ class DockerRunner(Runner):
         if not dockerfile.exists():
             raise RunnerError(f"could not pull {plugin.image}: {pull_error}")
         on_progress(0.0, "Image not in a registry: building it (first run only)")
-        argv = [self.binary, "build", "-t", plugin.image, "-f", dockerfile, SEGMENTATION_ROOT]
+        argv = [self.binary, "build", "-t", plugin.image, "-f", dockerfile, self.segmentation_root]
         log.write("$ " + " ".join(map(str, argv)) + "\n")
         try:
             self._stream(argv, None, log)
@@ -174,7 +177,7 @@ class ApptainerRunner(Runner):
 
     @property
     def binary(self):
-        for candidate in (self.settings.get("binary", "apptainer"), "apptainer", "singularity"):
+        for candidate in (self.settings.get("binary", 'apptainer'), "apptainer", "singularity"):
             if shutil.which(candidate):
                 return candidate
         return None
@@ -186,7 +189,7 @@ class ApptainerRunner(Runner):
         configured = (self.settings.get("images") or {}).get(plugin.name)
         if configured:
             return configured
-        images_dir = SEGMENTATION_ROOT / self.settings.get("images_dir", "images")
+        images_dir = self.segmentation_root / self.settings.get("images_dir", 'images')
         sif = images_dir / f"{plugin.name}.sif"
         if sif.exists():
             return str(sif)
@@ -212,7 +215,7 @@ class LocalRunner(Runner):
 
     def command(self, plugin, input_dir, output_dir, env):
         python = (self.config.get("local", {}).get("python") or {}).get(plugin.name) or sys.executable
-        pythonpath = os.pathsep.join(filter(None, [str(SDK_DIR), os.environ.get("PYTHONPATH")]))
+        pythonpath = os.pathsep.join(filter(None, [str(self.sdk_dir), os.environ.get("PYTHONPATH")]))
         argv = [python, plugin.path / "run.py", "--input", input_dir, "--output", output_dir]
         return argv, {**env, "PYTHONPATH": pythonpath}
 
@@ -220,14 +223,14 @@ class LocalRunner(Runner):
 RUNNERS = {cls.name: cls for cls in (DockerRunner, ApptainerRunner, LocalRunner)}
 
 
-def make_runner(config):
-    choice = os.environ.get("VHD_SEG_RUNNER") or config.get("runner", "auto")
+def make_runner(config, *, sdk_dir=SDK_DIR, segmentation_root=SEGMENTATION_ROOT):
+    choice = os.environ.get("VHD_SEG_RUNNER") or config.get("runner", 'auto')
     if choice != "auto":
         if choice not in RUNNERS:
             raise ValueError(f"unknown segmentation runner '{choice}'; use auto or {sorted(RUNNERS)}")
-        return RUNNERS[choice](config)
+        return RUNNERS[choice](config, sdk_dir=sdk_dir, segmentation_root=segmentation_root)
     for cls in (DockerRunner, ApptainerRunner):
-        runner = cls(config)
+        runner = cls(config, sdk_dir=sdk_dir, segmentation_root=segmentation_root)
         if runner.available():
             return runner
-    return LocalRunner(config)
+    return LocalRunner(config, sdk_dir=sdk_dir, segmentation_root=segmentation_root)

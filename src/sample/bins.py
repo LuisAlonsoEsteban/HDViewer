@@ -1,4 +1,5 @@
 
+
 from ._sample import Sample
 
 from ..utils.progress import report
@@ -9,10 +10,10 @@ from collections import OrderedDict
 
 class Bins(Sample):
 
-    AGGREGATED_PREFIX = "agg:"
+    AGGREGATED_PREFIX = 'agg:'
     AGGREGATION_FACTORS = (1, 2, 4, 8, 12)
     MAX_CACHE_ENTRIES = 24
-    CLUSTER_PREFIX = "leiden_"
+    CLUSTER_PREFIX = 'leiden_'
 
     def __init__(
         self, 
@@ -23,11 +24,19 @@ class Bins(Sample):
         spatial_transform=None,
         tile_scale_xfactor=1.0, 
         tile_scale_yfactor=1.0,
+        aggregated_prefix=None, aggregation_factors=None, max_cache_entries=None,
+        cluster_prefix=None, aggregate_obs_prefix='summary:',
         **kwargs
     ):
 
         super().__init__(*args, **kwargs)
 
+        for name, value in (('AGGREGATED_PREFIX', aggregated_prefix), ('AGGREGATION_FACTORS', aggregation_factors),
+                            ('MAX_CACHE_ENTRIES', max_cache_entries), ('CLUSTER_PREFIX', cluster_prefix)):
+            if value is not None:
+                setattr(self, name, tuple(value) if name == 'AGGREGATION_FACTORS' else value)
+
+        self.aggregate_obs_prefix = aggregate_obs_prefix
         self.spatial_transform = spatial_transform
         self._grid_cache = {}
         self._grid_source = self.gdf
@@ -141,7 +150,7 @@ class Bins(Sample):
             cache = self._aggregation_labels = (self.gdf, self.adata, {})
         if factor not in cache[2]:
             grid = self.aggregation_grid(factor)
-            names = 'summary:' + grid.grid_x.astype(str) + ':' + grid.grid_y.astype(str) + f':{factor}'
+            names = self.aggregate_obs_prefix + grid.grid_x.astype(str) + ':' + grid.grid_y.astype(str) + f':{factor}'
             names.index = self.gdf[self.on].astype(str)
             cache[2][factor] = names[~names.index.duplicated()].reindex(self.adata.obs_names.astype(str))
         return cache[2][factor]
@@ -175,6 +184,7 @@ class Bins(Sample):
             pd.DataFrame({"index": aggregated_adata.obs_names}),
             adata=aggregated_adata,
             on="index",
+            **self._sample_options,
         )
         self._aggregated_samples[factor] = aggregated_sample
         self._aggregated_cell_names[factor] = cell_names
@@ -197,7 +207,7 @@ class Bins(Sample):
             aggregated_sample = self._get_aggregated_sample(factor)
             aggregated_sample.run_clustering(resolution=resolution, n_pcs=n_pcs, n_neighbors=n_neighbors,
                                              compute_markers=compute_markers)
-            labels = aggregated_sample.adata.obs["leiden"].astype(str)
+            labels = aggregated_sample.adata.obs[self.cluster_col].astype(str)
             mapped = self._aggregated_cell_names[factor].map(labels)
             self.adata.obs[key_added] = mapped.where(mapped.notna(), None).astype(object)
 
@@ -208,11 +218,11 @@ class Bins(Sample):
                 del self._multiscale_cache[cache_key]
         return key_added
 
-    def get_embedding_dataframe(self, method: str, resolution_level=None):
+    def get_embedding_dataframe(self, method: str, resolution_level=None, *, n_pcs=30, n_neighbors=15):
         factor = self.get_aggregation_factor(resolution_level)
         if factor <= 1:
-            return super().get_embedding_dataframe(method)
-        return self._get_aggregated_sample(factor).get_embedding_dataframe(method)
+            return super().get_embedding_dataframe(method, n_pcs=n_pcs, n_neighbors=n_neighbors)
+        return self._get_aggregated_sample(factor).get_embedding_dataframe(method, n_pcs=n_pcs, n_neighbors=n_neighbors)
 
     def compute_marker_genes(self):
         if self._clustering_factor > 1:
@@ -266,7 +276,7 @@ class Bins(Sample):
         data["width"] = cell_width
         data["height"] = cell_height
         data["obs_name"] = (
-            "summary:"
+            self.aggregate_obs_prefix
             + data["grid_x"].astype(str)
             + ":"
             + data["grid_y"].astype(str)

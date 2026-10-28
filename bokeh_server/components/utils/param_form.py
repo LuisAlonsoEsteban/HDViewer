@@ -4,6 +4,8 @@ Colour and alpha are the layer's main parameters and live in the Color and
 General tabs; this tab manages the others (line colour, line width, ...).
 """
 
+from ... import settings
+
 from html import escape
 
 import pandas as pd
@@ -35,10 +37,10 @@ def is_color(attr):
 def attr_spec(attr):
     """Input limits and defaults per kind of attribute."""
     if is_color(attr):
-        return dict(value="#ffffff", not_sequenced="#cccccc")
+        return dict(settings.PARAMETER_COLOR_SPEC)
     if "alpha" in attr:
-        return dict(low=0, high=1, value=1.0, not_sequenced=0.3, minv=0.0, maxv=1.0)
-    return dict(low=0, high=20, value=1.0, not_sequenced=0.5, minv=0.5, maxv=4.0)  # widths
+        return dict(settings.PARAMETER_ALPHA_SPEC)
+    return dict(settings.PARAMETER_WIDTH_SPEC)  # widths
 
 
 class ParamForm:
@@ -63,8 +65,9 @@ class ParamForm:
         self.value_number = NumericInput(title="Value", mode="float", width=235)
         # From data
         self.colname_input = AutocompleteInput(
-            title="Gene / Metadata", value="", min_characters=1,
-            case_sensitive=False, restrict=True, width=235,
+            title="Gene / Metadata", value="", min_characters=settings.METADATA_INPUT_MIN_CHARACTERS,
+            case_sensitive=settings.AUTOCOMPLETE_CASE_SENSITIVE,
+            search_strategy=settings.AUTOCOMPLETE_SEARCH_STRATEGY, restrict=True, width=235,
         )
         self.colname_hint = Div(width=235)
         self.min_input = NumericInput(title="Output min", mode="float", width=110)

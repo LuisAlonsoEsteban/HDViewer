@@ -1,3 +1,5 @@
+
+from ... import settings
 import numpy as np
 import pandas as pd
 import scanpy as sc
@@ -15,7 +17,7 @@ from .loading import LoadingLogger
 from .palettes import GROUP_PALETTE, palette_color
 
 OPERATORS  = [">", "<", ">=", "<=", "=="]
-GROUPS_COL = "custom_groups"
+GROUPS_COL = settings.GROUPS_COL
 
 
 class GroupsManager:
@@ -151,8 +153,9 @@ class GroupsManager:
             title="Gene / Metadata",
             value=colnames[0] if colnames else "",
             completions=colnames,
-            min_characters=1,
-            case_sensitive=False,
+            min_characters=settings.METADATA_INPUT_MIN_CHARACTERS,
+            case_sensitive=settings.AUTOCOMPLETE_CASE_SENSITIVE,
+            search_strategy=settings.AUTOCOMPLETE_SEARCH_STRATEGY,
             restrict=False,
             width=235,
         )
@@ -326,7 +329,7 @@ class GroupsManager:
 
     # Sets the DE tab can compare: custom groups and/or the clusters of the Clustering tab
     DE_SOURCES = ("groups", "clusters")
-    CLUSTER_PREFIX = "Cluster "
+    CLUSTER_PREFIX = settings.DE_CLUSTER_PREFIX
 
     def _get_de_logger(self, doc):
         if getattr(self, '_de_logger', None) is None:

@@ -1,3 +1,4 @@
+from ... import settings
 
 from . import Panel
 
@@ -25,10 +26,10 @@ class FigurePanel(Panel):
     def create_figure(self, max_dim):
         self.p = figure(
             sizing_mode='stretch_both',
-            min_height=180,
+            min_height=settings.PLOT_MIN_HEIGHT,
             x_range=(0, max_dim), 
             y_range=(0, max_dim),
-            background_fill_color='#7e7e7e',
+            background_fill_color=settings.PLOT_BACKGROUND_COLOR,
             tools='pan,wheel_zoom,box_select,lasso_select,tap,save,reset')
         
         self.p.grid.visible = False
@@ -96,7 +97,7 @@ class FigurePanel(Panel):
     def populate(self, image_component=None, w=None, h=None):
         if image_component is not None:
             if self.p is None:
-                self.create_figure(image_component.image_tiles.max_dim)
+                self.create_figure(image_component.image_processor.max_dim)
             self.set_children([self.p])
 
             if not self.image_attached:

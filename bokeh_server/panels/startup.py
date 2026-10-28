@@ -1,3 +1,7 @@
+
+from ..backend_config import grid_fit_kwargs, image_kwargs, bins_to_spots_kwargs, segmentation_kwargs
+
+from .. import settings
 from bokeh.models import (
     FileInput, Button, Div, Select,
     Checkbox, CustomJS, RadioButtonGroup, TextInput, NumericInput,
@@ -26,12 +30,13 @@ from src.segmentation import SegmentationService
 
 class StartupController:
 
-    UPLOAD_DIR = Path("./tmp")
+    UPLOAD_DIR = settings.UPLOAD_DIR
 
-    PROGRESS_WIDTH = 560  # px; fixed so the bars do not resize as their text changes
+    PROGRESS_WIDTH = settings.PROGRESS_WIDTH
 
     def __init__(self, doc):
         self.doc = doc
+        self.doc.template_variables["layout_settings"] = settings.PANEL_SPLITS
 
         self.loading = False
         self.preparing = False
@@ -84,8 +89,8 @@ class StartupController:
 
         self.resolution_select = Select(
             title="Resolution (µm)",
-            options=["2", "8", "16"],
-            value="16"
+            options=[str(size) for size in settings.UPLOAD_BIN_SIZES],
+            value=str(settings.UPLOAD_DEFAULT_BIN_SIZE)
         )
         self.resolution_select_widget = column(
             Div(text="<b>3. Resolution</b>"),
@@ -139,7 +144,7 @@ class StartupController:
     def _build_segmentation_widgets(self):
         self.segmentation_controls = {}
         try:
-            self.segmentation = SegmentationService()
+            self.segmentation = SegmentationService(**segmentation_kwargs())
         except Exception as exc:
             traceback.print_exc()
             self.segmentation = None
@@ -555,7 +560,8 @@ class StartupController:
         self.spatial_transform = SpatialTransform.fit(
             self.dataset.df_tissue_positions,
             self.dataset.image_shape,
-            self.dataset.image_scale
+            self.dataset.image_scale,
+            **grid_fit_kwargs(),
         )
 
         cache_key = f"padded-v2-{self._image_key()}-{self.spatial_transform.fingerprint}"
@@ -569,7 +575,8 @@ class StartupController:
             dataset.img, 
             base_dir / 'tiles' / cache_key,
             spatial_transform=self.spatial_transform, 
-            image_loader=load_image
+            image_loader=load_image,
+            **image_kwargs(),
         )
 
         single_image = self.image_processor.mem <= ImageComponent.TILE_MEM_THRESHOLD
@@ -605,7 +612,8 @@ class StartupController:
             spatial_transform=self.spatial_transform,
             tile_scale_xfactor=self.image_processor.scale_xfactor * self.dataset.image_scale,
             tile_scale_yfactor=self.image_processor.scale_yfactor * self.dataset.image_scale,
-            progress_callback=on_progress
+            progress_callback=on_progress,
+            **bins_to_spots_kwargs(),
         )
 
         self.update_progress(self.bins_progress, 50, "Building bin geometry")
@@ -768,7 +776,7 @@ class StartupController:
         self.loading = True
         self.preparing = True
         self._reset_progress()
-        self._progress_timer = self.doc.add_periodic_callback(self._render_progress, 50)
+        self._progress_timer = self.doc.add_periodic_callback(self._render_progress, settings.STARTUP_PROGRESS_REFRESH_MS)
         for widget in (self.data_source, self.load_button, self.pseudospots_checkbox,
                        self.example_select, self.h5_input,
                        self.positions_input, self.image_input, self.resolution_select,

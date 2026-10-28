@@ -1,5 +1,7 @@
 """Presentation of DE results: table HTML and data for native Bokeh figures."""
 
+from .... import settings
+
 from dataclasses import dataclass
 
 import numpy as np
@@ -57,7 +59,7 @@ class DEPresenter:
         return DEView(self._de_header, self._de_merged, table_html, plot_data)
 
     # Rows drawn at a time; the search box and sorting look through every gene
-    DE_TABLE_ROWS = 200
+    DE_TABLE_ROWS = settings.DE_TABLE_ROWS
 
     # Inline handlers: scripts inserted in a Div do not run, event attributes do. Both
     # call the table's shared renderer (script.de-render), compiled once per table.
@@ -99,7 +101,7 @@ class DEPresenter:
         try:
             if np.isnan(float(pval)):
                 raise ValueError
-            pval_cell = (f"{float(pval):.2e}", '#fff' if float(pval) < 0.05 else '#666')
+            pval_cell = (f"{float(pval):.2e}", '#fff' if float(pval) < settings.DE_PVALUE_CUTOFF else '#666')
         except (TypeError, ValueError):
             pval_cell = ('—', '#666')
         return lfc_cell, pval_cell
@@ -150,7 +152,7 @@ class DEPresenter:
             return float(v) if kind == 'lfc' else float(f"{float(v):.3g}")
         data = [[row['Gene']] + [num(row.get(f'{c}_{k}'), k) for c in names for k in ('lfc', 'pval')]
                 for _, row in merged.iterrows()]
-        data_json = json.dumps({"rows": data, "limit": self.DE_TABLE_ROWS},
+        data_json = json.dumps({"rows": data, "limit": self.DE_TABLE_ROWS, "pvalue_cutoff": settings.DE_PVALUE_CUTOFF},
                                separators=(',', ':'), allow_nan=False).replace("</", "<\\/")
 
         note = (f"Showing {min(n_total, self.DE_TABLE_ROWS)} of {n_total} genes"
@@ -175,7 +177,7 @@ class DEPresenter:
             "var h=\"<td style=\\\"padding:4px 10px;color:#fff\\\">\"+esc(r[0])+\"</td>\";"
             "for(var i=1;i<r.length;i+=2){var l=r[i],p=r[i+1];"
             "h+=l===null?td(\"—\",\"#888\"):td(l.toFixed(2),l>=0?\"#4ef1a1\":\"#f14e4e\");"
-            "h+=p===null?td(\"—\",\"#666\"):td(exp(p),p<0.05?\"#fff\":\"#666\");}"
+            "h+=p===null?td(\"—\",\"#666\"):td(exp(p),p<d.pvalue_cutoff?\"#fff\":\"#666\");}"
             "return \"<tr style=\\\"border-bottom:1px solid #222\\\">\"+h+\"</tr>\";}).join(\"\");"
             "box.querySelector(\"tbody\").innerHTML=html;"
             "var n=Math.min(hits.length,d.limit);"
@@ -225,8 +227,8 @@ class DEPresenter:
                 continue
             ranked = results[name]
             positive = ranked[ranked.logfoldchanges > 0].sort_values("scores", ascending=False)
-            significant = positive[positive.pvals_adj < .05]
-            top = pd.concat([significant, positive[~positive.names.isin(significant.names)]]).head(5)
+            significant = positive[positive.pvals_adj < settings.DE_PVALUE_CUTOFF]
+            top = pd.concat([significant, positive[~positive.names.isin(significant.names)]]).head(settings.DE_PLOT_TOP_GENES)
             if top.empty:
                 continue
             if mode == 1:
@@ -275,13 +277,13 @@ class DEPresenter:
             delta = max(.02, abs(low) * .02)
             return ([center - .14, center + .14, center + .14, center - .14],
                     [max(0., low - delta), max(0., low - delta), high + delta, high + delta])
-        grid = np.linspace(low, high, 128)
+        grid = np.linspace(low, high, settings.DE_VIOLIN_GRID_POINTS)
         # Only the density approximation is sampled. Hover statistics use all values.
-        sample = values if len(values) <= 5000 else np.random.default_rng(0).choice(values, 5000, replace=False)
+        sample = values if len(values) <= settings.DE_KDE_MAX_SAMPLES else np.random.default_rng(settings.DE_RANDOM_SEED).choice(values, settings.DE_KDE_MAX_SAMPLES, replace=False)
         try:
             density = gaussian_kde(sample)(grid)
         except np.linalg.LinAlgError:
             density = np.ones_like(grid)
-        width = .28 * density / max(float(density.max()), np.finfo(float).eps)
+        width = settings.DE_VIOLIN_HALF_WIDTH * density / max(float(density.max()), np.finfo(float).eps)
         return (np.concatenate([center - width, (center + width)[::-1]]).tolist(),
                 np.concatenate([grid, grid[::-1]]).tolist())

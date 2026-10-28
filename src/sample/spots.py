@@ -1,3 +1,5 @@
+
+from ..operations.converter import Converter
 from ._sample import Sample
 
 import math
@@ -8,7 +10,7 @@ class Spots(Sample):
         self.radius = radius
 
     def get_unit_area_um2(self):
-        return math.pi * (55.0 / 2)**2
+        return math.pi * (Converter.VisiumV2.SPOT_DIAMETER / 2)**2
 
     def get_coordinates(self, gdf):
         coordinates = super().get_coordinates(gdf)

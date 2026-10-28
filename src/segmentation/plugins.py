@@ -1,5 +1,6 @@
 """Discovery of segmentation plugins (segmentation/plugins/<name>/manifest.yaml)."""
 
+
 import sys
 from dataclasses import dataclass, field
 from pathlib import Path
@@ -10,7 +11,7 @@ SEGMENTATION_ROOT = Path(__file__).resolve().parents[2] / "segmentation"
 PLUGINS_DIR = SEGMENTATION_ROOT / "plugins"
 SDK_DIR = SEGMENTATION_ROOT / "sdk"
 
-PARAM_TYPES = ("float", "int", "bool", "choice")
+PARAM_TYPES = ('float', 'int', 'bool', 'choice')
 
 
 @dataclass

@@ -5,6 +5,7 @@ compared with the (area-weighted) sum of the higher-resolution geometries (s2, e
 or segmented cells) that fall inside it.
 """
 
+
 import numpy as np
 import pandas as pd
 import scipy.sparse as sp
@@ -13,7 +14,7 @@ from scipy import special
 from sklearn.metrics import adjusted_rand_score
 from sklearn.neighbors import NearestNeighbors
 
-from .sample import Sample
+from ..sample._sample import Sample
 from .progress import report
 
 
@@ -28,7 +29,8 @@ def compare_samples(
         sample2_cluster_key=None,
         sample1_celltype_key=None,
         sample2_celltype_key=None,
-        n_top_svg=100):
+        n_top_svg=100, *, normalization_target_sum=1e4, chunk_size=256,
+        k_neighbors=6, hull_ratio=0.1):
         
     """Compare a low-resolution and a high-resolution sample of the same tissue.
 
@@ -37,6 +39,9 @@ def compare_samples(
     min_coverage : keep only low-res geometries whose area is covered more than this fraction
         by high-res geometries.
     predicate : spatial predicate used to match high-res geometries to low-res ones.
+    normalization_target_sum, chunk_size, k_neighbors, hull_ratio : standalone
+        defaults for library normalisation, batched metrics, spatial neighbours
+        and the tissue hull; applications may override them explicitly.
     genes : genes used for the HVG-restricted metrics. Defaults to `n_hvg` HVGs of the low-res sample.
     sample1_cluster_key, sample2_cluster_key : `adata.obs` columns with cluster labels.
     sample1_celltype_key : `s1.adata.obsm` key, or DataFrame indexed by obs names, with one column per
@@ -75,26 +80,26 @@ def compare_samples(
 
     L, H = matched["L"], matched["H"]
     report("Normalizing and selecting genes...")
-    Ln, Hn = _log_normalize(L), _log_normalize(H)
+    Ln, Hn = _log_normalize(L, normalization_target_sum), _log_normalize(H, normalization_target_sum)
     hvg = _select_genes(Ln, L, H, matched["genes"], genes, n_hvg)
 
     # ---- Local metrics ----
     report(f"Computing per-geometry metrics ({L.shape[0]} geometries)...")
-    local = _profile_metrics(L, H, Ln, Hn, hvg)
+    local = _profile_metrics(L, H, Ln, Hn, hvg, chunk_size=chunk_size)
     local.index = matched["labels"]
     local.insert(0, "obs_name", matched["obs_names"])
     local["coverage"] = coverage.loc[matched["spots"]].to_numpy()
     local["n_sample2"] = np.bincount(matched["rows"], minlength=len(matched["spots"]))
-    local["distance_to_edge"] = _distance_to_edge(_tissue_hull(gdf1), matched["coords"])
+    local["distance_to_edge"] = _distance_to_edge(_tissue_hull(gdf1, ratio=hull_ratio), matched["coords"])
 
     # ---- Per-gene metrics ----
     report(f"Computing per-gene metrics ({L.shape[1]} genes)...")
     gene_df = _gene_metrics(L, H, Ln, Hn, matched["genes"], hvg)
 
     report("Computing spatial autocorrelation...")
-    W = _knn_weights(matched["coords"], k=6)
-    gene_df.loc[gene_df.index[hvg], "morans_i_sample1"] = _morans_i(W, Ln[:, hvg].tocsc())
-    gene_df.loc[gene_df.index[hvg], "morans_i_sample2"] = _morans_i(W, Hn[:, hvg].tocsc())
+    W = _knn_weights(matched["coords"], k=k_neighbors)
+    gene_df.loc[gene_df.index[hvg], "morans_i_sample1"] = _morans_i(W, Ln[:, hvg].tocsc(), chunk_size=chunk_size)
+    gene_df.loc[gene_df.index[hvg], "morans_i_sample2"] = _morans_i(W, Hn[:, hvg].tocsc(), chunk_size=chunk_size)
 
     # The count matrices are the largest objects: free them before anything else runs
     del L, H, Ln, Hn, matched["L"], matched["H"]
@@ -110,7 +115,7 @@ def compare_samples(
     report("Computing global metrics...")
     global_metrics.update(_expression_metrics(local, gene_df))
     global_metrics.update(_spatial_metrics(gene_df, n_top_svg))
-    global_metrics["local_metric_morans_i"] = _local_metric_autocorrelation(W, local)
+    global_metrics["local_metric_morans_i"] = _local_metric_autocorrelation(W, local, chunk_size=chunk_size)
 
     if sample1_cluster_key is not None and sample2_cluster_key is not None:
         report("Computing cluster agreement...")
@@ -231,7 +236,7 @@ def _build_matched_matrices(s1, s2, gdf1, pos1, pos2, pairs):
 # Normalisation and gene selection
 # --------------------------------------------------------------------------------------------
 
-def _log_normalize(M, target_sum=1e4):
+def _log_normalize(M, target_sum=10000.0):
     totals = np.asarray(M.sum(1, dtype=np.float64)).ravel()
     scale = np.divide(target_sum, totals, out=np.zeros_like(totals), where=totals > 0)
     return sp.csr_matrix(sp.diags(scale.astype(M.dtype)) @ M).log1p()
@@ -480,11 +485,11 @@ def _spatial_metrics(gene_df, n_top_svg):
     }
 
 
-def _local_metric_autocorrelation(W, local):
+def _local_metric_autocorrelation(W, local, *, chunk_size=256):
     """Moran's I of the main local metric maps: high values mean the disagreement is regional."""
     numeric = local[["pearson_hvg", "jensen_shannon", "log2_count_ratio"]].replace([np.inf, -np.inf], np.nan)
     numeric = numeric.fillna(numeric.mean())
-    values = _morans_i(W, numeric.to_numpy())
+    values = _morans_i(W, numeric.to_numpy(), chunk_size=chunk_size)
     return dict(zip(numeric.columns, values.astype(float).tolist()))
 
 

@@ -1,3 +1,7 @@
+
+from ...backend_config import comparison_kwargs
+
+from ... import settings
 import html
 
 import numpy as np
@@ -34,7 +38,7 @@ class ComparisonPanel(Panel):
     can be shown on the map like any other metadata column.
     """
 
-    OBS_PREFIX = "cmp_"
+    OBS_PREFIX = settings.COMPARISON_OBS_PREFIX
     GLOBAL_HELP_HINT = "<i>&#9432; Click a metric to see what it captures.</i>"
     NONE = "(none)"
 
@@ -82,8 +86,8 @@ class ComparisonPanel(Panel):
 
         self.predicate_select = Select(title="Match high-res geometries that are",
                                        options=[("contains", "inside"), ("intersects", "overlapping")],
-                                       value="intersects")
-        self.coverage_slider = Slider(title="Min. coverage", start=0.0, end=1.0, step=0.05, value=0.8)
+                                       value=settings.COMPARISON_PREDICATE)
+        self.coverage_slider = Slider(title="Min. coverage", start=0.0, end=1.0, step=settings.COMPARISON_COVERAGE_STEP, value=settings.COMPARISON_MIN_COVERAGE)
 
         self.sample1_cluster_select = Select(title="Sample 1 clusters", options=[self.NONE], value=self.NONE)
         self.sample2_cluster_select = Select(title="Sample 2 clusters", options=[self.NONE], value=self.NONE)
@@ -233,6 +237,7 @@ class ComparisonPanel(Panel):
             return
 
         kwargs = dict(
+            **{k: v for k, v in comparison_kwargs().items() if k not in ("min_coverage", "predicate")},
             min_coverage=self.coverage_slider.value,
             predicate=self.predicate_select.value,
             sample1_cluster_key=self._key(self.sample1_cluster_select),

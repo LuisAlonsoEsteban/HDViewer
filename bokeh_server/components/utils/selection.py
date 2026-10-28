@@ -1,5 +1,6 @@
 """Project canonical native-observation selections onto displayed bin aggregates."""
 
+
 import numpy as np
 import pandas as pd
 
@@ -7,7 +8,7 @@ import pandas as pd
 def _summary_factors(names, sample):
     allowed = getattr(sample, "AGGREGATION_FACTORS", ())
     return {int(name.rsplit(":", 1)[1]) for name in names
-            if name.startswith("summary:") and name.rsplit(":", 1)[1].isdigit()
+            if name.startswith(sample.aggregate_obs_prefix) and name.rsplit(":", 1)[1].isdigit()
             and int(name.rsplit(":", 1)[1]) in allowed}
 
 

@@ -1,5 +1,9 @@
 """Per-layer reference loading, background analysis and spatial result display."""
 
+from ...backend_config import deconvolution_kwargs
+
+from ... import settings
+
 from html import escape
 
 from bokeh.models import Button, Div, Select
@@ -10,7 +14,7 @@ from .loading import LoadingLogger
 
 class DeconvolutionManager:
 
-    DECONV_RESULT_PREFIX = "deconv_"
+    DECONV_RESULT_PREFIX = settings.DECONV_RESULT_PREFIX
 
     def __init__(self, component):
         self.component = component
@@ -105,7 +109,7 @@ class DeconvolutionManager:
                 status.error(exc)
 
             status.run("Deconvolution (NNLS)",
-                       lambda: deconvolve(self.component.sample.adata, reference, label_column), done, failed)
+                       lambda: deconvolve(self.component.sample.adata, reference, label_column, **deconvolution_kwargs()), done, failed)
 
         def show():
             if not display.value:

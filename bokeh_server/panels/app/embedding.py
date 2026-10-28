@@ -1,3 +1,5 @@
+
+from ...backend_config import embedding_kwargs
 from bokeh.layouts import column, row
 from bokeh.models import Button, ColumnDataSource, Select, TabPanel, Tabs
 from bokeh.plotting import figure
@@ -129,7 +131,7 @@ class EmbeddingPanel(Panel):
         resolution_level = getattr(component.manager, "effective_resolution_level", None)
 
         def _work():
-            return component.sample.get_embedding_dataframe(method, resolution_level=resolution_level)
+            return component.sample.get_embedding_dataframe(method, resolution_level=resolution_level, **embedding_kwargs())
 
         def _on_error(exc):
             view["run_button"].disabled = False

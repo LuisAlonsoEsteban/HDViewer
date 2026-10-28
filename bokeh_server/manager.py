@@ -1,4 +1,6 @@
 
+from . import settings
+
 
 import pandas as pd
 import numpy as np
@@ -193,7 +195,7 @@ from time import perf_counter
 from . import perf
 
 # Viewport loads of every layer and session (DynamicSourceManager.fetch_data_async)
-FETCH_EXECUTOR = ThreadPoolExecutor(max_workers=4, thread_name_prefix="viewport-fetch")
+FETCH_EXECUTOR = ThreadPoolExecutor(max_workers=settings.VIEWPORT_FETCH_WORKERS, thread_name_prefix="viewport-fetch")
 
 
 class DynamicSourceManager(SourceManager):

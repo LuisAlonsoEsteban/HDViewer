@@ -13,9 +13,11 @@ What happens after that (transfer and drawing) is the browser's: measure it with
 Performance tab of its developer tools.
 """
 
+from . import settings
+
 import os
 
-ENABLED = os.environ.get("VISIUM_PERF", "") not in ("", "0")
+ENABLED = settings.PERF_ENABLED
 
 def log(label, n_new, n_shown, n_vertices, **timings_ms):
     if not ENABLED:

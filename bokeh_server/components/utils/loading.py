@@ -1,3 +1,5 @@
+
+from ... import settings
 import html
 import threading
 import time
@@ -31,9 +33,9 @@ class LoadingLogger:
     document thread afterwards, so it may update Bokeh models.
     """
 
-    MAX_LOG_LINES = 6
+    MAX_LOG_LINES = settings.MAX_LOG_LINES
 
-    def __init__(self, doc, text="", font_size=12, **div_kwargs):
+    def __init__(self, doc, text="", font_size=settings.LOADING_FONT_SIZE, **div_kwargs):
         self.doc = doc
         self.font_size = font_size
         self.div = Div(text=text, **div_kwargs)
@@ -74,7 +76,7 @@ class LoadingLogger:
         self._steps = []
         self._start = time.monotonic()
         self._render()
-        self._periodic = self.doc.add_periodic_callback(self._render, 500)
+        self._periodic = self.doc.add_periodic_callback(self._render, settings.LOADING_REFRESH_MS)
 
         def _target():
             try:

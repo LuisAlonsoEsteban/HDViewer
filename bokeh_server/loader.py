@@ -1,3 +1,5 @@
+
+from . import settings
 import math
 
 from bokeh.core.property.descriptors import UnsetValueError
@@ -6,10 +8,10 @@ from bokeh.document import Document
 
 class LazyLoader:
 
-    STATIC_RANGE = 0.6
-    OFFSET = 0.7
+    STATIC_RANGE = settings.STATIC_RANGE
+    OFFSET = settings.OFFSET
 
-    HYSTERESIS_RATIO = 0.15
+    HYSTERESIS_RATIO = settings.HYSTERESIS_RATIO
 
     assert STATIC_RANGE <= OFFSET, "Offset must be larger than the static range for efficient loading"
 
@@ -109,7 +111,7 @@ class LazyLoader:
         return prev_factor, next_factor
 
     # Canvas width (px) assumed before the browser has reported the real one
-    DEFAULT_CANVAS_PX = 800
+    DEFAULT_CANVAS_PX = settings.DEFAULT_CANVAS_PX
 
     @staticmethod
     def _canvas_px(*getters):
@@ -152,7 +154,7 @@ class LazyLoader:
         factor = factors[0]
 
         for candidate in factors:
-            if max_span_in_bins / candidate <= 180:
+            if max_span_in_bins / candidate <= settings.TARGET_BINS_PER_AXIS:
                 factor = candidate
                 break
         else:
@@ -161,11 +163,11 @@ class LazyLoader:
         prev_factor, next_factor = self._get_hysteresis_bounds(self._last_factor)
         if factor != self._last_factor:
             if factor > self._last_factor and next_factor is not None:
-                promote_at = 180 * next_factor * (1 + self.HYSTERESIS_RATIO)
+                promote_at = settings.TARGET_BINS_PER_AXIS * next_factor * (1 + self.HYSTERESIS_RATIO)
                 if max_span_in_bins < promote_at:
                     factor = self._last_factor
             elif factor < self._last_factor and prev_factor is not None:
-                demote_at = 180 * self._last_factor * (1 - self.HYSTERESIS_RATIO)
+                demote_at = settings.TARGET_BINS_PER_AXIS * self._last_factor * (1 - self.HYSTERESIS_RATIO)
                 if max_span_in_bins > demote_at:
                     factor = self._last_factor
 

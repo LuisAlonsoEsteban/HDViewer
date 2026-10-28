@@ -1,5 +1,6 @@
 
-import os
+from .. import settings
+
 from pathlib import Path
 
 import numpy as np
@@ -38,18 +39,17 @@ from .utils.selection import native_selection, selection_indices
 from . import NOT_SEQUENCED_VAL
 
 
-STATIC_PATH = Path("/bokeh_server/static/data")
+STATIC_PATH = settings.STATIC_PATH
 
-BASE_DIR = Path(__file__).resolve().parent  
-DOWNLOADABLE_DATA_PATH = (BASE_DIR.parent / "static" / "data").resolve()
-DOWNLOADABLE_DATA_PATH.mkdir(parents=True, exist_ok=True)
+BASE_DIR = settings.BASE_DIR
+DOWNLOADABLE_DATA_PATH = settings.DOWNLOADABLE_DATA_PATH
 
 class Component:
 
     AVAILABLE_ATTRS = ['color', 'alpha', 'fill_alpha', 'line_width', 'line_color', 'line_alpha']
     TABLE_ATTRS = ['attr', 'is_static', 'colname', 'value', 'minv', 'maxv', 'not_sequenced_val']
 
-    CLUSTER_COLOR_LABEL = "cluster_color"
+    CLUSTER_COLOR_LABEL = settings.CLUSTER_COLOR_LABEL
 
     adata_path = None
 
@@ -125,15 +125,27 @@ class Component:
         return self._view
     
     def save_adata(self):
-        if not self.lazy_loading:
-            i = 0
-            while(True):
-                adata_path = (DOWNLOADABLE_DATA_PATH / f"{i}.h5ad").resolve()
-                if not os.path.exists(adata_path):
-                    break
+        if self.lazy_loading:
+            return None
+        DOWNLOADABLE_DATA_PATH.mkdir(parents=True, exist_ok=True)
+        i = 0
+        while True:
+            adata_path = (DOWNLOADABLE_DATA_PATH / f"{i}.h5ad").resolve()
+            try:
+                # Reserve a new filename atomically across simultaneous sessions.
+                with adata_path.open('xb'):
+                    pass
+                break
+            except FileExistsError:
                 i += 1
-            self.adata_path = adata_path
-            self.sample.adata.write_h5ad(self.adata_path)
+        try:
+            with self.sample.fetch_lock:
+                self.sample.adata.write_h5ad(adata_path)
+        except Exception:
+            adata_path.unlink(missing_ok=True)
+            raise
+        self.adata_path = adata_path
+        return adata_path
 
     def attach_loader(self, doc):
         if self.lazy_loading and self.glyph_renderer is not None:
@@ -306,14 +318,14 @@ class Component:
         items = []
         for param in self.manager.parameters:
             if (not param.is_static and param.colname_hovered
-                    and param.colname not in ('custom_clusters', 'leiden')
+                    and param.colname not in (settings.GROUPS_COL, settings.CLUSTER_COL)
                     and param.attr != 'alpha'):
                 items.append(f"{param.colname}: @{param.colname}")
 
-        if 'custom_clusters' in self.manager.source.data:
-            items.append("Group: @custom_clusters")
-        if 'leiden' in self.manager.source.data:
-            items.append("Cluster: @leiden")
+        if settings.GROUPS_COL in self.manager.source.data:
+            items.append(f"Group: @{{{settings.GROUPS_COL}}}")
+        if settings.CLUSTER_COL in self.manager.source.data:
+            items.append(f"Cluster: @{{{settings.CLUSTER_COL}}}")
 
         if len(items) > 0:
             return ", ".join(items)
@@ -396,19 +408,40 @@ class Component:
         self.notsequenced_checkbox.on_change("active", on_checkbox_change)
         return self.notsequenced_checkbox
     
-    def get_download_button(self, host='0.0.0.0', port=5002):
-        self.save_adata()
-        if self.static_adata_path:
-            self.download_button = Button(label="Download")
-            self.download_button.js_on_click(
-                CustomJS(
-                        code=f"""
-                        window.open('{self.static_adata_path}');
-                        """,
-                )
-            )
+    def get_download_button(self, host=settings.SERVER_HOST, port=settings.DOWNLOAD_SERVER_PORT):
+        if self.lazy_loading:
+            return None
+        button = Button(label="Download")
+        # Tags carry the completed export URL. Trigger the browser download only
+        # after the server has finished writing, rather than on the initial click.
+        button.js_on_change('tags', CustomJS(code="""
+            const file = cb_obj.tags[0]
+            if (file == null || file.url == null) return
+            const link = document.createElement('a')
+            link.href = file.url
+            link.download = file.filename
+            link.style.display = 'none'
+            document.body.appendChild(link)
+            link.click()
+            link.remove()
+        """))
 
-            return self.download_button
+        def download():
+            button.disabled = True
+            button.label = "Preparing download…"
+            try:
+                self.save_adata()
+                button.tags = [dict(url=str(self.static_adata_path), filename=f"{self.key}.h5ad")]
+                button.label = "Download"
+            except Exception:
+                button.label = "Download failed — retry"
+                raise
+            finally:
+                button.disabled = False
+
+        button.on_click(download)
+        self.download_button = button
+        return button
 
     def get_colnames(self):
         return self.sample.get_colnames()
@@ -418,8 +451,9 @@ class Component:
                                     title="Gene/Metadata", 
                                     value=self.get_colnames()[0], # TODO
                                     completions=self.get_colnames(), 
-                                    min_characters=2, 
-                                    case_sensitive=False, 
+                                    min_characters=settings.AUTOCOMPLETE_MIN_CHARACTERS,
+                                    case_sensitive=settings.AUTOCOMPLETE_CASE_SENSITIVE,
+                                    search_strategy=settings.AUTOCOMPLETE_SEARCH_STRATEGY,
                                     restrict=True
                                     )
         
@@ -518,7 +552,7 @@ class Component:
 
             for param in self.manager.parameters:
                 if 'color' in param.attr:
-                    self.colorpicker = ColorPicker(title=f"Select {self.alias}s Color", color='#6baed6')
+                    self.colorpicker = ColorPicker(title=f"Select {self.alias}s Color", color=settings.INITIAL_ATTRS["color"])
 
                     def update_color(attr, old, new, _param=param):
                         def set_new_color():

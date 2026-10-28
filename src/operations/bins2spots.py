@@ -1,4 +1,5 @@
 
+
 import pandas as pd
 import geopandas as gpd
 import numpy as np
@@ -23,14 +24,20 @@ class Bins2Spots:
                  tile_scale_yfactor=1.0,
                  progress_callback=None,
                  spatial_transform=None,
+                 *, grid_fit_max_points=4096, grid_max_condition_number=1e10,
+                 spot_buffer_quad_segs=16, normalization_target_sum=1e4,
                  ):
         
+        self.grid_fit_max_points = grid_fit_max_points
+        self.grid_max_condition_number = grid_max_condition_number
+        self.spot_buffer_quad_segs = spot_buffer_quad_segs
+        self.normalization_target_sum = normalization_target_sum
         self.spatial_transform = spatial_transform
         self.adata_hd = adata
         self.df_tissue_positions = tissue_positions
 
         self.bins_size = bins_size
-        self.converter = Converter(pixels_per_bin=pixels_per_bin, df_tissue_positions=tissue_positions, bins_size=bins_size)
+        self.converter = Converter(pixels_per_bin=pixels_per_bin, df_tissue_positions=tissue_positions, bins_size=bins_size, grid_fit_max_points=grid_fit_max_points)
 
         self._bin_squares = None
         self._spot_polygons = None
@@ -66,7 +73,8 @@ class Bins2Spots:
             self._grid_basis = (self.spatial_transform.inverse @ self.spatial_transform.grid_forward)[:2].T
             return self._grid_basis
 
-        self._grid_basis = fit_grid_basis(self.df_tissue_positions)
+        self._grid_basis = fit_grid_basis(self.df_tissue_positions, max_points=self.grid_fit_max_points,
+                                          max_condition_number=self.grid_max_condition_number)
         return self._grid_basis
 
     @property
@@ -131,10 +139,10 @@ class Bins2Spots:
         if self.spatial_transform is not None:
             display_centres = self.spatial_transform.points(centres)
             geometries = shapely.buffer(shapely.points(display_centres),
-                                        radius * self.spatial_transform.pitch, quad_segs=16)
+                                        radius * self.spatial_transform.pitch, quad_segs=self.spot_buffer_quad_segs)
         else:
             seeds = shapely.points(np.column_stack((centre_col, centre_row)))
-            geometries = shapely.buffer(seeds, radius, quad_segs=16)
+            geometries = shapely.buffer(seeds, radius, quad_segs=self.spot_buffer_quad_segs)
             geometries = shapely.transform(geometries, lambda xy: (xy @ basis[:2] + basis[2]) * self.display_scale)
 
         metadata = {
@@ -162,7 +170,7 @@ class Bins2Spots:
         self.adata_v2 = pooler.run(predicate='within')
 
         if normalize:
-            sc.pp.normalize_total(self.adata_hd, target_sum=1e4)
-            sc.pp.normalize_total(self.adata_v2, target_sum=1e4)
+            sc.pp.normalize_total(self.adata_hd, target_sum=self.normalization_target_sum)
+            sc.pp.normalize_total(self.adata_v2, target_sum=self.normalization_target_sum)
 
         return self.adata_v2

@@ -1,4 +1,6 @@
 
+from . import settings
+
 import numpy as np
 import pandas as pd
 
@@ -13,7 +15,7 @@ class StaticParameter(Parameter):
 
     is_sequenced = None
 
-    def __init__(self, value, attr='color', not_sequenced_val="#b8b8b8"):
+    def __init__(self, value, attr='color', not_sequenced_val=settings.NOT_SEQUENCED_ATTRS["color"]):
         super().__init__(is_static=True)
 
         self.attr = attr
@@ -62,7 +64,7 @@ class DynamicParameter(Parameter):
             min_counts=0.0, 
             max_counts=None, 
             static_not_sequenced=True, 
-            not_sequenced_val="#f5f5f5",
+            not_sequenced_val=settings.PARAMETER_NOT_SEQUENCED_COLOR,
             colname_hovered=False
             ):
         
@@ -148,12 +150,7 @@ class Scaler(DynamicParameter):
 
 class CategoricalColor(DynamicParameter):
 
-    PALETTE = [
-        "#e6194b", "#3cb44b", "#4363d8", "#f58231", "#911eb4",
-        "#42d4f4", "#f032e6", "#bfef45", "#fabed4", "#469990",
-        "#dcbeff", "#9A6324", "#fffac8", "#800000", "#aaffc3",
-        "#808000", "#ffd8b1", "#000075", "#a9a9a9", "#ffffff"
-    ]
+    PALETTE = settings.CATEGORICAL_PALETTE
 
     def __init__(self, *args, **kwargs):
         super().__init__(*args, **kwargs)

@@ -1,4 +1,8 @@
 
+from ...backend_config import sample_kwargs
+
+from ... import settings
+
 import os
 
 from bokeh.layouts import column
@@ -21,14 +25,8 @@ from ...components.glyphs import Squares, Circles, Patches
 
 class App:
 
-    INITIAL_ATTRS = {
-        "color": "#6baed6",
-        "alpha": 0.5,
-    }
-    NOT_SEQUENCED_ATTRS = {
-        "color": "#b8b8b8",
-        "alpha": 0.5,
-    }
+    INITIAL_ATTRS = settings.INITIAL_ATTRS
+    NOT_SEQUENCED_ATTRS = settings.NOT_SEQUENCED_ATTRS
 
     def __init__(self, doc, image_processor=None):
         self.doc = doc
@@ -49,7 +47,7 @@ class App:
             self.image_component = ImageComponent(image_processor)
 
     # Outline colours that tell segmentation methods apart on the figure
-    CELL_LAYER_COLORS = ["#6baed6", "#fd8d3c", "#74c476", "#9e9ac8", "#f768a1", "#fdd0a2"]
+    CELL_LAYER_COLORS = settings.CELL_LAYER_COLORS
 
     def reset_geometries(self):
         for geometry in self.geometries:
@@ -73,7 +71,7 @@ class App:
             raise ValueError("The ImageComponent must be loaded first with the 'add_image_component' function.")
         
         if self.figure_panel.p is None:
-            self.figure_panel.create_figure(self.image_component.image_tiles.max_dim)
+            self.figure_panel.create_figure(self.image_component.image_processor.max_dim)
 
         if not self.figure_panel.image_attached:
             self.figure_panel.attach_image(self.image_component)
@@ -84,10 +82,10 @@ class App:
         spatial_transform = getattr(b2s, "spatial_transform", None)
 
         if sample_type == "spots":
-            radius = (spatial_transform.pitch * 55. / (2 * b2s.bins_size)
+            radius = (spatial_transform.pitch * b2s.converter.VisiumV2.SPOT_DIAMETER / (2 * b2s.bins_size)
                       if spatial_transform is not None else
-                      b2s.converter.get_pixels(55.) / 2 * b2s.tile_scale_xfactor)
-            sample = Spots(polygons, adata, radius=radius)
+                      b2s.converter.get_pixels(b2s.converter.VisiumV2.SPOT_DIAMETER) / 2 * b2s.tile_scale_xfactor)
+            sample = Spots(polygons, adata, radius=radius, **sample_kwargs())
             sample.spatial_transform = spatial_transform
             geom = Circles('radius', self.figure_panel.p, sample, hover_color='green', alias='Spot')
             geom.sample_type = sample_type
@@ -115,6 +113,7 @@ class App:
                 polygons,
                 adata,
                 on='index',
+                **sample_kwargs("bins"),
                 pixels_per_bin=b2s.converter.visiumHD.pixels_per_bin,
                 spatial_transform=spatial_transform,
                 bin_size=b2s.bins_size,
@@ -164,7 +163,7 @@ class App:
             geom.attach_loader(self.doc)
 
         elif sample_type == "cells":
-            sample = Cells(polygons, adata)
+            sample = Cells(polygons, adata, **sample_kwargs("cells"))
             sample.spatial_transform = spatial_transform
             n_cell_layers = sum(g.sample_type == "cells" for g in self.geometries)
             geom = Patches(

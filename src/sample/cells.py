@@ -1,4 +1,5 @@
 
+
 from ._sample import Sample
 from ..utils.geom import exterior_coords
 
@@ -10,14 +11,20 @@ import math
 class Cells(Sample):
     # Levels of detail: level k draws the polygons simplified with tolerance
     # LOD_BASE_TOLERANCE * 2**k (figure units); None draws the original polygons
-    LOD_PREFIX = "lod:"
+    LOD_PREFIX = 'lod:'
     LOD_BASE_TOLERANCE = 1.0
     LOD_MAX_LEVEL = 8
     LOD_TOLERANCE_PX = 1.0
     LOD_HYSTERESIS = 0.15
 
-    def __init__(self, *args, **kwargs):
+    def __init__(self, *args, lod_prefix=None, lod_base_tolerance=None, lod_max_level=None,
+                 lod_tolerance_px=None, lod_hysteresis=None, **kwargs):
         super().__init__(*args, **kwargs)
+        for name, value in (('LOD_PREFIX', lod_prefix), ('LOD_BASE_TOLERANCE', lod_base_tolerance),
+                            ('LOD_MAX_LEVEL', lod_max_level), ('LOD_TOLERANCE_PX', lod_tolerance_px),
+                            ('LOD_HYSTERESIS', lod_hysteresis)):
+            if value is not None:
+                setattr(self, name, value)
         self._simplified = {}
 
     def get_lod_level(self, pixel_size, current=None):

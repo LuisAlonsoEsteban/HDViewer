@@ -1,5 +1,7 @@
 """Per-layer, session-only spatial ROIs and shared map drawing tools."""
 
+from ... import settings
+
 from dataclasses import dataclass, field
 from html import escape
 import uuid
@@ -156,7 +158,7 @@ class ROIManager:
     def radius_geometry(cls, x, y, radius, units_x=1., units_y=1.):
         if not np.isfinite([x, y, radius, units_x, units_y]).all() or min(radius, units_x, units_y) <= 0:
             raise ValueError("Seed coordinates must be finite and the radius and calibration must be positive.")
-        circle = Point(x, y).buffer(radius, quad_segs=64)
+        circle = Point(x, y).buffer(radius, quad_segs=settings.ROI_BUFFER_QUAD_SEGS)
         return cls.validate_geometry(scale(circle, xfact=1 / units_x, yfact=1 / units_y, origin=(x, y)))
 
     def seed_radius_geometry(self, x, y, radius, units_x=1., units_y=1.):
@@ -210,11 +212,11 @@ class ROIManager:
         coordinates *= np.asarray(factors)
         levels = []
         # Bound temporary geometry memory; nearby circles merge within each chunk.
-        for start in range(0, len(coordinates), 256):
+        for start in range(0, len(coordinates), settings.ROI_SEED_BATCH_SIZE):
             if cancelled is not None and cancelled():
                 raise InterruptedError("Group preview cancelled.")
-            points = shapely.points(coordinates[start:start + 256])
-            region = shapely.union_all(shapely.buffer(points, radius, quad_segs=64))
+            points = shapely.points(coordinates[start:start + settings.ROI_SEED_BATCH_SIZE])
+            region = shapely.union_all(shapely.buffer(points, radius, quad_segs=settings.ROI_BUFFER_QUAD_SEGS))
             level = 0
             # Merge similarly sized batches instead of repeatedly unioning an
             # ever-growing region, especially costly for disjoint group bins.
@@ -228,7 +230,7 @@ class ROIManager:
                 levels.append(region)
             else:
                 levels[level] = region
-            report(f"Buffered {min(start + 256, len(coordinates)):,} / {len(coordinates):,} group-bin seeds")
+            report(f"Buffered {min(start + settings.ROI_SEED_BATCH_SIZE, len(coordinates)):,} / {len(coordinates):,} group-bin seeds")
         region = shapely.union_all([region for region in levels if region is not None])
         region = scale(region, xfact=1 / factors[0], yfact=1 / factors[1], origin=(0, 0))
         if transform is not None:
@@ -287,7 +289,7 @@ class ROIManager:
         if immediate:
             self._start_pending_preview()
         else:
-            self._preview_timeout = self.doc.add_timeout_callback(self._start_pending_preview, 200)
+            self._preview_timeout = self.doc.add_timeout_callback(self._start_pending_preview, settings.ROI_PREVIEW_DEBOUNCE_MS)
 
     def _start_pending_preview(self):
         self._preview_timeout = None
@@ -436,7 +438,7 @@ class ROIManager:
 
     def focus(self, roi):
         x0, y0, x1, y1 = roi.geometry.bounds
-        px, py = .05 * (x1 - x0), .05 * (y1 - y0)
+        px, py = settings.ROI_FOCUS_PADDING * (x1 - x0), settings.ROI_FOCUS_PADDING * (y1 - y0)
         self.component.figure.x_range.update(start=x0 - px, end=x1 + px)
         self.component.figure.y_range.update(start=y0 - py, end=y1 + py)
 
@@ -534,7 +536,7 @@ class ROIManager:
             self.logger = LoadingLogger(doc)
             self.name_input = TextInput(title='ROI name (optional)', placeholder='ROI 1')
             self.method = Select(title='Geometry', value='box', options=[('box', 'Bounding box'), ('lasso', 'Lasso'), ('radius', 'Seed + radius')])
-            self.radius = NumericInput(title=f'Radius ({self.radius_scale()[1]})', value=50., low=0, visible=False)
+            self.radius = NumericInput(title=f'Radius ({self.radius_scale()[1]})', value=settings.ROI_DEFAULT_RADIUS, low=0, visible=False)
             self.seed_source = Select(title='Seed source', value='map',
                                       options=[('map', 'Click on map'), ('group', 'All bins in a group')], visible=False)
             self.seed_group = Select(title='Seed group', options=[('', 'Choose a group')], value='', visible=False)

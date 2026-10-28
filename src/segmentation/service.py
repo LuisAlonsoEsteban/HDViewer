@@ -1,5 +1,6 @@
 """Run segmentation plugins on a tissue image and load their results."""
 
+
 import hashlib
 import json
 import os
@@ -13,7 +14,7 @@ import yaml
 from shapely.geometry import Polygon, shape
 from shapely.validation import make_valid
 
-from .plugins import SEGMENTATION_ROOT, discover
+from .plugins import SEGMENTATION_ROOT, PLUGINS_DIR, SDK_DIR, discover
 from .runners import RunnerError, make_runner
 
 CONFIG_PATH = SEGMENTATION_ROOT / "config.yaml"
@@ -66,10 +67,11 @@ def read_polygons(path):
 
 
 class SegmentationService:
-    def __init__(self, config=None):
-        self.config = load_config() if config is None else config
-        self.plugins = discover()
-        self.runner = make_runner(self.config)
+    def __init__(self, config=None, *, config_path=CONFIG_PATH, plugins_dir=PLUGINS_DIR,
+                 sdk_dir=SDK_DIR, segmentation_root=SEGMENTATION_ROOT):
+        self.config = load_config(config_path) if config is None else config
+        self.plugins = discover(plugins_dir)
+        self.runner = make_runner(self.config, sdk_dir=sdk_dir, segmentation_root=segmentation_root)
         # Runs beyond max_parallel wait their turn (segmentation is memory hungry)
         self._slots = threading.Semaphore(max(1, int(self.config.get("max_parallel", 2))))
         self._input_lock = threading.Lock()

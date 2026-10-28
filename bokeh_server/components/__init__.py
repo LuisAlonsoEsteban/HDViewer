@@ -1,11 +1,1 @@
-NOT_SEQUENCED_VAL ={
-    "spots": {
-        "color": "#cccccc",
-    },
-    "bins": {
-        "color": "#cccccc",
-    },
-    "cells": {
-        "color": "#cccccc",
-    },
-}
+from ..settings import NOT_SEQUENCED_VAL

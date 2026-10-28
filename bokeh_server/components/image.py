@@ -1,4 +1,6 @@
 
+from .. import settings
+
 from bokeh.models import (
     WMTSTileSource,
     ColumnDataSource, 
@@ -10,9 +12,9 @@ from bokeh.plotting import figure
 
 class ImageComponent:
 
-    TILE_MEM_THRESHOLD = 0.5 # GB
+    TILE_MEM_THRESHOLD = settings.TILE_MEM_THRESHOLD
 
-    def __init__(self, image_processor, port=4000):
+    def __init__(self, image_processor, port=settings.TILE_SERVER_PORT):
         self.image_processor = image_processor
         self.port = port
 
@@ -23,7 +25,7 @@ class ImageComponent:
         return self.image_processor.mem > self.TILE_MEM_THRESHOLD
 
     def deploy_server(self):
-        self.tile_key = self.image_processor.deploy_server(port=self.port)
+        self.tile_key = self.image_processor.deploy_server(host=settings.SERVER_HOST, port=self.port)
         self.server_deployed = True
 
     def generate_tile_source(self):
