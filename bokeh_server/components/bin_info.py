@@ -100,7 +100,7 @@ class BinInfoOverlay:
         return {
             "factor": factor,
             "geometry": geometry,
-            "bin_size_um": sample.bin_size_um,
+            "bin_size_um": sample.bin_size,
             "locked": sample.get_forced_aggregation_factor(manager.get_colnames()) is not None,
         }
 

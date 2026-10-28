@@ -63,7 +63,7 @@ class App:
     def add_image_component(self, image_processor):
         self.image_component = ImageComponent(image_processor)
 
-    def add_sample(self, polygons, adata, b2s=None, sample_type="spots", method=None, title=None):
+    def add_sample(self, polygons, adata, b2s, sample_type="spots", method=None, title=None):
         """For cells, `method`/`title` identify the segmentation method; each
         method becomes its own layer."""
         if sample_type not in ["spots", "bins", "cells"]:
@@ -119,13 +119,13 @@ class App:
                 adata,
                 on='index',
                 pixels_per_bin=b2s.converter.visiumHD.pixels_per_bin,
-                bin_size_um=b2s.bins_size,
+                bin_size=b2s.bins_size,
                 tile_scale_xfactor=b2s.tile_scale_xfactor,
                 tile_scale_yfactor=b2s.tile_scale_yfactor,
             )
             # Bins carry the physical scale: one native bin is bin_size_um wide
             if self.figure_panel.measure_tool is not None and sample.native_width > 0:
-                bin_size_um = float(sample.bin_size_um)
+                bin_size_um = float(sample.bin_size)
                 self.figure_panel.measure_tool.set_scale(
                     bin_size_um / sample.native_width,
                     bin_size_um / sample.native_height,
@@ -135,7 +135,7 @@ class App:
                 self.figure_panel.roi_readout.set_scale(
                     1 / sample.tile_scale_xfactor,
                     1 / sample.tile_scale_yfactor,
-                    float(sample.bin_size_um) / sample.pixels_per_bin if sample.pixels_per_bin else None,
+                    float(sample.bin_size) / sample.pixels_per_bin if sample.pixels_per_bin else None,
                 )
 
             geom = Squares(

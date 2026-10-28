@@ -245,8 +245,7 @@ class ComparisonPanel(Panel):
             return
 
         def _work():
-            from src.comparison import compare_samples
-
+            from src.utils.comparison import compare_samples
             return compare_samples(low.sample, high.sample, **kwargs)
 
         self.run_button.disabled = True

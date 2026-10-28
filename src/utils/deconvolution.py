@@ -5,7 +5,7 @@ import pandas as pd
 from scipy import sparse
 from scipy.optimize import nnls
 
-from .utils.progress import report
+from .progress import report
 
 
 def _normalise(matrix):

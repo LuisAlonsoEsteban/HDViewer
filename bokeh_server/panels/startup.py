@@ -20,7 +20,7 @@ from ..datasets import AVAILABLE_DATASETS
 
 sys.path.insert(0, os.path.abspath(os.path.join(os.path.dirname(__file__), "..")))
 
-from src.load_data import DataSet
+from src.data.VisiumHD import VisiumHD
 from src.segmentation import SegmentationService
 
 
@@ -527,7 +527,7 @@ class StartupController:
             # it runs on the document thread and can fail too
             def update_doc():
                 try:
-                    self.app.add_sample(*output, b2s=self.b2s, sample_type=sample_type,
+                    self.app.add_sample(*output, self.b2s, sample_type=sample_type,
                                         **(sample_kwargs or {}))
                 except Exception as exc:
                     finish(exc)
@@ -538,7 +538,7 @@ class StartupController:
         threading.Thread(target=wrapper).start()
 
     def generate_tiles(self, base_dir):
-        from src.image import ImageProcessor
+        from src.data.image import ImageProcessor
 
         if self.dataset:
             if self.dataset.img is None:
@@ -579,7 +579,7 @@ class StartupController:
             raise ValueError
 
     def build_b2s(self, adata, df_tissue_positions, bins_size):
-        from src.utils.bins2spots import Bins2Spots
+        from src.operations.bins2spots import Bins2Spots
 
         def on_progress(step, done, total):
             # Three equally weighted stages: preparation, geometry, aggregation.
@@ -603,7 +603,7 @@ class StartupController:
 
         def add_bins():
             try:
-                self.app.add_sample(bin_squares, self.b2s.adata_hd, b2s=self.b2s, sample_type="bins")
+                self.app.add_sample(bin_squares, self.b2s.adata_hd, self.b2s, sample_type="bins")
                 self.update_progress(self.bins_progress, 100, "Complete")
             except Exception as exc:
                 self._report_failure("bins", exc)
@@ -620,7 +620,7 @@ class StartupController:
                 self.dataset.load()
             annotations_path = self._example_config().get("spatial_annotations_path")
             if annotations_path:
-                from src.singlecell import add_annotations
+                from src.data.singlecell import add_annotations
                 self.update_progress(self.bins_progress, status="Reading spatial annotations")
                 add_annotations(self.dataset.adata, annotations_path)
             self.update_progress(self.bins_progress, 25, "Preparing bins")
@@ -648,7 +648,7 @@ class StartupController:
         return hashlib.sha1(f"{path}|{stat.st_size}|{stat.st_mtime_ns}".encode()).hexdigest()[:12]
 
     def generate_segmentations(self, base_dir):
-        from src.utils.operations import CellsPooler
+        from src.operations.pooler import CellsPooler
         import shapely
 
         selected = [c for c in self.segmentation_controls.values() if c["checkbox"].active]
@@ -778,7 +778,7 @@ class StartupController:
 
     def _prepare_deconvolution_reference(self):
         """Read the optional upload once, before any layer is constructed (worker thread)."""
-        from src.singlecell import read_reference
+        from src.data.singlecell import read_reference
 
         reference = None
         name = None
@@ -821,7 +821,7 @@ class StartupController:
             positions_path = AVAILABLE_DATASETS[self.example_select.value]["positions_path"]
             bins_size = AVAILABLE_DATASETS[self.example_select.value]["bins_size"]
 
-        self.dataset = DataSet(
+        self.dataset = VisiumHD(
             img_path=img_path,
             adata_path=adata_path,
             positions_path=positions_path,

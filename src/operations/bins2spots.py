@@ -4,15 +4,10 @@ import geopandas as gpd
 import numpy as np
 import shapely
 
-from shapely.geometry import Point
-
 import scanpy as sc
 
-from tqdm import tqdm
-
 from .converter import Converter
-from .geom import create_square
-from .operations import Pooler
+from .pooler import Pooler
 
 
 class Bins2Spots:
@@ -93,7 +88,6 @@ class Bins2Spots:
         basis = self.grid_basis()
         offsets = np.array([[-.5, -.5], [.5, -.5], [.5, .5], [-.5, .5]]) @ basis[:2]
         centers = positions[["pxl_col_in_fullres", "pxl_row_in_fullres"]].to_numpy()
-        # Rotate in raw image coordinates, then scale each display axis.
         corners = (centers[:, None, :] + offsets) * self.display_scale
         geometry = shapely.polygons(corners)
         self._bin_squares = gpd.GeoDataFrame(self.df_tissue_positions, geometry=geometry)

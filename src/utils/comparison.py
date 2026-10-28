@@ -14,7 +14,7 @@ from sklearn.metrics import adjusted_rand_score
 from sklearn.neighbors import NearestNeighbors
 
 from .sample import Sample
-from .utils.progress import report
+from .progress import report
 
 
 def compare_samples(
@@ -29,6 +29,7 @@ def compare_samples(
         sample1_celltype_key=None,
         sample2_celltype_key=None,
         n_top_svg=100):
+        
     """Compare a low-resolution and a high-resolution sample of the same tissue.
 
     Parameters

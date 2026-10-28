@@ -8,7 +8,7 @@ import scanpy as sc
 import json
 from pathlib import Path
 
-class DataSet:
+class VisiumHD:
 
     img = None
     _adata = None
@@ -126,7 +126,7 @@ class DataSet:
             return self.get_default_path(bins_size, data='adata'), self.get_default_path(bins_size, data='positions')
         
     def read_img(self):
-        self.img_format = DataSet.get_format(self.img_path)
+        self.img_format = VisiumHD.get_format(self.img_path)
         if self.img_format == "btf":
             from tifffile import imread
         elif self.img_format in ["png", "tif"]:

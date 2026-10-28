@@ -4,7 +4,7 @@ from html import escape
 
 from bokeh.models import Button, Div, Select
 
-from src.deconvolution import deconvolve
+from src.utils.deconvolution import deconvolve
 from .loading import LoadingLogger
 
 

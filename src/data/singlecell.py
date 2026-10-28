@@ -22,7 +22,6 @@ def read_reference(contents, annotations=None):
     else:
         import scanpy as sc
 
-        # Scanpy's public 10x reader takes a filename, including for legacy H5.
         if isinstance(contents, bytes):
             with NamedTemporaryFile(suffix=".h5") as file:
                 file.write(contents)
@@ -43,7 +42,6 @@ def read_reference(contents, annotations=None):
 
 
 def add_annotations(adata, annotations):
-    """Align uploaded or local CSV/Parquet annotations to observations by barcode."""
     if isinstance(annotations, bytes):
         is_parquet = annotations.startswith(b"PAR1")
     else:
