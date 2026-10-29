@@ -290,18 +290,23 @@ class ComparisonPanel(Panel):
                                     "only tissue overlap metrics are available.", color="orange")
             for source in (self.hist_source, self.scatter_source, self.gene_source):
                 source.data = {key: [] for key in source.data}
+
             self.metric_select.options = []
-            self._refresh_completions(low)
+            low.refresh_completions()
             return
 
         metrics = self._write_obs_columns(low, local)
         numeric = [m for m in metrics if pd.api.types.is_numeric_dtype(local[m])]
         self.metric_select.options = numeric
+
         self.scatter_x_select.options = numeric
         self.scatter_y_select.options = numeric
+
         self.metric_select.value = "pearson_hvg" if "pearson_hvg" in numeric else numeric[0]
+
         self.scatter_x_select.value = "total_counts_sample1"
         self.scatter_y_select.value = "total_counts_sample2"
+
         self._update_histogram()
         self._update_scatter()
 
@@ -311,7 +316,8 @@ class ComparisonPanel(Panel):
             **{col: genes[col].astype(float).tolist() for col, _ in self.GENE_COLUMNS},
         }
 
-        self._refresh_completions(low)
+        low.refresh_completions()
+
         if shown.get(low):
             self._show_column(low, shown[low])
         self.status.success(
@@ -364,13 +370,6 @@ class ComparisonPanel(Panel):
         obs.drop(columns=[c for c in obs.columns if c.startswith(self.OBS_PREFIX)], inplace=True)
         return shown
 
-    def _refresh_completions(self, component):
-        colnames = component.get_colnames()
-        if component.autocomplete_input is not None:
-            component.autocomplete_input.completions = colnames
-        form = getattr(component, "add_param_form", None)
-        if form is not None:
-            form.colname_input.completions = colnames
 
     # ------------------------------------------------------------------
     # Interaction
@@ -424,10 +423,11 @@ class ComparisonPanel(Panel):
         """Display `colname` on a sample through its Gene/Metadata input."""
         if component is None or component.autocomplete_input is None:
             return
-        if colname not in component.get_colnames():
-            return
-        self._refresh_completions(component)
-        component.autocomplete_input.value = colname
+
+        self.component.refresh_completions()
+
+        if colname in component.get_colnames():
+            component.autocomplete_input.value = colname
 
     def _show_metric_on_map(self):
         if self.metric_select.value:
