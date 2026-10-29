@@ -5,6 +5,7 @@ __pycache__
 
 **/data/
 !src/data
+!hd_viewer/startup/data
 
 *.zarr
 

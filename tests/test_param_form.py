@@ -129,7 +129,22 @@ class ParamFormTests(unittest.TestCase):
         _, form = make_layer()
         self.assertFalse({"color", "alpha"} & set(form.attr_select.options))
         self.assertEqual(form.extra_parameters(), [])
+    def test_de_tab_uses_de_manager_widgets(self):
+        layer, _ = make_layer()
+        group_widgets = [Div(text="groups widget")]
+        de_widgets = [Div(text="de widget")]
 
+        layer.groups_manager.get_widgets = lambda doc: group_widgets
+        layer.de_manager.get_widgets = lambda doc: de_widgets
+        layer.clustering_manager.get_widgets = lambda doc, on_run=None, on_markers=None: []
+        layer.deconvolution_manager.get_widgets = lambda doc: []
+        layer.roi_manager.get_widgets = lambda doc: []
+
+        layer.get_widgets(Document())
+
+        de_tab = next(tab for tab in layer.tabs_widget.tabs if tab.title == "DE")
+        self.assertIn(de_widgets[0], de_tab.child.children)
+        self.assertNotIn(group_widgets[0], de_tab.child.children)
 
 if __name__ == "__main__":
     unittest.main()
