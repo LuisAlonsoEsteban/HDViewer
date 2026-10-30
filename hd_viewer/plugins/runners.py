@@ -4,6 +4,7 @@ import os
 import shutil
 import subprocess
 import sys
+import time
 from collections import deque
 from pathlib import Path
 
@@ -67,6 +68,7 @@ class Runner:
             argv, env = self.command(plugin, Path(input_dir), Path(output_dir), self.plugin_env())
             log.write(self.redact("$ " + " ".join(map(str, argv))) + "\n")
             log.flush()
+            on_progress(0, f'Launching {plugin.title} ({self.name}); image download and environment startup may take time')
             tail = self._stream(argv, env, log, on_progress)
         return tail
 
@@ -80,10 +82,12 @@ class Runner:
         except FileNotFoundError as exc:
             raise RunnerError(f"{argv[0]} not found") from exc
 
+        last_output_update = float('-inf')
         with proc:
             for line in proc.stdout:
                 line = self.redact(line)
                 log.write(line)
+                log.flush()
                 line = line.rstrip()
                 if line.startswith(PROGRESS_PREFIX):
                     parts = line.split(maxsplit=2)
@@ -95,6 +99,12 @@ class Runner:
                         on_progress(fraction, parts[2] if len(parts) > 2 else "")
                 elif line:
                     tail.append(line)
+                    # Runtime pulls/imports and R startup often emit ordinary output,
+                    # before the plugin emits its first structured progress message.
+                    now = time.monotonic()
+                    if on_progress is not None and now - last_output_update >= 1:
+                        on_progress(0, line[:500])
+                        last_output_update = now
         code = proc.returncode
         if code != 0:
             reason = f"exited with code {code} ({self.name} runner)"

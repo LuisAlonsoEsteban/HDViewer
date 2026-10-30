@@ -78,6 +78,10 @@ class PluginServiceTests(unittest.TestCase):
         self.assertTrue(result.fractions.iloc[2].isna().all())
         self.assertEqual(result.fractions.index.tolist(), ['001', '002', '003'])
         self.assertTrue(Path(result.metadata['log_path']).exists())
+        self.assertIn('Writing target counts for the plugin', messages)
+        self.assertIn('Writing single-cell reference for the plugin', messages)
+        self.assertTrue(any(message.startswith('Launching NNLS') for message in messages))
+        self.assertEqual(messages[-1], 'Deconvolution finished')
         np.testing.assert_array_equal(data.X.toarray(), counts.toarray())
         pd.testing.assert_frame_equal(ref.obs, annotations)
         self.assertFalse(data.obsm)
@@ -173,6 +177,28 @@ class PluginServiceTests(unittest.TestCase):
         with patch.object(service.runner, 'name', 'docker'), patch.dict(os.environ, {}, clear=True):
             self.assertIn('VHD_CIBERSORTX_TOKEN', service.unavailable_reason('cibersortx'))
 
+    def test_reference_lock_wait_is_reported_and_released(self):
+        import fcntl
+        import threading
+        from hd_viewer.board.operations.layer.deconvolution.service import _file_lock
+        path = self.work / 'reference.lock'
+        waiting, acquired = threading.Event(), threading.Event()
+        with path.open('a') as owner:
+            fcntl.flock(owner, fcntl.LOCK_EX)
+            def worker():
+                with _file_lock(path, on_wait=waiting.set):
+                    acquired.set()
+            thread = threading.Thread(target=worker)
+            thread.start()
+            try:
+                self.assertTrue(waiting.wait(5))
+                self.assertFalse(acquired.is_set())
+            finally:
+                fcntl.flock(owner, fcntl.LOCK_UN)
+                thread.join(timeout=5)
+        self.assertFalse(thread.is_alive())
+        self.assertTrue(acquired.is_set())
+
     def test_concurrent_identical_runs_fit_once(self):
         import threading
         calls, results, errors = [], [], []
@@ -227,6 +253,14 @@ assert not any(m.startswith(('bokeh', 'hd_viewer.board.layout', 'hd_viewer.board
 
 
 class ContainerCommandTests(unittest.TestCase):
+    def test_unstructured_container_startup_output_is_visible(self):
+        runner = DockerRunner({}, sdk_dir=SDK_DIR, segmentation_root=ROOT)
+        log, messages = io.StringIO(), []
+        runner._stream([sys.executable, '-c', "print('Downloading image layers')"], None, log,
+                       lambda fraction, message: messages.append(message))
+        self.assertEqual(messages, ['Downloading image layers'])
+        self.assertIn('Downloading image layers', log.getvalue())
+
     def test_deconvolution_images_use_ghcr_for_docker_and_apptainer(self):
         with tempfile.TemporaryDirectory() as folder:
             kwargs = dict(sdk_dir=SDK_DIR, segmentation_root=ROOT)

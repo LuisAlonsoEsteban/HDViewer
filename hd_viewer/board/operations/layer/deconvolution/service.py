@@ -92,10 +92,15 @@ def validate_result(result, index, cell_types=None):
 
 
 @contextmanager
-def _file_lock(path):
+def _file_lock(path, on_wait=None):
     path.parent.mkdir(parents=True, exist_ok=True)
     with path.open('a') as handle:
-        fcntl.flock(handle, fcntl.LOCK_EX)
+        try:
+            fcntl.flock(handle, fcntl.LOCK_EX | fcntl.LOCK_NB)
+        except BlockingIOError:
+            if on_wait is not None:
+                on_wait()
+            fcntl.flock(handle, fcntl.LOCK_EX)
         try:
             yield
         finally:
@@ -182,7 +187,10 @@ class DeconvolutionService:
         nonempty = np.asarray(target[:, shared].X.sum(axis=1)).ravel() > 0
         # Reference lock prevents concurrent fits/publication, including other viewer processes.
         progress(0, 'Queued: waiting for a free slot')
-        with self._slots, _file_lock(self.work_dir / '_locks' / f'{reference_key}.lock'):
+        with self._slots, _file_lock(
+                self.work_dir / '_locks' / f'{reference_key}.lock',
+                on_wait=lambda: progress(0, 'Waiting for another run using the same reference')):
+            progress(0, 'Checking cached results')
             if (destination / 'result.json').exists():
                 result = self._read(destination)
                 validate_result(result, target.obs_names, types)
@@ -193,10 +201,13 @@ class DeconvolutionService:
             input_dir, output_dir = work / 'input', work / 'output'
             input_dir.mkdir()
             output_dir.mkdir()
+            progress(0, 'Writing target counts for the plugin')
             target[nonempty].copy().write_h5ad(input_dir / 'target.h5ad')
+            progress(0, 'Writing single-cell reference for the plugin')
             reference.write_h5ad(input_dir / 'reference.h5ad')
             (input_dir / 'params.json').write_text(json.dumps(dict(params=resolved, label_column=label_column)))
             if artifacts.exists():
+                progress(0, 'Preparing cached reference artifacts')
                 shutil.copytree(artifacts, input_dir / 'reference_artifacts')
             try:
                 if not nonempty.any():
@@ -223,6 +234,7 @@ class DeconvolutionService:
                                        reference_id=reference_key, run_id=key, runner=self.runner.name,
                                        log_path=str(destination / 'run.log'))
                 validate_result(result, target.obs_names, types)
+                progress(.99, 'Saving validated deconvolution results')
                 self._write(result, output_dir)
                 if not (work / 'run.log').exists():
                     (work / 'run.log').write_text('No nonempty target observations.\n')
@@ -237,6 +249,7 @@ class DeconvolutionService:
                     shutil.rmtree(destination)
                 os.replace(output_dir, destination)
                 shutil.rmtree(work)
+                progress(1, 'Deconvolution finished')
                 return result
             except Exception as exc:
                 raise RunnerError(f'{plugin.title}: {exc}\nRun files and log: {work}') from exc

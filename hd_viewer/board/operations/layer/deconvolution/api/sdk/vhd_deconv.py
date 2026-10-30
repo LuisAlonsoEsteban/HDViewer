@@ -54,4 +54,5 @@ def start(argv=None):
     parser.add_argument('--input', default='/data/input')
     parser.add_argument('--output', default='/data/output')
     args = parser.parse_args(argv)
+    
     return Job(args.input, args.output)
