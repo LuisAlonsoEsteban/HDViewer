@@ -34,10 +34,32 @@ class ROI:
     error: str | None = None
     seed_group: str | None = None
     seed_count: int | None = None
+    excluded_seed_mask: np.ndarray | None = None
 
     @property
     def count(self):
         return None if self.mask is None else int(self.mask.sum())
+
+
+@dataclass
+class _ROIOverlay:
+    """Bounded display data; never used for membership or saved geometry."""
+    geometry: object
+    xs: object = None
+    ys: object = None
+    raster: object = None
+    bounds: object = None
+    images: dict = field(default_factory=dict)
+
+    def image(self, color):
+        if color not in self.images:
+            from PIL.ImageColor import getrgb
+            rgba = np.zeros((*self.raster.shape, 4), dtype=np.uint8)
+            rgba[self.raster > 0, :3] = getrgb(color)[:3]
+            rgba[self.raster == 1, 3] = 15  # Same light fill as vector ROIs.
+            rgba[self.raster == 2, 3] = 255
+            self.images[color] = rgba.view(np.uint32).reshape(self.raster.shape)
+        return self.images[color]
 
 
 class _DrawingController:
@@ -123,7 +145,11 @@ class ROIManager:
         self._preview_timeout = None
         self._pending_preview = None
         self._draft_seed_info = None
+        self._draft_excluded_seed_mask = None
         self._requested_seed_mask = None
+        self._overlay_cache = {}
+        self._group_union_cache = None
+        self._group_union_lock = threading.Lock()
 
         figure = component.figure
         if not hasattr(figure, '_roi_drawing_controller'):
@@ -137,6 +163,11 @@ class ROIManager:
                                        line_color='color', fill_color='color', line_width=2,
                                        selection_fill_alpha=.06, nonselection_fill_alpha=.06,
                                        level='overlay', name=f'{component.key}_rois')
+
+        self.raster_source = ColumnDataSource(dict(image=[], x=[], y=[], dw=[], dh=[]))
+        self.raster_renderer = figure.image_rgba(
+            image='image', x='x', y='y', dw='dw', dh='dh', source=self.raster_source,
+            level='overlay', name=f'{component.key}_roi_rasters')
 
         component.groups_manager.add_change_listener(self._groups_changed)
 
@@ -196,8 +227,8 @@ class ROIManager:
             names = gdf.iloc[candidates][self.sample.on].astype(str)
             return np.asarray(self.sample.adata.obs_names.isin(names), dtype=bool)
 
-    def compute_group_radius(self, group, radius, factors, mask=None, cancelled=None):
-        """Union radius neighbourhoods of every native bin in a group (worker-safe)."""
+    def compute_group_radius(self, group, radius, factors, mask=None, cancelled=None, exclude_group=False):
+        """Union native-bin radius neighbourhoods, optionally subtracting the group."""
         if not hasattr(self.sample, 'AGGREGATION_FACTORS'):
             raise ValueError("Group-bin seeds are available on bins layers.")
         self.radius_geometry(0., 0., radius, *factors)  # Validate radius and calibration.
@@ -212,7 +243,8 @@ class ROIManager:
                 raise ValueError("The seed group contains no sequenced bins.")
             gdf = self.sample.gdf
             rows = gdf.loc[gdf[self.sample.on].astype(str).isin(names)].drop_duplicates(self.sample.on)
-            centers = shapely.centroid(rows.geometry.to_numpy())
+            group_geometries = rows.geometry.to_numpy().copy()
+            centers = shapely.centroid(group_geometries)
             coordinates = np.column_stack((shapely.get_x(centers), shapely.get_y(centers)))
             if len(rows) != len(names) or not np.isfinite(coordinates).all():
                 raise ValueError("Every grouped bin must have valid geometry for its seed.")
@@ -241,10 +273,51 @@ class ROIManager:
             else:
                 levels[level] = region
             report(f"Buffered {min(start + settings.ROI_SEED_BATCH_SIZE, len(coordinates)):,} / {len(coordinates):,} group-bin seeds")
+
         region = shapely.union_all([region for region in levels if region is not None])
         region = scale(region, xfact=1 / factors[0], yfact=1 / factors[1], origin=(0, 0))
         if transform is not None:
             region = transform.geometry(region)
+
+        if exclude_group:
+            if cancelled is not None and cancelled():
+                raise InterruptedError("Group preview cancelled.")
+
+            with self._group_union_lock:
+                cached = self._group_union_cache
+            if (cached is not None and cached[0] is gdf and cached[1] is gdf.geometry.values
+                    and cached[2].equals(names)):
+                report("Reusing source-group footprint")
+                footprint = cached[3]
+            else:
+                report("Combining source-group bin geometries")
+                parts = []
+                for start in range(0, len(group_geometries), settings.ROI_SEED_BATCH_SIZE):
+                    self._check_cancelled(cancelled)
+                    parts.append(shapely.union_all(group_geometries[start:start + settings.ROI_SEED_BATCH_SIZE]))
+                
+                while len(parts) > 1:
+                    merged = []
+                    for start in range(0, len(parts), 2):
+                        self._check_cancelled(cancelled)
+                        merged.append(shapely.union_all(parts[start:start + 2]))
+                    parts = merged
+
+                footprint = parts[0]
+                
+                self._check_cancelled(cancelled)
+                with self._group_union_lock:
+                    self._group_union_cache = (gdf, gdf.geometry.values, names.copy(), footprint)
+
+            self._check_cancelled(cancelled)
+            report("Subtracting source-group footprint")
+            region = region.difference(footprint)
+            if region.is_empty or region.area <= 0:
+                raise ValueError("Subtracting the group leaves no ROI. Increase the radius or choose Full ROI.")
+
+        if cancelled is not None and cancelled():
+            raise InterruptedError("Group preview cancelled.")
+
         return self.validate_geometry(region), len(names)
 
     def _group_mode(self):
@@ -291,9 +364,12 @@ class ROIManager:
             return
         self.radius.title = f'Radius ({unit})'
         self._requested_seed_mask = (group, mask.copy())
+        exclude_group = self.group_region.value == 'minus_group'
         self._pending_preview = (self._preview_generation, group, radius, factors, mask,
-                                 self.sample.adata, self.sample.adata.obs_names.copy())
+                                 self.sample.adata, self.sample.adata.obs_names.copy(), exclude_group)
         self.seed_hint.text = f"All {int(mask.sum()):,} native bins are seeds; their neighbourhoods form one ROI."
+        if exclude_group:
+            self.seed_hint.text += " Source-group bin shapes and members are excluded."
         if self.logger.running:
             return
         if immediate:
@@ -305,7 +381,7 @@ class ROIManager:
         self._preview_timeout = None
         if self.logger.running or self._pending_preview is None or self.disposed or not self._group_mode():
             return
-        generation, group, radius, factors, mask, adata, names = self._pending_preview
+        generation, group, radius, factors, mask, adata, names, exclude_group = self._pending_preview
         self._pending_preview = None
         cancel = self._preview_cancel = threading.Event()
 
@@ -320,10 +396,14 @@ class ROIManager:
                     or key not in adata.obs or not np.array_equal(mask, adata.obs[key].fillna(False).to_numpy(dtype=bool))):
                 self.preview_group_radius(immediate=True)
                 return
-            geometry, count = result
-            self.set_draft(geometry, 'radius')
+            geometry, count, overlay = result
+            self.set_draft(geometry, 'radius', _overlay=overlay)
             self._draft_seed_info = (group, count)
-            self.logger.success(f"Preview ready: one ROI from all {count:,} group-bin seeds. Save ROI to keep it.")
+            self._draft_excluded_seed_mask = mask.copy() if exclude_group else None
+            detail = " Source group excluded." if exclude_group else ""
+            if overlay.raster is not None:
+                detail += " Complex outline shown as a bitmap preview; membership uses exact geometry."
+            self.logger.success(f"Preview ready: one ROI from all {count:,} group-bin seeds.{detail} Save ROI to keep it.")
 
         def failed(exc):
             if self.disposed:
@@ -334,13 +414,23 @@ class ROIManager:
                 self.logger.set_message("Preview cancelled.")
             self._start_pending_preview()
 
-        self.logger.run('Group-radius preview',
-                        lambda: self.compute_group_radius(group, radius, factors, mask, cancel.is_set), done, failed)
+        def work():
+            geometry, count = self.compute_group_radius(group, radius, factors, mask, cancel.is_set, exclude_group)
+            report("Preparing ROI display")
+            overlay = self._prepare_overlay(geometry, cancel.is_set)
+            return geometry, count, overlay
 
-    def set_draft(self, geometry, kind):
-        self.draft = self.validate_geometry(geometry)
+        self.logger.run('Group-radius preview', work, done, failed)
+
+    def set_draft(self, geometry, kind, *, _overlay=None):
+        if _overlay is None:
+            geometry = self.validate_geometry(geometry)
+            _overlay = self._prepare_overlay(geometry)
+        self.draft = geometry
+        self._overlay_cache[id(geometry)] = _overlay
         self.draft_kind = kind
         self._draft_seed_info = None
+        self._draft_excluded_seed_mask = None
         self._refresh_overlay()
         if self._layout is not None:
             self.save_button.disabled = self.logger.running
@@ -376,6 +466,7 @@ class ROIManager:
         self.draft = None
         self.draft_kind = None
         self._draft_seed_info = None
+        self._draft_excluded_seed_mask = None
         self._refresh_overlay()
         if self._layout is not None:
             self.save_button.disabled = True
@@ -383,11 +474,16 @@ class ROIManager:
                 self.logger.set_message("Choose a method and draw an ROI.")
 
     def add_roi(self, roi):
-        self.validate_geometry(roi.geometry)
+        if id(roi.geometry) not in self._overlay_cache:
+            self.validate_geometry(roi.geometry)
         if roi.mask is not None:
             roi.mask = np.asarray(roi.mask, dtype=bool).copy()
             if roi.mask.shape != (self.sample.adata.n_obs,):
                 raise ValueError("ROI membership must align with the native observations.")
+        if roi.excluded_seed_mask is not None:
+            roi.excluded_seed_mask = np.asarray(roi.excluded_seed_mask, dtype=bool).copy()
+            if roi.excluded_seed_mask.shape != (self.sample.adata.n_obs,):
+                raise ValueError("Excluded group membership must align with the native observations.")
         if any(existing.name == roi.name or existing.id == roi.id for existing in self.rois):
             raise ValueError("An ROI with that name already exists in this layer.")
         self.rois.append(roi)
@@ -407,6 +503,8 @@ class ROIManager:
         roi = ROI(name, self.draft, self.draft_kind, palette_color(GROUP_PALETTE, self._counter - 1))
         if self._draft_seed_info:
             roi.seed_group, roi.seed_count = self._draft_seed_info
+            if self._draft_excluded_seed_mask is not None:
+                roi.excluded_seed_mask = self._draft_excluded_seed_mask.copy()
         
         try:
             self.add_roi(roi)
@@ -445,7 +543,13 @@ class ROIManager:
             self._refresh_list()
             self._start_pending_preview()
 
-        self.logger.run('ROI membership', lambda: self.compute_membership(roi.geometry), done, failed)
+        def membership():
+            mask = self.compute_membership(roi.geometry)
+            # Intersects includes boundary contact. Remove the captured source bins
+            # explicitly even when they touch the edge of a subtracted polygon.
+            return mask if roi.excluded_seed_mask is None else mask & ~roi.excluded_seed_mask
+
+        self.logger.run('ROI membership', membership, done, failed)
 
     def get_rois(self):
         return list(self.rois)
@@ -485,6 +589,7 @@ class ROIManager:
     def set_visible(self, visible):
         self.visible = visible
         self.renderer.visible = visible
+        self.raster_renderer.visible = visible
         if not visible:
             self.cancel()
 
@@ -492,23 +597,86 @@ class ROIManager:
         self.cancel()
         self.disposed = True
         self.component.groups_manager.remove_change_listener(self._groups_changed)
-        if self.renderer in self.component.figure.renderers:
-            self.component.figure.renderers.remove(self.renderer)
+        for renderer in (self.renderer, self.raster_renderer):
+            if renderer in self.component.figure.renderers:
+                self.component.figure.renderers.remove(renderer)
+        self._overlay_cache.clear()
+        self._group_union_cache = None
 
     def _error(self, exc):
         if self.logger is not None:
             self.logger.error(exc)
 
+    @staticmethod
+    def _check_cancelled(cancelled):
+        if cancelled is not None and cancelled():
+            raise InterruptedError("Group preview cancelled.")
+
+    @classmethod
+    def _prepare_overlay(cls, geometry, cancelled=None):
+        """Prepare large shapes off the document thread without exporting their vertices."""
+        cls._check_cancelled(cancelled)
+        if shapely.get_num_coordinates(geometry) <= settings.ROI_OVERLAY_MAX_VERTICES:
+            parts = [geometry] if geometry.geom_type == 'Polygon' else list(geometry.geoms)
+            xs, ys = [], []
+            for poly in parts:
+                cls._check_cancelled(cancelled)
+                rings = [poly.exterior, *poly.interiors]
+                coords = [np.asarray(ring.coords) for ring in rings]
+                xs.append([xy[:, 0].tolist() for xy in coords])
+                ys.append([xy[:, 1].tolist() for xy in coords])
+            return _ROIOverlay(geometry, xs=xs, ys=ys)
+
+        from scipy.ndimage import binary_erosion
+        report("Rasterizing complex ROI preview; membership keeps the exact geometry")
+        x0, y0, x1, y1 = geometry.bounds
+        dx, dy = x1 - x0, y1 - y0
+        size = max(4, int(settings.ROI_OVERLAY_MAX_SIZE))
+        width = min(size, max(4, int(np.ceil(size * dx / max(dx, dy)))))
+        height = min(size, max(4, int(np.ceil(size * dy / max(dx, dy)))))
+        # A transparent margin keeps the outermost outline visible.
+        x0, x1 = x0 - dx / width, x1 + dx / width
+        y0, y1 = y0 - dy / height, y1 + dy / height
+        xs = x0 + (np.arange(width) + .5) * (x1 - x0) / width
+        ys = y0 + (np.arange(height) + .5) * (y1 - y0) / height
+        mask = np.empty((height, width), dtype=bool)
+        shapely.prepare(geometry)
+        # Row batches keep stale rasterization cancellable and memory bounded.
+        for start in range(0, height, 32):
+            cls._check_cancelled(cancelled)
+            mask[start:start + 32] = shapely.intersects_xy(geometry, xs[None, :], ys[start:start + 32, None])
+        raster = mask.astype(np.uint8)
+        raster[mask & ~binary_erosion(mask)] = 2
+        return _ROIOverlay(geometry, raster=raster, bounds=(x0, y0, x1, y1))
+
     def _refresh_overlay(self):
         shapes = [(roi.geometry, roi.color) for roi in self.rois if roi.visible]
         if self.draft is not None:
             shapes.append((self.draft, '#ffffff'))
-        polygons = [[shape] if shape.geom_type == 'Polygon' else list(shape.geoms) for shape, _ in shapes]
-        self.source.data = dict(xs=[[[list(ring.coords.xy[0]) for ring in [poly.exterior, *poly.interiors]]
-                                    for poly in parts] for parts in polygons],
-                                ys=[[[list(ring.coords.xy[1]) for ring in [poly.exterior, *poly.interiors]]
-                                    for poly in parts] for parts in polygons],
-                                color=[color for _, color in shapes])
+        keep = {id(roi.geometry) for roi in self.rois}
+        if self.draft is not None:
+            keep.add(id(self.draft))
+        self._overlay_cache = {key: value for key, value in self._overlay_cache.items() if key in keep}
+        vectors = dict(xs=[], ys=[], color=[])
+        rasters = dict(image=[], x=[], y=[], dw=[], dh=[])
+        for geometry, color in shapes:
+            overlay = self._overlay_cache.get(id(geometry))
+            if overlay is None:
+                overlay = self._prepare_overlay(geometry)
+                self._overlay_cache[id(geometry)] = overlay
+            if overlay.raster is None:
+                vectors['xs'].append(overlay.xs)
+                vectors['ys'].append(overlay.ys)
+                vectors['color'].append(color)
+            else:
+                x0, y0, x1, y1 = overlay.bounds
+                rasters['image'].append(overlay.image(color))
+                rasters['x'].append(x0)
+                rasters['y'].append(y0)
+                rasters['dw'].append(x1 - x0)
+                rasters['dh'].append(y1 - y0)
+        self.source.data = vectors
+        self.raster_source.data = rasters
 
     def _refresh_list(self):
         if self._layout is None or self.disposed:
@@ -521,8 +689,13 @@ class ROIManager:
                 count = f'Error: {escape(roi.error)}'
             
             title = Div(text=f"<b style='color:{roi.color}'>{escape(roi.name)}</b> · {roi.kind}<br>{count}")
+            overlay = self._overlay_cache.get(id(roi.geometry))
+            if overlay is not None and overlay.raster is not None:
+                title.text += "<br>Overview image · exact membership"
             if roi.seed_group is not None:
                 title.text += f"<br>{roi.seed_count:,} seeds from {escape(roi.seed_group)}"
+                if roi.excluded_seed_mask is not None:
+                    title.text += " · source group excluded"
             
             focus = Button(label='Focus', width=65)
             select = Button(label='Select', width=65, disabled=not roi.count)
@@ -561,6 +734,8 @@ class ROIManager:
             self.seed_source = Select(title='Seed source', value='map',
                                       options=[('map', 'Click on map'), ('group', 'All bins in a group')], visible=False)
             self.seed_group = Select(title='Seed group', options=[('', 'Choose a group')], value='', visible=False)
+            self.group_region = Select(title='ROI region', value='full',
+                                       options=[('full', 'Full ROI'), ('minus_group', 'ROI minus group')], visible=False)
             self.seed_hint = Div(text='', visible=False)
             def method_changed(attr, old, new):
                 self.cancel()
@@ -570,6 +745,7 @@ class ROIManager:
             self.seed_source.on_change('value', method_changed)
             self.seed_group.on_change('value', lambda attr, old, new: self.preview_group_radius())
             self.radius.on_change('value', lambda attr, old, new: self.preview_group_radius())
+            self.group_region.on_change('value', lambda attr, old, new: self.preview_group_radius())
             self.draw_button = Button(label='Draw', button_type='primary', width=100)
             self.save_button = Button(label='Save ROI', button_type='success', width=90, disabled=True)
             cancel = Button(label='Cancel', width=70)
@@ -577,7 +753,7 @@ class ROIManager:
             self.save_button.on_click(self.save_roi)
             cancel.on_click(self.cancel)
             self.roi_list = column(sizing_mode='stretch_width')
-            self._layout = column(self.name_input, self.method, self.radius, self.seed_source, self.seed_group,
+            self._layout = column(self.name_input, self.method, self.radius, self.seed_source, self.seed_group, self.group_region,
                                   self.seed_hint, row(self.draw_button, self.save_button, cancel),
                                   self.logger.div, self.roi_list, sizing_mode='stretch_width')
             self._refresh_list()
@@ -589,5 +765,6 @@ class ROIManager:
         self.radius.visible = self.method.value == 'radius'
         self.seed_source.visible = self.radius.visible and hasattr(self.sample, 'AGGREGATION_FACTORS')
         self.seed_group.visible = self._group_mode()
+        self.group_region.visible = self._group_mode()
         self.seed_hint.visible = self._group_mode()
         self.draw_button.label = 'Preview group' if self._group_mode() else 'Draw'

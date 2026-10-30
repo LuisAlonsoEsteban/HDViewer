@@ -108,6 +108,8 @@ ROI_FOCUS_PADDING = 0.05
 ROI_BUFFER_QUAD_SEGS = 64
 ROI_SEED_BATCH_SIZE = 256
 ROI_PREVIEW_DEBOUNCE_MS = 200
+ROI_OVERLAY_MAX_VERTICES = 20000
+ROI_OVERLAY_MAX_SIZE = 768
 
 # Segmentation; config.yaml and explicit parameters override these defaults
 SEGMENTATION_ROOT = (BASE_DIR / "startup" / "data" / "image" / "segmentation" / "api").resolve()

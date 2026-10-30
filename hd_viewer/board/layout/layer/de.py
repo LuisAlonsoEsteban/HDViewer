@@ -208,6 +208,7 @@ class DEManager:
 
     def _groups_changed(self):
         self._refresh_de_groups()
+        self._clear_de_if_cluster_deleted()
 
     def _refresh_de_groups(self):
         """Keep both DE lists in step with the groups and clusters that exist."""

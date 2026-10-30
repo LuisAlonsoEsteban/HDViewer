@@ -410,8 +410,15 @@
       <p>For a bins layer, Seed + radius also offers <b>All bins in a group</b>. Select an existing group
       to use every native member bin's center as a seed, regardless of displayed bin aggregation or
       viewport. Their radius neighbourhoods are united into one ROI, retaining disconnected pieces
-      and holes. The preview updates automatically when the group or radius changes; Preview group
-      also rebuilds it on demand. Save ROI commits that single region. Other group members and nearby
+      and holes. Choose <b>Full ROI</b> to keep the full neighbourhood, or <b>ROI minus group</b>
+      to subtract the source-group bin footprints and exclude those bins from ROI membership.
+      If subtraction leaves no region, increase the radius. The preview updates automatically when
+      the group, radius, or ROI region changes; Preview group
+      also rebuilds it on demand. Complex outlines are prepared in the background and displayed as
+      bounded-resolution overview images so large groups do not send millions of polygon vertices to
+      the browser. Zoomed edges may look pixelated; saved geometry, membership, selection, and generated
+      groups still use the exact region. The source-group footprint is reused when only the radius changes.
+      Save ROI commits that single region. Other group members and nearby
       bins can belong to the ROI through the normal shape-intersection rule.</p>
       <p>A white outline previews the draft. Save ROI commits it; Cancel discards it. Membership is
       computed over all native, sequenced observations whose shapes intersect or touch the region,

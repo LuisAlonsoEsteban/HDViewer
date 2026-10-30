@@ -14,11 +14,11 @@ from bokeh.models import Button, ColumnDataSource
 from bokeh.plotting import figure
 from shapely.geometry import box
 
-from bokeh_server.components.glyphs import Circles, Patches, Squares
-from bokeh_server.components.utils.roi import ROI, ROIManager
-from bokeh_server.components.utils.selection import aggregation_names
-from bokeh_server.panels.app.embedding import EmbeddingPanel
-from src.sample import Bins, Cells, Spots
+from hd_viewer.board.components.layer import Circles, Patches, Squares
+from hd_viewer.board.layout.layer.roi import ROI, ROIManager
+from hd_viewer.board.components.layer.utils.selection import aggregation_names
+from hd_viewer.board.layout.embedding import EmbeddingPanel
+from hd_viewer.startup.sample import Bins, Cells, Spots
 
 
 class ImmediateDoc(Document):
@@ -262,21 +262,21 @@ class ROIGroupTests(unittest.TestCase):
         manager, groups = layer.roi_manager, layer.groups_manager
         roi = saved(manager)
         name = manager.create_group(roi)
-        real = groups.de_analysis.run
+        real = layer.de_manager.de_analysis.run
         running, release = threading.Event(), threading.Event()
         def blocked(*args, **kwargs):
             running.set()
             release.wait(10)
             return real(*args, **kwargs)
-        groups.de_analysis.run = blocked
-        groups._run_de_thread([name], 0, manager.doc)
+        layer.de_manager.de_analysis.run = blocked
+        layer.de_manager._run_de_thread([name], 0, manager.doc)
         self.assertTrue(running.wait(5))
         manager.remove_roi(roi)
         release.set()
-        wait_for(lambda: not groups._de_logger.running)
-        self.assertEqual(groups._de_results, {})
+        wait_for(lambda: not layer.de_manager._de_logger.running)
+        self.assertEqual(layer.de_manager._de_results, {})
         self.assertEqual(layer._figure_de_layout.children, [])
-        self.assertIn('discarded', groups._de_status_div.text)
+        self.assertIn('discarded', layer.de_manager._de_status_div.text)
 
     def test_fixed_groups_survive_conditions_and_delete_with_roi(self):
         layer = make_layer()
@@ -284,19 +284,19 @@ class ROIGroupTests(unittest.TestCase):
         roi = saved(manager)
         group_name = manager.create_group(roi)
         np.testing.assert_array_equal(layer.sample.adata.obs[f'grp_{group_name}'], roi.mask)
-        groups._clusters['Condition'] = [('g0', '>', '15', 'AND')]
-        groups._active_clusters.add('Condition')
-        groups._apply_clusters_to_adata()
+        groups._groups['Condition'] = [('g0', '>', '15', 'AND')]
+        groups._active_groups.add('Condition')
+        groups._apply_groups_to_adata()
         np.testing.assert_array_equal(layer.sample.adata.obs[f'grp_{group_name}'], roi.mask)
-        self.assertIn(group_name, groups._de_options('groups'))
-        groups._de_clusters = [group_name]
-        groups._de_results_source = 'groups'
+        self.assertIn(group_name, layer.de_manager._de_options('groups'))
+        layer.de_manager._de_clusters = [group_name]
+        layer.de_manager._de_results_source = 'groups'
         layer._figure_de_layout.children = [column()]
         manager.remove_roi(roi)
-        self.assertNotIn(group_name, groups._clusters)
+        self.assertNotIn(group_name, groups._groups)
         self.assertNotIn(f'grp_{group_name}', layer.sample.adata.obs)
         self.assertEqual(layer._figure_de_layout.children, [])
-        self.assertIn('Condition', groups._clusters)
+        self.assertIn('Condition', groups._groups)
 
     def test_manual_group_delete_recreation_and_unique_names(self):
         layer = make_layer()
@@ -312,9 +312,9 @@ class ROIGroupTests(unittest.TestCase):
         recreated = manager.create_group(roi)
         self.assertEqual(recreated, linked)
         manager.remove_roi(roi)
-        self.assertIn('ROI: Region', groups._clusters)
+        self.assertIn('ROI: Region', groups._groups)
         groups.delete_group('ROI: Region', manager.doc)
-        self.assertEqual(groups._clusters, {})
+        self.assertEqual(groups._groups, {})
         self.assertNotIn('custom_groups', layer.sample.adata.obs)
         self.assertTrue(layer.manager.get_param('color').is_static)
 
@@ -323,9 +323,9 @@ class ROIGroupTests(unittest.TestCase):
         manager, groups = layer.roi_manager, layer.groups_manager
         roi = saved(manager)
         name = manager.create_group(roi)
-        groups._run_de_thread([name], 0, manager.doc)
-        wait_for(lambda: not groups._de_logger.running)
-        self.assertIn(name, groups._de_results, groups._de_status_div.text)
+        layer.de_manager._run_de_thread([name], 0, manager.doc)
+        wait_for(lambda: not layer.de_manager._de_logger.running)
+        self.assertIn(name, layer.de_manager._de_results, layer.de_manager._de_status_div.text)
         self.assertTrue(layer._figure_de_layout.children)
         manager.remove_roi(roi)
         self.assertEqual(layer._figure_de_layout.children, [])

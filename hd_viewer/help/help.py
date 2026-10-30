@@ -90,8 +90,12 @@ HELP = {
         measurements account for image scale and padding.
         On bins layers, choose <b>All bins in a group</b> as the seed source and select a group.
         Every native bin in that group supplies a seed; all radius neighbourhoods are combined
-        into <b>one ROI</b>. The preview updates when the group or radius changes, including
-        disconnected regions and holes. Click Save ROI to keep it.
+        into <b>one ROI</b>. Choose <b>Full ROI</b> to keep the complete neighbourhood, or
+        <b>ROI minus group</b> to subtract the source-group bin shapes and exclude its members.
+        The preview updates when the group, radius, or ROI region changes, including
+        disconnected regions and holes. Complex outlines use an overview image to keep the map
+        responsive; zoomed edges can look pixelated, while membership uses the exact region.
+        Click Save ROI to keep it.
         Inspect the draft and click <b>Save ROI</b>; Cancel discards it.<br>
         Counts include all sequenced native observations whose shapes intersect the ROI, including
         boundary contact, regardless of the viewport or displayed bin resolution.<br>
