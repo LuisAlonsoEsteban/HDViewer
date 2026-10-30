@@ -165,3 +165,11 @@ AUTOCOMPLETE_SEARCH_STRATEGY = "starts_with"
 MAX_LOG_LINES = 6
 LOADING_FONT_SIZE = 12
 LOADING_REFRESH_MS = 500
+
+# Deconvolution plugins have independent execution and cache configuration.
+DECONVOLUTION_ROOT = BASE_DIR / 'board' / 'operations' / 'layer' / 'deconvolution' / 'api'
+DECONVOLUTION_CONFIG_PATH = DECONVOLUTION_ROOT / 'config.yaml'
+DECONVOLUTION_WORK_DIR = UPLOAD_DIR / 'deconvolution'
+DECONVOLUTION_DEFAULT_RUNNER = 'auto'
+DECONVOLUTION_GPU = False
+DECONVOLUTION_MAX_PARALLEL = 1

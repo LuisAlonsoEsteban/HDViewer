@@ -1,0 +1,54 @@
+name: cell2location
+version: 0.1.0
+image: ghcr.io/luisalonsoesteban/visium-deconv-cell2location:0.1.0
+title: cell2location
+description: Bayesian mapping with reference regression. Reports posterior mean cell
+  abundance and normalized fractions; requires raw counts.
+url: https://cell2location.readthedocs.io/en/latest/notebooks/cell2location_tutorial.html
+citation: Kleshchevnikov et al., Nature Biotechnology (2022)
+params:
+- name: batch_column
+  type: obs_column
+  default: null
+  label: Reference batch column (optional)
+- name: N_cells_per_location
+  type: float
+  default: null
+  required: true
+  min: 1.0e-06
+  label: Expected cells per location (required)
+- name: detection_alpha
+  type: float
+  default: 20
+  min: 1.0e-06
+  label: Detection alpha
+- name: reference_epochs
+  type: int
+  default: 250
+  min: 1
+  label: Reference training epochs
+- name: spatial_epochs
+  type: int
+  default: 30000
+  min: 1
+  label: Spatial training epochs
+- name: batch_size
+  type: int
+  default: 1024
+  min: 1
+  label: Training batch size
+- name: posterior_samples
+  type: int
+  default: 1000
+  min: 1
+  label: Posterior samples
+- name: seed
+  type: int
+  default: 0
+  min: 0
+  label: Random seed
+reference_params:
+- batch_column
+- reference_epochs
+- posterior_samples
+- seed

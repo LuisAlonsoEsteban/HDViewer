@@ -4,7 +4,16 @@ import pandas as pd
 from scipy import sparse
 from scipy.optimize import nnls
 
-from ....startup.utils.progress import report
+def report(message):
+    # Import lazily so importing the plugin package does not initialize startup/UI.
+    # Container images only carry the SDK and report through the file protocol.
+    try:
+        from hd_viewer.startup.utils.progress import report as callback
+    except ImportError:
+        print(f"##progress 0 {message}", flush=True)
+    else:
+        callback(message)
+
 
 def _normalise(matrix):
     matrix = sparse.csr_matrix(matrix, dtype=np.float64)
@@ -14,13 +23,14 @@ def _normalise(matrix):
     return sparse.diags(np.divide(1., totals, out=np.zeros_like(totals), where=totals > 0)) @ matrix
 
 
-def deconvolve(target, reference, label_column, batch_size=256):
+def deconvolve(target, reference, label_column, batch_size=256, on_progress=None):
     """Return fractions without mutating either input; densify only small batches.
 
     Mean library-normalised reference profiles are fit on shared genes, then
     NNLS coefficients are normalised to sum to one. These are expression mixture
     estimates, not calibrated cell counts. All-zero observations have NaN fractions.
     """
+    notify = on_progress or report
     if batch_size < 1:
         raise ValueError("Batch size must be positive.")
     if target.n_obs == 0 or reference.n_obs == 0:
@@ -40,7 +50,7 @@ def deconvolve(target, reference, label_column, batch_size=256):
     if len(genes) < max(2, len(types)):
         raise ValueError("Too few shared genes to distinguish the reference cell types.")
 
-    report(f"Building {len(types)} reference profiles from {len(genes)} shared genes")
+    notify(f"Building {len(types)} reference profiles from {len(genes)} shared genes")
     
     ref = _normalise(reference[:, genes].X)
     profiles = np.column_stack([
@@ -63,7 +73,7 @@ def deconvolve(target, reference, label_column, batch_size=256):
             weights, _ = nnls(profiles, expression, maxiter=max(100, 10 * len(types)))
             if weights.sum() > 0:
                 fractions[row] = weights / weights.sum()
-        report(f"Deconvolved {end:,} / {target.n_obs:,} observations")
+        notify(f"Deconvolved {end:,} / {target.n_obs:,} observations")
 
     proportions = pd.DataFrame(fractions, index=target.obs_names.copy(), columns=types)
     dominant = pd.Series(np.nan, index=proportions.index, dtype=object)

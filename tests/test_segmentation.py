@@ -7,9 +7,9 @@ from pathlib import Path
 
 import numpy as np
 
-from src.segmentation import SegmentationService, discover, read_polygons
-from src.segmentation.plugins import SDK_DIR, Param
-from src.segmentation.runners import ApptainerRunner, DockerRunner, RunnerError
+from hd_viewer.startup.data.image.segmentation import SegmentationService, discover, read_polygons
+from hd_viewer.startup.data.image.segmentation.plugins import SDK_DIR, Param
+from hd_viewer.startup.data.image.segmentation.runners import ApptainerRunner, DockerRunner, RunnerError
 
 sys.path.insert(0, str(SDK_DIR))
 from vhd_seg import iter_blocks, labels_to_polygons  # noqa: E402

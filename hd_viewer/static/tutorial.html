@@ -390,13 +390,17 @@
       These annotation columns are offered in the tab. Choose the
       cell-type annotation column, then run deconvolution. Both datasets need matching, unique gene
       identifiers and nonnegative linear expression in <code>.X</code>, not log counts.</p>
-      <p>Nonnegative least squares fits mean library-normalised reference profiles using shared genes.
-      The resulting expression mixture fractions sum to one for assigned observations; they are not
-      calibrated cell counts. Empty observations remain unassigned. The analysis runs in the
-      background on every native observation of the selected layer. Choose a cell type to display
-      its fraction on the map. Coarse bin levels average fractions. Results remain available as
-      metadata columns, with the latest fractions in <code>obsm['deconvolution']</code> and method
-      details in <code>uns['deconvolution']</code>.</p>
+      <p>Choose NNLS, cell2location, MuSiC, or CIBERSORTx in the method selector. Controls change with the method.
+      NNLS estimates expression mixture fractions from library-normalised reference profiles; these are not calibrated cell counts.
+      cell2location requires an expected cell count per location and offers posterior mean abundance alongside relative fractions.
+      MuSiC requires a donor/sample annotation containing multiple subjects. CIBERSORTx generates a signature from the
+      uploaded reference and requires its official container and server-configured credentials.</p>
+      <p>Each run analyses all native observations in the layer in the background. Empty observations remain unassigned.
+      Choose a saved run, readout, and cell type to show results on the map. Coarse bins average fractions and sum
+      expected cell abundance. Numbered metadata columns retain every run; the latest fractions remain in
+      <code>obsm['deconvolution']</code> and their details in <code>uns['deconvolution']</code>.
+      All run metadata is retained in <code>uns['deconvolution_runs']</code>, including parameters and output units,
+      and is included in exported AnnData files.</p>
 
       <h3 id="app-rois">ROIs tab</h3>
       <p>Each layer has its own session-only ROIs. Enter a name or leave it blank for an automatic

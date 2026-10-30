@@ -5,13 +5,14 @@ import geopandas as gpd
 import numpy as np
 import pandas as pd
 from bokeh.document import Document
+from bokeh.models import Div
 from bokeh.events import ButtonClick
 from bokeh.plotting import figure
 from shapely.geometry import box
 
-from bokeh_server.components.glyphs import Squares
-from bokeh_server.parameter import CategoricalColor, Scaler, StaticParameter
-from src.sample import Bins
+from hd_viewer.board.components.layer import Squares
+from hd_viewer.board.source.parameter import CategoricalColor, Scaler, StaticParameter
+from hd_viewer.startup.sample import Bins
 
 
 def click(button):

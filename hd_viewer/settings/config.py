@@ -81,3 +81,13 @@ def segmentation_kwargs():
     return dict(config=_merge(defaults, load_config(SEGMENTATION_CONFIG_PATH)),
                 config_path=SEGMENTATION_CONFIG_PATH, plugins_dir=PLUGINS_DIR,
                 sdk_dir=SDK_DIR, segmentation_root=SEGMENTATION_ROOT)
+
+
+def deconvolution_service_kwargs():
+    from ..board.operations.layer.deconvolution.service import load_config
+    defaults = dict(runner=DECONVOLUTION_DEFAULT_RUNNER, gpu=DECONVOLUTION_GPU,
+                    threads_per_run=DEFAULT_THREADS, max_parallel=DECONVOLUTION_MAX_PARALLEL,
+                    work_dir=str(DECONVOLUTION_WORK_DIR))
+    return dict(config=_merge(defaults, load_config(DECONVOLUTION_CONFIG_PATH)),
+                root=DECONVOLUTION_ROOT, plugins_dir=DECONVOLUTION_ROOT / 'plugins',
+                sdk_dir=DECONVOLUTION_ROOT / 'sdk')

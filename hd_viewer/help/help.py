@@ -74,11 +74,15 @@ HELP = {
         for every layer. Its .obs columns (including an optional annotation CSV or Parquet file) appear here. Select its
         cell-type column and run deconvolution. Both datasets must use matching, unique gene identifiers and linear,
         nonnegative expression in <code>.X</code> (not log-transformed values).<br>
-        Nonnegative least squares fits library-normalised mean cell-type profiles on shared genes.
-        Coefficients are normalised to expression mixture fractions, not calibrated cell counts.
+        Choose <b>NNLS, cell2location, MuSiC, or CIBERSORTx</b> and set its parameters.
+        NNLS estimates expression mixture fractions rather than calibrated cell counts.
+        cell2location needs an expected number of cells per location and offers posterior mean abundance
+        as well as relative fractions. MuSiC requires a donor/sample column with multiple subjects.
+        CIBERSORTx generates a signature from the reference and requires a configured container and credentials.<br>
         Results cover all native observations of this layer, independently of the viewport.
-        Empty observations stay unassigned. Select a fraction to show it on the map;
-        coarse bin levels show the mean fraction. Results are stored in the layer's AnnData."""),
+        Empty observations stay unassigned. Select a saved run, readout, and cell type to show it on the map.
+        Coarse bin levels average fractions and sum expected cell abundance. Previous runs and their
+        parameters are stored in the layer's AnnData."""),
     "rois": ("ROIs", """
         Save named regions in this layer for the current session. Choose <b>Bounding box</b>,
         <b>Lasso</b>, or <b>Seed + radius</b>, then click <b>Draw</b> and draw on the map.

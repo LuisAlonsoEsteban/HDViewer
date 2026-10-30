@@ -1,0 +1,35 @@
+name: music
+version: 0.1.0
+image: ghcr.io/luisalonsoesteban/visium-deconv-music:0.1.0
+title: MuSiC
+description: Multi-subject single-cell deconvolution using weighted proportions. Requires
+  raw counts and a donor/sample annotation with at least two subjects.
+url: https://xuranw.github.io/MuSiC/articles/MuSiC.html
+citation: Wang et al., Nature Communications (2019)
+params:
+- name: sample_column
+  type: obs_column
+  default: null
+  required: true
+  multiple_subjects: true
+  label: Reference donor/sample column (required)
+- name: batch_size
+  type: int
+  default: 256
+  min: 1
+  label: Observations per R batch
+- name: iter_max
+  type: int
+  default: 1000
+  min: 1
+  label: Maximum iterations
+- name: nu
+  type: float
+  default: 0.0001
+  min: 1.0e-08
+- name: eps
+  type: float
+  default: 0.01
+  min: 1.0e-08
+reference_params:
+- sample_column

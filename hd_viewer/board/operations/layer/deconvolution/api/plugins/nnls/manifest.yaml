@@ -1,0 +1,13 @@
+name: nnls
+version: 0.1.0
+image: ghcr.io/luisalonsoesteban/visium-deconv-nnls:0.1.0
+title: NNLS
+description: Expression mixture fractions from mean library-normalized reference profiles.
+  Use linear counts in .X.
+url: https://docs.scipy.org/doc/scipy/reference/generated/scipy.optimize.nnls.html
+params:
+- name: batch_size
+  type: int
+  default: 256
+  min: 1
+  label: Observations per batch

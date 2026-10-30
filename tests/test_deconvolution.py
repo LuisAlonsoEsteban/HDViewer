@@ -16,11 +16,11 @@ from bokeh.models import Button, FileInput, Select, TextInput
 from bokeh.plotting import figure
 from scipy import sparse
 
-from src.utils.deconvolution import deconvolve
-from src.data.singlecell import read_reference
-from src.sample import Cells, Spots
-from bokeh_server.components.glyphs import Circles, Patches
-from bokeh_server.panels.startup import StartupController
+from hd_viewer.board.operations.layer.deconvolution import deconvolve
+from hd_viewer.startup.data.singlecell import read_reference
+from hd_viewer.startup.sample import Cells, Spots
+from hd_viewer.board.components.layer import Circles, Patches
+from hd_viewer.startup import StartupController
 from tests.test_param_form import make_layer
 
 
@@ -100,7 +100,7 @@ class DeconvolutionTests(unittest.TestCase):
         # Exercise the actual preparation entry point without loading spatial data.
         with patch("anndata.read_h5ad", wraps=ad.read_h5ad) as read, \
              patch.object(startup, "_save_uploaded_file", return_value="unused"), \
-             patch("bokeh_server.panels.startup.VisiumHD"), \
+             patch("hd_viewer.startup.VisiumHD"), \
              patch.object(startup, "generate_tiles"), \
              patch.object(startup, "generate_pseudospots"), \
              patch.object(startup, "generate_segmentations"), \
@@ -292,7 +292,8 @@ class DeconvolutionTests(unittest.TestCase):
         widgets = panel.children
         self.assertFalse(any(isinstance(w, TextInput) for w in widgets))
         run, = [w for w in widgets if isinstance(w, Button)]
-        labels, display = [w for w in widgets if isinstance(w, Select)]
+        labels = next(w for w in widgets if isinstance(w, Select) and w.title.startswith("Reference cell-type"))
+        display = next(w for w in widgets if isinstance(w, Select) and w.title == "Display cell type")
         status = widgets[widgets.index(run) + 1]
         self.assertFalse(run.disabled)
 

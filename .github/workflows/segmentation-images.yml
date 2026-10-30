@@ -6,7 +6,10 @@ name: Segmentation plugin images
 on:
   push:
     branches: [main]
-    paths: ["segmentation/**"]
+    paths: 
+      - "hd_viewer/startup/data/segmentation/api/plugins/**"
+      - "hd_viewer/startup/data/segmentation/api/sdk/**"
+      - ".github/workflows/segmentation-images.yml"
   workflow_dispatch:
 
 permissions:

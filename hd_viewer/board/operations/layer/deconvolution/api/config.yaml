@@ -1,0 +1,14 @@
+# VHD_DECONV_RUNNER overrides runner. Auto tries Docker, then Apptainer, then local.
+runner: auto
+max_parallel: 1
+threads_per_run: 8
+gpu: false
+# work_dir defaults to the viewer's tmp/deconvolution directory.
+docker:
+  binary: docker
+apptainer:
+  binary: apptainer
+  images_dir: images
+  images: {} # plugin name -> local .sif or image URI
+local:
+  python: {} # plugin name -> Python interpreter with plugin requirements installed
