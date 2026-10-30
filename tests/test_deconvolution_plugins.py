@@ -90,6 +90,39 @@ class PluginServiceTests(unittest.TestCase):
         pd.testing.assert_frame_equal(result.fractions, cached.fractions)
         self.assertEqual(result.metadata['run_id'], cached.metadata['run_id'])
 
+    def test_run_storage_is_dataset_specific_without_changing_shared_service(self):
+        first_dir = self.work / 'dataset one' / 'deconvolution'
+        second_dir = self.work / 'dataset two' / 'deconvolution'
+        first = self.service.run('nnls', target(), reference(), 'cell_type', work_dir=first_dir)
+        first_log = Path(first.metadata['log_path'])
+        self.assertTrue(first_log.is_relative_to(first_dir))
+        self.assertTrue(first_log.exists())
+        self.assertTrue((first_log.parent / 'fractions.json').exists())
+        self.assertTrue((first_log.parent / 'result.json').exists())
+        self.assertTrue(list((first_dir / '_locks').glob('*.lock')))
+        with patch.object(self.service.runner, 'run', side_effect=AssertionError('cache missed')):
+            cached = self.service.run('nnls', target(), reference(), 'cell_type', work_dir=first_dir)
+        self.assertEqual(cached.metadata['log_path'], str(first_log))
+        second = self.service.run('nnls', target(), reference(), 'cell_type', work_dir=second_dir)
+        self.assertTrue(Path(second.metadata['log_path']).is_relative_to(second_dir))
+        self.assertEqual(first.metadata['run_id'], second.metadata['run_id'])
+        self.assertEqual(self.service.work_dir, self.work)
+        self.assertFalse((self.work / 'nnls').exists())
+
+    def test_moved_cache_is_reused_and_log_path_follows_new_directory(self):
+        first = self.service.run('nnls', target(), reference(), 'cell_type')
+        destination = self.work / 'dataset' / 'deconvolution'
+        destination.mkdir(parents=True)
+        shutil.move(str(self.work / 'nnls'), destination / 'nnls')
+        messages = []
+        with patch.object(self.service.runner, 'run', side_effect=AssertionError('moved cache was not reused')):
+            result = self.service.run('nnls', target(), reference(), 'cell_type', work_dir=destination,
+                                      on_progress=lambda fraction, message: messages.append(message))
+        self.assertEqual(result.metadata['run_id'], first.metadata['run_id'])
+        self.assertTrue(Path(result.metadata['log_path']).is_relative_to(destination))
+        self.assertTrue(Path(result.metadata['log_path']).exists())
+        self.assertIn('Loaded cached result', messages)
+
     def test_fingerprint_dense_sparse_and_expression_identity(self):
         data = target()
         dense = data.copy()
@@ -163,11 +196,14 @@ class PluginServiceTests(unittest.TestCase):
             job.write_result(pd.DataFrame([[.5, .5]] * data.n_obs, index=data.obs_names, columns=['A', 'B']), ['g0', 'g1'])
             log_path.write_text('fit\n')
         data = target()
+        directory = self.work / 'dataset' / 'deconvolution'
         with patch.object(self.service.runner, 'run', side_effect=fit):
-            self.service.run('nnls', data, reference(), 'cell_type')
+            self.service.run('nnls', data, reference(), 'cell_type', work_dir=directory)
             data.X[0, 0] += 1
-            self.service.run('nnls', data, reference(), 'cell_type')
+            self.service.run('nnls', data, reference(), 'cell_type', work_dir=directory)
         self.assertEqual(calls, [False, True])
+        self.assertTrue((directory / '_references' / 'nnls').exists())
+        self.assertFalse((self.work / '_references').exists())
 
     def test_independent_runner_environment_and_cibersortx_requirements(self):
         with patch.dict(os.environ, {'VHD_SEG_RUNNER': 'bad-value'}, clear=False):

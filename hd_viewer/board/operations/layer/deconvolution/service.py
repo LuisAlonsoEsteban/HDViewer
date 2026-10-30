@@ -151,8 +151,10 @@ class DeconvolutionService:
             raise ValueError('Choose a donor/sample column distinct from the cell-type column.')
         return resolved, list(dict.fromkeys(columns))
 
-    def run(self, name, target, reference, label_column, params=None, on_progress=None):
+    def run(self, name, target, reference, label_column, params=None, on_progress=None, *, work_dir=None):
         progress = on_progress or (lambda fraction, message: None)
+        # Dataset-specific storage without mutating the shared service/queue.
+        work_dir = self.work_dir if work_dir is None else Path(work_dir)
         reason = self.unavailable_reason(name)
         if reason:
             raise RunnerError(reason)
@@ -180,20 +182,22 @@ class DeconvolutionService:
         spec = dict(reference=reference_key, target=matrix_fingerprint(target), params=resolved,
                     runner=self.runner.name, gpu=self.runner.gpu)
         key = _key(spec)
-        destination = self.work_dir / name / key
-        artifacts = self.work_dir / '_references' / name / reference_key
+        destination = work_dir / name / key
+        artifacts = work_dir / '_references' / name / reference_key
         types = sorted(set(reference.obs[label_column]))
         shared = target.var_names.intersection(reference.var_names, sort=False)
         nonempty = np.asarray(target[:, shared].X.sum(axis=1)).ravel() > 0
         # Reference lock prevents concurrent fits/publication, including other viewer processes.
         progress(0, 'Queued: waiting for a free slot')
         with self._slots, _file_lock(
-                self.work_dir / '_locks' / f'{reference_key}.lock',
+                work_dir / '_locks' / f'{reference_key}.lock',
                 on_wait=lambda: progress(0, 'Waiting for another run using the same reference')):
             progress(0, 'Checking cached results')
             if (destination / 'result.json').exists():
                 result = self._read(destination)
                 validate_result(result, target.obs_names, types)
+                # Cached folders may have moved with the dataset.
+                result.metadata['log_path'] = str(destination / 'run.log')
                 progress(1, 'Loaded cached result')
                 return result
             destination.parent.mkdir(parents=True, exist_ok=True)

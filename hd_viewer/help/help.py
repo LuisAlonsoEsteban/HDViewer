@@ -120,6 +120,22 @@ HELP = {
         Results appear below the map: click a column header to sort, and search any gene.
         Plots support hover, pan, zoom and selection. Hover dots or violins for gene statistics;
         click a legend entry to hide or show a comparison."""),
+    "metadata_comparison": ("Metadata comparison", """
+        Compare <b>numeric metadata</b> between two or more groups and/or clusters.
+        Select <b>The rest</b> to compare one or more selected sets against observations outside
+        <b>all defined custom groups</b>, including hidden and unselected groups. Each selected
+        group/cluster gets its own plot against this common remainder. If groups cover the whole
+        layer, The rest is empty and cannot be compared.
+        Choose a saved deconvolution run to compare its cell-type fractions or abundance,
+        or select arbitrary numeric .obs columns. The default summary is the <b>mean</b>;
+        median is also available.<br>
+        Results appear <b>below the map</b>: horizontal bars put cell types or columns on the y-axis,
+        values on the x-axis, and give each group its own bar and colour. Hover shows the value
+        and number of finite observations.
+        Comparisons use native observations regardless of viewport or displayed bin aggregation.
+        Missing and infinite values are omitted per column. Overlapping observations contribute
+        to each group. Fractions are averaged, without renormalizing the selected cell types.
+        These are descriptive summaries, without significance tests. DE remains a separate tab."""),
     "parameters": ("Parameters", """
         Extra drawing parameters of this layer: line colour, line width, fill and line opacity.
         Each is either a <b>fixed value</b> or taken <b>from data</b> (a gene or numeric column scaled to
@@ -178,7 +194,7 @@ TUTORIAL_ANCHORS = {
     "data_source": "load-files", "preprocessing": "load-preprocessing", "progress": "load-progress",
     "general": "app-general", "color": "app-color", "clustering": "app-clustering",
     "groups": "app-groups", "de": "app-de", "parameters": "app-parameters",
-    "rois": "app-rois",
+    "rois": "app-rois", "metadata_comparison": "app-metadata-comparison",
     "deconvolution": "app-deconvolution",
     "bin_resolution": "app-bin-resolution", "embedding": "app-embedding", "metadata": "app-summary",
 }

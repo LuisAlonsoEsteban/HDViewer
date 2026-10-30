@@ -31,6 +31,7 @@ class DeconvolutionManager:
         self.label_column = ''
         self.columns = []
         self.service = None
+        self.work_dir = None
         self.method = 'nnls'
         self.parameter_values = {}
         self.current_run = ''
@@ -242,6 +243,7 @@ class DeconvolutionManager:
                 target = ad.AnnData(sample.adata.X.copy(), obs=pd.DataFrame(index=sample.adata.obs_names.copy()),
                                     var=pd.DataFrame(index=sample.adata.var_names.copy()))
             reference = self.reference
+            work_dir = self.work_dir
             run.disabled = method.disabled = labels.disabled = True
             for widget in parameter_widgets.values():
                 widget.disabled = True
@@ -262,7 +264,7 @@ class DeconvolutionManager:
 
             status.run('Deconvolution (' + plugins[name].title + ')',
                        lambda: self.service.run(name, target, reference, label_column, params,
-                           on_progress=lambda fraction, message: status.log(message)), done, failed)
+                           work_dir=work_dir, on_progress=lambda fraction, message: status.log(message)), done, failed)
 
         labels.on_change('value', lambda attr, old, new: update_availability())
         method.on_change('value', lambda attr, old, new: build_parameters())

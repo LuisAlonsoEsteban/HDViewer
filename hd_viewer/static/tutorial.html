@@ -247,6 +247,7 @@
     <a class="sub" href="#app-rois">ROIs tab</a>
     <a class="sub" href="#app-groups">Groups tab</a>
     <a class="sub" href="#app-de">DE tab</a>
+    <a class="sub" href="#app-metadata-comparison">Metadata comparison tab</a>
     <a class="sub" href="#app-parameters">Parameters tab</a>
     <a href="#app-summary">Summary panel</a>
     <a href="#app-embedding">Embeddings</a>
@@ -474,6 +475,25 @@
       </ul>
       <p>Method: Wilcoxon rank-sum test on log1p counts, genes detected in at least three observations,
         Benjamini–Hochberg adjusted p-values. Each group or cluster needs at least three observations.</p>
+
+      <h3 id="app-metadata-comparison">Metadata comparison tab</h3>
+      <p>Select two or more groups and/or clusters, choose numeric metadata columns, and click
+      <b>Compare metadata</b>. Alternatively, tick <b>The rest</b> and select one or more groups/clusters:
+      each gets a separate plot against observations outside every defined custom group, including
+      hidden or unselected groups. The remainder is computed over native bins/cells/spots, without
+      creating another stored group. Clustering labels alone do not change the custom-group remainder.
+      When custom groups cover the whole layer, The rest is empty and the comparison reports this.
+      Saved deconvolution runs appear as presets for cell-type fractions
+      and, when available, abundance. Choose Mean (default) or Median.</p>
+      <p>Results appear below the map, in the same results area used by DE. Each cell type or metadata
+      column has one horizontal bar per group: labels on the y-axis, values on the x-axis, and a colour
+      for each group. Hover for values and valid-observation counts.
+      Legend clicks hide or show groups. Running DE or another comparison replaces the displayed result.</p>
+      <p>Metadata comparisons use native observations, independently of the viewport and bin display
+      aggregation. Non-finite values are omitted per column, with counts reported in the results.
+      Overlapping observations contribute to every group they belong to. Deconvolution fractions are
+      averaged without renormalizing over the selected cell types. These are descriptive comparisons,
+      without significance tests; use the separate DE tab for gene-expression testing.</p>
 
       <h3 id="app-parameters">Parameters tab</h3>
       <p>Extra drawing parameters of the layer: <b>line colour</b>, <b>line width</b>, <b>fill alpha</b>,

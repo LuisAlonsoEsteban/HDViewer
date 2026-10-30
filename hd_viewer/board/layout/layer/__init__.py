@@ -4,3 +4,4 @@ from .groups import GroupsManager
 from .roi import ROIManager
 from .de import DEManager
 from .parameter import ParamForm
+from .metadata_comparison import MetadataComparisonManager

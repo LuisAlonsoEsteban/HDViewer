@@ -88,6 +88,9 @@ class DeconvolutionTests(unittest.TestCase):
 
     def test_startup_reference_is_read_once_and_reused_by_later_layers(self):
         startup = StartupController(ImmediateDoc())
+        upload_folder = tempfile.TemporaryDirectory()
+        self.addCleanup(upload_folder.cleanup)
+        startup.UPLOAD_DIR = Path(upload_folder.name)
         self.assertTrue(startup.reference_input_widget.visible)
         self.assertIn(startup.reference_input, startup.layout.references())
         with tempfile.TemporaryDirectory() as folder:
@@ -108,10 +111,12 @@ class DeconvolutionTests(unittest.TestCase):
             startup._prepare_data()
             shared = startup.app.deconvolution_reference
             self.assertIsNotNone(shared)
+            self.assertEqual(startup.app.deconvolution_work_dir, startup.UPLOAD_DIR / 'deconvolution')
             for _ in range(2):
                 layer, _ = make_layer()
                 startup.app.add_geometry(layer)
                 self.assertIs(layer.deconvolution_manager.reference, shared)
+                self.assertEqual(layer.deconvolution_manager.work_dir, startup.UPLOAD_DIR / 'deconvolution')
                 tabs = layer.get_widgets(ImmediateDoc())
                 widgets = next(t.child.children for t in tabs.tabs if t.title == "Deconvolution")
                 run = next(w for w in widgets if isinstance(w, Button) and w.label == "Run deconvolution")
@@ -131,7 +136,36 @@ class DeconvolutionTests(unittest.TestCase):
                 self.assertFalse(run.disabled)
                 self.assertIn("deconvolution", layer.sample.adata.obsm)
                 self.assertEqual(layer.sample.adata.uns["deconvolution"]["reference_name"], "reference.h5")
+                saved_log = Path(layer.sample.adata.uns['deconvolution']['log_path'])
+                self.assertTrue(saved_log.is_relative_to(startup.UPLOAD_DIR / 'deconvolution'))
+                self.assertTrue(saved_log.exists())
             self.assertEqual(read.call_count, 1)
+
+    def test_configured_dataset_uses_same_base_path_for_segmentation_and_deconvolution(self):
+        from hd_viewer.startup import AVAILABLE_DATASETS
+        with tempfile.TemporaryDirectory() as folder:
+            base = Path(folder) / 'dataset'
+            config = dict(image_path=str(base / 'tissue.tif'),
+                          expression_path=str(base / 'binned_outputs' / 'square_008um' / 'counts.h5'),
+                          positions_path=str(base / 'binned_outputs' / 'square_008um' / 'positions.parquet'), bins_size=8)
+            key = next(iter(AVAILABLE_DATASETS))
+            with patch.dict(AVAILABLE_DATASETS, {key: config}):
+                startup = StartupController(ImmediateDoc())
+                startup.data_source.active = 1
+                startup.example_select.value = key
+                with patch('hd_viewer.startup.VisiumHD'), \
+                     patch.object(startup, 'generate_tiles') as tiles, \
+                     patch.object(startup, 'generate_pseudospots'), \
+                     patch.object(startup, 'generate_segmentations') as segmentation, \
+                     patch.object(startup, 'ensure_b2s'):
+                    startup._prepare_data()
+                self.assertEqual(startup.app.deconvolution_work_dir, base / 'deconvolution')
+                tiles.assert_called_once_with(base)
+                segmentation.assert_called_once_with(base)
+                for _ in range(2):
+                    layer, _ = make_layer()
+                    startup.app.add_geometry(layer)
+                    self.assertEqual(layer.deconvolution_manager.work_dir, base / 'deconvolution')
 
     def test_tenx_h5_annotations_populate_columns_at_startup(self):
         # Labels must align by barcode, not by annotation row order.

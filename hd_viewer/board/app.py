@@ -30,6 +30,7 @@ class App:
         self.doc = doc
 
         self.geometries = []
+        self.deconvolution_work_dir = None
         self.deconvolution_reference = None
         self.deconvolution_reference_name = None
         self.deconvolution_label_column = ""
@@ -50,6 +51,7 @@ class App:
     def reset_geometries(self):
         for geometry in self.geometries:
             geometry.roi_manager.dispose()
+            geometry.metadata_comparison_manager.dispose()
         self.geometries.clear()
         self.cells_tabs = None
 
@@ -199,6 +201,7 @@ class App:
     def add_geometry(self, geom):
         if self.figure_panel.roi_readout is not None:
             geom.roi_manager.coordinate_scale = self.figure_panel.roi_readout.scale
+        geom.deconvolution_manager.work_dir = self.deconvolution_work_dir
         geom.deconvolution_manager.reference = self.deconvolution_reference
         geom.deconvolution_manager.reference_name = self.deconvolution_reference_name
         geom.deconvolution_manager.label_column = self.deconvolution_label_column

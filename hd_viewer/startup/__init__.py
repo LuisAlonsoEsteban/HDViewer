@@ -865,6 +865,9 @@ class StartupController:
             self.UPLOAD_DIR if self.source_mode == "upload"
             else Path(AVAILABLE_DATASETS[self.example_select.value]["image_path"]).resolve().parent
         )
+        # Use the same dataset base directory as segmentation, before generators
+        # add bins/spots/cell layers (including layers arriving asynchronously).
+        self.app.deconvolution_work_dir = Path(base_dir) / 'deconvolution'
         self.generate_tiles(base_dir)
         
         if self.pseudospots_checkbox.active:

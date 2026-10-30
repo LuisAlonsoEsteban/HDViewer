@@ -3,7 +3,8 @@ runner: auto
 max_parallel: 1
 threads_per_run: 8
 gpu: false
-# work_dir defaults to the viewer's tmp/deconvolution directory.
+# Loaded datasets save under <dataset base directory>/deconvolution, beside segmentation.
+# work_dir configures the fallback for standalone/unbound layers only.
 docker:
   binary: docker
 apptainer:

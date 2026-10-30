@@ -171,6 +171,7 @@ LOADING_REFRESH_MS = 500
 # Deconvolution plugins have independent execution and cache configuration.
 DECONVOLUTION_ROOT = BASE_DIR / 'board' / 'operations' / 'layer' / 'deconvolution' / 'api'
 DECONVOLUTION_CONFIG_PATH = DECONVOLUTION_ROOT / 'config.yaml'
+# Fallback for standalone layers; loaded datasets supply <data path>/deconvolution.
 DECONVOLUTION_WORK_DIR = UPLOAD_DIR / 'deconvolution'
 DECONVOLUTION_DEFAULT_RUNNER = 'auto'
 DECONVOLUTION_GPU = False

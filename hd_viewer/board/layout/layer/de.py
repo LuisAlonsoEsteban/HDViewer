@@ -197,6 +197,7 @@ class DEManager:
             de_layout = getattr(self.component, "_figure_de_layout", None)
             if de_layout is not None:
                 plots = build_de_plots(view.plot_data)
+                de_layout._comparison_owner = self
                 de_layout.children = [Div(text=view.table_html, sizing_mode="stretch_width"), plots]
             obs_word = f"{self.component.alias.lower()}s" if factor <= 1 else f"{factor} × {factor} {self.component.alias.lower()}s"
             left_out = f", {result.n_overlap} overlapping {obs_word} left out" if result.n_overlap else ""
@@ -245,8 +246,9 @@ class DEManager:
         self._de_clusters = None
         self._de_results = {}
         de_layout = getattr(self.component, "_figure_de_layout", None)
-        if de_layout is not None:
+        if de_layout is not None and getattr(de_layout, '_comparison_owner', self) in (None, self):
             de_layout.children = []
+            de_layout._comparison_owner = None
         if self._de_status_div is not None:
             self._de_status_div.text = ""
 

@@ -35,7 +35,7 @@ class FigurePanel(Panel):
         self.p.xaxis.visible = False
         self.p.yaxis.visible = False
         self.p.toolbar.logo = None
-        self.p.toolbar.autohide = True
+        self.p.toolbar.autohide = False
         self.p.toolbar.active_inspect = None
 
         self._preserve_image_aspect()

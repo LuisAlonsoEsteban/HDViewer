@@ -118,8 +118,27 @@ restored as NaN rows. The original `deconvolve(target, reference, label_column,
 batch_size=256)` entry point remains available from
 `hd_viewer.board.operations.layer.deconvolution`.
 
-Runs live in the configured `work_dir` (the viewer defaults to
-`tmp/deconvolution`). The content key includes expression, ordered identifiers,
+In the viewer, runs live in `<dataset base directory>/deconvolution/<method>/<hash>/`,
+next to the dataset's `segmentation/` folder. The base directory follows segmentation:
+for configured datasets it is the tissue image's parent directory; for uploads it
+is the uploaded-files directory. All bins, spots, and segmentation-derived cells
+for that dataset use this directory, including layers added later. Reference
+artifacts and locks also live under its `deconvolution/` folder. Results remain
+stored in the layer's AnnData as well.
+
+Standalone service callers can set constructor `config['work_dir']` or supply
+`run(..., work_dir=path)` for a particular dataset. A per-run path does not change
+the service's shared queue or another dataset's destination. Standalone/unbound
+viewer layers retain the configured fallback directory (`tmp/deconvolution`).
+Previously cached runs under the old fallback are not moved automatically. To migrate,
+copy the relevant `<method>/<hash>/` folders and `_references/` into the dataset
+`deconvolution/` folder, preserving names. Skip `_locks/` and unfinished `.running-*`
+folders. Cache loading resolves logs relative to the copied run directory. Verify
+that rerunning the same method and parameters reports `Loaded cached result` before
+removing the original copy. If the old cache contains multiple datasets, migrate
+each dataset's run folders to its own destination.
+
+The content key includes expression, ordered identifiers,
 required annotations, selected label column, method version/image, parameters,
 and execution identity. Unrelated metadata does not invalidate results. Increment
 a plugin's version when changing its implementation. Reference signatures from

@@ -36,6 +36,7 @@ from ...layout.layer import (
     GroupsManager,
     ROIManager,
     DEManager,
+    MetadataComparisonManager,
     ParamForm
 )
 
@@ -96,6 +97,7 @@ class Layer:
         self.groups_manager = GroupsManager(self)
         self.roi_manager = ROIManager(self)
         self.de_manager = DEManager(self)
+        self.metadata_comparison_manager = MetadataComparisonManager(self)
 
         self.selected_obs_names = set()
         self._selection_listeners = []
@@ -594,6 +596,7 @@ class Layer:
                 self.refresh_hover()
 
                 self.de_manager.refresh_de_clusters()
+                self.metadata_comparison_manager.refresh_clusters()
                 on_markers_ready(doc)       # placeholder until the new markers are ranked
 
             def on_markers_ready(doc):
@@ -618,6 +621,9 @@ class Layer:
             de_widgets = self.de_manager.get_widgets(doc)
             self._all_widgets.extend(de_widgets)
 
+            metadata_widgets = self.metadata_comparison_manager.get_widgets(doc)
+            self._all_widgets.extend(metadata_widgets)
+
             # --- Tab panels ---
             # Each tab opens with its title and a "?" explaining it
             def tab(title, topic, widgets):
@@ -631,6 +637,7 @@ class Layer:
                 tab("Groups", "groups", groups_widgets),
                 tab("ROIs", "rois", roi_widgets),
                 tab("DE", "de", de_widgets),
+                tab("Metadata comparison", "metadata_comparison", metadata_widgets),
             ]
 
             self.add_param_form = ParamForm(self)
@@ -656,8 +663,13 @@ class Layer:
         # Group definition
         if self.groups_manager is not None:
             self.groups_manager.refresh_completions()
+
+        # Metadata comparison
+        if self.metadata_comparison_manager is not None:
+            self.metadata_comparison_manager.refresh_columns()
+
         # Extra paramater
         if self.add_param_form is not None:
             self.add_param_form.refresh_completions()
-    
+
 
