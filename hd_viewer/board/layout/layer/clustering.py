@@ -19,8 +19,18 @@ from ....settings.config import clustering_kwargs
 from ...source.parameter import CategoricalColor
 from ...utils.loading import LoadingLogger
 from ...utils.palette import CLUSTER_PALETTE, palette_color
+from ....startup.utils.progress import report
 
 NOT_SEQUENCED_VAL = settings.NOT_SEQUENCED_VAL
+
+SUPPORTED_ALGORITHMS = (
+    "leiden",
+    "kmeans",
+    "dbscan",
+    "hdbscan",
+    "gaussian_mixture",
+    "agglomerative",
+)
 
 
 class ClusteringManager:
@@ -46,7 +56,6 @@ class ClusteringManager:
         self.widgets.extend(self.clustering_manager.get_widgets(doc))
     """
 
-    CLUSTER_COL = settings.CLUSTER_COL
 
     def __init__(self, component):
         """
@@ -58,11 +67,14 @@ class ClusteringManager:
                   `.source` (ColumnDataSource) and `.update_colname()`.run
         """
         self.component = component
-        self.cluster_col = self.CLUSTER_COL    # set to the obs column returned by run_clustering
 
-        self._cluster_labels: list[str] = []   # ordered unique cluster ids
-        self._color_map: dict[str, str] = {}   # cluster_id → hex color
+        self._cluster_columns: dict[str, str] = {}
+        self._active_cluster_col: str | None = None
+        self._cluster_labels: list[str] = []   # ordered unique cluster ids for the active result
+        self._color_map: dict[str, str] = {}  # cluster_id → hex color
         self._active_clusters: set[str] = set()
+        self._step_params: dict[str, object] = {}
+        self._bound_sample = None
 
         # Bokeh widget references (populated after clustering)
         self._checkbox_group: CheckboxGroup | None = None
@@ -70,9 +82,85 @@ class ClusteringManager:
         self._cluster_layout = None             # column() holding cluster widgets
 
     @property
+    def sample(self):
+        return self._bound_sample if self._bound_sample is not None else self.component.manager.sample
+
+    @property
+    def adata(self):
+        return self.sample.adata
+
+    @adata.setter
+    def adata(self, value):
+        self.sample.adata = value
+
+    @property
+    def adata_processed(self):
+        return self.sample.adata_processed
+
+    @adata_processed.setter
+    def adata_processed(self, value):
+        self.sample.adata_processed = value
+
+    @property
+    def min_gene_cells(self):
+        return self.sample.min_gene_cells
+
+    @property
+    def normalization_target_sum(self):
+        return self.sample.normalization_target_sum
+
+    def has_adata(self):
+        return self.adata is not None
+
+    @property
+    def cluster_col(self):
+        return self._active_cluster_col
+
+    @cluster_col.setter
+    def cluster_col(self, value):
+        self._active_cluster_col = value
+
+    def get_cluster_col(self, algorithm: str | None = None) -> str | None:
+        if algorithm is not None:
+            return self._cluster_columns.get(algorithm)
+        return self._active_cluster_col
+
+    def get_cluster_colname(self, factor: int, algorithm: str | None = None) -> str:
+        algorithm = algorithm or "leiden"
+        if factor <= 1:
+            return algorithm
+        return f"{algorithm}_{int(factor)}"
+
+    def get_cluster_factor(self, colname: str, algorithm: str | None = None) -> int | None:
+        if not isinstance(colname, str):
+            return None
+        candidates = [algorithm] if algorithm is not None else SUPPORTED_ALGORITHMS
+        for candidate in candidates:
+            prefix = f"{candidate}_"
+            if colname.startswith(prefix):
+                suffix = colname[len(prefix):]
+                if suffix.isdigit():
+                    return int(suffix)
+        return None
+
+    def _get_active_analysis_sample(self):
+        sample = self.component.manager.sample
+        active_col = self._active_cluster_col
+        if active_col is None:
+            return sample
+        factor = self.get_cluster_factor(active_col)
+        if factor is not None and hasattr(sample, "_aggregated_samples") and factor in sample._aggregated_samples:
+            return sample._aggregated_samples[factor]
+        return sample
+
+    # ------------------------------------------------------------------
+    # Public lifecycle
+    # ------------------------------------------------------------------
+
+    @property
     def is_clustered(self) -> bool:
         return (
-            self.cluster_col in self.component.manager.sample.adata.obs.columns
+            any(column in self.component.manager.sample.adata.obs.columns for column in self._cluster_columns.values())
             and len(self._cluster_labels) > 0
         )
 
@@ -91,6 +179,149 @@ class ClusteringManager:
         self.compute_markers()
         self.apply_result(cluster_col, doc, on_done)
 
+    def _cluster_on_sample(self, sample, *, algorithm, resolution, n_pcs, n_neighbors,
+                          key_added=None, compute_markers=False, **algorithm_options):
+        """Run a single clustering algorithm on either a base sample or an aggregated one."""
+        previous_sample = self._bound_sample
+        previous_step_params = self._step_params.copy()
+        self._bound_sample = sample
+        self._step_params = {}
+        try:
+            key_added = algorithm if key_added is None else key_added
+
+            if algorithm not in SUPPORTED_ALGORITHMS:
+                raise ValueError(f"Unsupported clustering algorithm: {algorithm}")
+
+            if algorithm == "leiden":
+                adata = self._ensure_neighbors(n_pcs, n_neighbors)
+                params = (algorithm, resolution, n_pcs, n_neighbors, algorithm_options.get("random_state", 0))
+            else:
+                adata = self._ensure_pca(n_pcs)
+                if algorithm == "kmeans":
+                    params = (algorithm, n_pcs, algorithm_options.get("n_clusters", 8), algorithm_options.get("random_state", 0))
+                elif algorithm == "dbscan":
+                    params = (algorithm, n_pcs, algorithm_options.get("eps", 0.5), algorithm_options.get("min_samples", 5))
+                elif algorithm == "hdbscan":
+                    params = (algorithm, n_pcs, algorithm_options.get("min_cluster_size", 5), algorithm_options.get("min_samples", 5))
+                elif algorithm == "gaussian_mixture":
+                    params = (algorithm, n_pcs, algorithm_options.get("n_clusters", 8), algorithm_options.get("covariance_type", "full"), algorithm_options.get("random_state", 0))
+                elif algorithm == "agglomerative":
+                    params = (algorithm, n_pcs, algorithm_options.get("n_clusters", 8), algorithm_options.get("linkage", "ward"))
+
+            if not self._is_cached(key_added, params):
+                report(f"Running {algorithm} clustering...")
+                if algorithm == "leiden":
+                    import scanpy as sc
+                    sc.tl.leiden(adata, resolution=resolution, key_added=key_added,
+                                 random_state=algorithm_options.get("random_state", 0))
+                else:
+                    values = np.asarray(adata.obsm["X_pca"])[:, :n_pcs]
+                    if algorithm == "kmeans":
+                        from sklearn.cluster import KMeans
+                        estimator = KMeans(
+                            n_clusters=algorithm_options.get("n_clusters", 8),
+                            random_state=algorithm_options.get("random_state", 0),
+                            n_init=10,
+                        )
+                    elif algorithm == "dbscan":
+                        from sklearn.cluster import DBSCAN
+                        estimator = DBSCAN(
+                            eps=algorithm_options.get("eps", 0.5),
+                            min_samples=algorithm_options.get("min_samples", 5),
+                        )
+                    elif algorithm == "hdbscan":
+                        from sklearn.cluster import HDBSCAN
+                        estimator = HDBSCAN(
+                            min_cluster_size=algorithm_options.get("min_cluster_size", 5),
+                            min_samples=algorithm_options.get("min_samples", 5),
+                        )
+                    elif algorithm == "gaussian_mixture":
+                        from sklearn.mixture import GaussianMixture
+                        estimator = GaussianMixture(
+                            n_components=algorithm_options.get("n_clusters", 8),
+                            covariance_type=algorithm_options.get("covariance_type", "full"),
+                            random_state=algorithm_options.get("random_state", 0),
+                        )
+                    elif algorithm == "agglomerative":
+                        from sklearn.cluster import AgglomerativeClustering
+                        estimator = AgglomerativeClustering(
+                            n_clusters=algorithm_options.get("n_clusters", 8),
+                            linkage=algorithm_options.get("linkage", "ward"),
+                        )
+
+                    labels = estimator.fit_predict(values)
+                    adata.obs[key_added] = pd.Categorical(
+                        ["Noise" if label < 0 else str(label) for label in labels]
+                    )
+
+                self._mark_computed(key_added, params)
+                adata.uns.pop("rank_genes_groups", None)
+
+            sample.adata.uns["clustering"] = {"algorithm": algorithm, "key": key_added}
+            if compute_markers:
+                self.compute_markers()
+
+            common_idx = sample.adata.obs_names.intersection(adata.obs_names)
+            sample.adata.obs[key_added] = None
+            sample.adata.obs.loc[common_idx, key_added] = (
+                adata.obs.loc[common_idx, key_added].astype(str).values
+            )
+            return key_added
+        finally:
+            self._bound_sample = previous_sample
+            self._step_params = previous_step_params
+
+    def run_clustering(self, resolution=0.9, n_pcs=30, n_neighbors=15, key_added=None,
+                       compute_markers=False, resolution_level=None, *, algorithm="leiden",
+                       **algorithm_options):
+        """Run clustering and handle bins aggregation in the manager layer."""
+        sample = self.component.manager.sample
+
+        if hasattr(sample, "get_aggregation_factor"):
+            factor = sample.get_aggregation_factor(resolution_level)
+            if factor > 1:
+                key_added = key_added or self.get_cluster_colname(factor, algorithm=algorithm)
+                aggregated_sample = sample._get_aggregated_sample(factor)
+                aggregated_key = self.get_cluster_colname(factor, algorithm=algorithm)
+                self._cluster_on_sample(
+                    aggregated_sample,
+                    algorithm=algorithm,
+                    resolution=resolution,
+                    n_pcs=n_pcs,
+                    n_neighbors=n_neighbors,
+                    key_added=aggregated_key,
+                    compute_markers=False,
+                    **algorithm_options,
+                )
+                mapped = sample._aggregated_cell_names[factor].map(
+                    aggregated_sample.adata.obs[aggregated_key].astype(str)
+                )
+                sample.adata.obs[key_added] = mapped.where(mapped.notna(), None).astype(object)
+                sample._clustering_factor = factor
+                sample.adata.uns["clustering"] = {"algorithm": algorithm, "key": key_added, "factor": factor}
+                self._cluster_columns[algorithm] = key_added
+                self._active_cluster_col = key_added
+                if compute_markers:
+                    self.compute_markers()
+                with sample.fetch_lock:
+                    for cache_key in [k for k in sample._multiscale_cache if key_added in k[2]]:
+                        del sample._multiscale_cache[cache_key]
+                return key_added
+
+        result_key = self._cluster_on_sample(
+            sample,
+            algorithm=algorithm,
+            resolution=resolution,
+            n_pcs=n_pcs,
+            n_neighbors=n_neighbors,
+            key_added=key_added,
+            compute_markers=compute_markers,
+            **algorithm_options,
+        )
+        self._cluster_columns[algorithm] = result_key
+        self._active_cluster_col = result_key
+        return result_key
+
     def compute(self, resolution: float, **algorithm_options) -> str:
         """Run clustering (no Bokeh model updates, safe in a thread); marker genes are
         left for `compute_markers`, so the clusters can be shown first.
@@ -99,26 +330,115 @@ class ClusteringManager:
         """
         manager = self.component.manager
 
-        # Cluster at the level currently displayed (Bins store it as 'leiden_{factor}')
         resolution_level = getattr(manager, "effective_resolution_level", None)
 
         options = clustering_kwargs()
         options["resolution"] = resolution
         options.update(algorithm_options)
 
-        return manager.sample.run_clustering(
+        return self.run_clustering(
             **options,
             resolution_level=resolution_level,
             compute_markers=False,
         )
 
-    def compute_markers(self):
-        """Rank the marker genes of the current clusters (safe in a thread)."""
-        self.component.manager.sample.compute_marker_genes()
+    # ------------------------------------------------------------------
+    # Marker genes
+    # ------------------------------------------------------------------
+
+    def compute_markers(self, algorithm: str | None = None):
+        import scanpy as sc
+
+        cluster_col = self.get_cluster_col(algorithm)
+        if cluster_col is None:
+            cluster_col = self._active_cluster_col
+        if cluster_col is None:
+            return
+
+        analysis_sample = self._get_active_analysis_sample()
+        adata = analysis_sample.adata_processed
+        if adata is None or cluster_col not in adata.obs:
+            return
+
+        marker_params = self._step_params.get("markers")
+        if marker_params == cluster_col:
+            return
+
+        report("Ranking marker genes...")
+
+        counts = adata.obs[cluster_col].value_counts()
+        groups = [str(label) for label, count in counts.items()
+                  if str(label) != "Noise" and count >= 2]
+        adata.uns.pop("rank_genes_groups", None)
+
+        if groups and len(counts[counts > 0]) > 1:
+            sc.tl.rank_genes_groups(adata, groupby=cluster_col, method=analysis_sample.marker_method,
+                                   groups=groups)
+
+        self._step_params["markers"] = cluster_col
+
+    def get_marker_genes(self, n_genes=5):
+        active_cluster_col = self._active_cluster_col
+        analysis_sample = self._get_active_analysis_sample()
+        adata_processed = analysis_sample.adata_processed
+        if adata_processed is None or 'rank_genes_groups' not in adata_processed.uns or active_cluster_col is None:
+            return {}
+        if self._step_params.get("markers") != active_cluster_col:
+            return {}
+
+        result = adata_processed.uns['rank_genes_groups']
+        clusters = result['names'].dtype.names
+        markers = {}
+
+        cluster_labels = adata_processed.obs[active_cluster_col]
+
+        for cluster in clusters:
+            count = min(n_genes, len(result["names"]))
+            genes = [result['names'][cluster][i] for i in range(count)]
+            scores = [result['scores'][cluster][i] for i in range(count)]
+            pvals = [result['pvals_adj'][cluster][i] for i in range(count)]
+
+            cluster_mask = cluster_labels == cluster
+            logfcs = []
+
+            for gene in genes:
+                if gene in adata_processed.var_names:
+                    expr = adata_processed[:, gene].X
+                    if hasattr(expr, 'toarray'):
+                        expr = expr.toarray().flatten()
+                    else:
+                        expr = np.asarray(expr).flatten()
+
+                    mean_in = expr[cluster_mask].mean()
+                    mean_out = expr[~cluster_mask].mean()
+
+                    if mean_in == 0 and mean_out == 0:
+                        l2fc = 0.0
+                    elif mean_out == 0:
+                        l2fc = np.log2((mean_in + 1e-6) / 1e-6)
+                    else:
+                        l2fc = mean_in - mean_out
+
+                    logfcs.append(round(float(l2fc), 2))
+                else:
+                    logfcs.append(0.0)
+            
+            markers[cluster] = list(zip(
+                genes, 
+                [round(float(s), 2) for s in scores], 
+                [float(p) for p in pvals], 
+                [float(l) for l in logfcs]
+            ))
+            
+        return markers
+
+    # ------------------------------------------------------------------
+    # Result application and widgets
+    # ------------------------------------------------------------------
 
     def apply_result(self, cluster_col: str, doc, on_done=None):
         """Refresh colors and cluster widgets (must run on the document thread)."""
-        self.cluster_col = cluster_col
+        self._active_cluster_col = cluster_col
         self._build_cluster_state()
         self._update_source_colors()
         self._rebuild_cluster_widgets(doc)
@@ -265,12 +585,16 @@ class ClusteringManager:
 
     def _build_cluster_state(self):
         """Derive ordered label list, color map, and active set from obs."""
+        active_cluster_col = self._active_cluster_col
+        if active_cluster_col is None:
+            return
+
         obs = self.component.manager.sample.adata.obs
-        if self.cluster_col not in obs.columns:
+        if active_cluster_col not in obs.columns:
             return
 
         # Sort numerically when labels are integers (typical for Leiden)
-        raw_labels = obs[self.cluster_col].dropna().astype(str).unique().tolist()
+        raw_labels = obs[active_cluster_col].dropna().astype(str).unique().tolist()
         try:
             self._cluster_labels = sorted(raw_labels, key=lambda x: int(x))
         except ValueError:
@@ -289,8 +613,8 @@ class ClusteringManager:
         Write a 'cluster_color' column into the ColumnDataSource so the
         glyph renderer can use field('cluster_color') for fill_color.
         """
-
-        if self.cluster_col not in self.component.manager.sample.adata.obs.columns:
+        active_cluster_col = self._active_cluster_col
+        if active_cluster_col is None or active_cluster_col not in self.component.manager.sample.adata.obs.columns:
             return
 
         # Re-run de leiden: que los bins agregados no salgan con etiquetas antiguas.
@@ -299,7 +623,7 @@ class ClusteringManager:
 
         self.component.add_parameter(
             attr='color',
-            colname=self.cluster_col,
+            colname=active_cluster_col,
             static=False,
             not_sequenced_val=NOT_SEQUENCED_VAL[f"{self.component.alias.lower()}s"]["color"],
             colname_hovered=True,
@@ -330,31 +654,33 @@ class ClusteringManager:
 
         color_param = self.component.manager.get_param('color')
         if color_param is not None:
-            obs_series = self.component.manager.sample.adata.obs[self.cluster_col]
+            obs_series = self.component.manager.sample.adata.obs[active_cluster_col]
             obs_names = pd.Series(self.component.manager.source.data['obs_name'])
             aligned = obs_names.map(obs_series)
             new_colors = color_param.get_values(aligned.copy())
             data = dict(self.component.manager.source.data)
             data['color'] = new_colors
-            # Columna leiden en el source para el hover ("Cluster: @leiden"),
-            # igual que groups.py hace con custom_clusters.
-            data[self.cluster_col] = ['—' if pd.isna(c) else str(c) for c in aligned]
+            # Columna del algoritmo actual en el source para el hover.
+            data[active_cluster_col] = ['—' if pd.isna(c) else str(c) for c in aligned]
             self.component.manager.source.data = data
 
         self.component.update_hover_tooltips()
 
     def _apply_visibility_mask(self):
         mgr = self.component.manager
-        if self.cluster_col in mgr.source.data and len(mgr.source.data[self.cluster_col]) > 0:
-            cluster_ids = pd.Series(mgr.source.data[self.cluster_col])
+        active_cluster_col = self._active_cluster_col
+        if active_cluster_col is None:
+            return
+        if active_cluster_col in mgr.source.data and len(mgr.source.data[active_cluster_col]) > 0:
+            cluster_ids = pd.Series(mgr.source.data[active_cluster_col])
         elif hasattr(self.component, 'loader'):
             # Bins (lazy): si el color ya no es leiden (p.ej. clusters personalizados),
             # la columna no está en el source. Alinear por obs_name con lo cargado;
             # get_value devolvería el gdf entero y desincroniza view_filter.
             obs_names = pd.Series(mgr.source.data.get('obs_name', []), dtype=object)
-            cluster_ids = obs_names.map(mgr.sample.adata.obs[self.cluster_col].astype(str))
+            cluster_ids = obs_names.map(mgr.sample.adata.obs[active_cluster_col].astype(str))
         else:
-            cluster_ids = mgr.sample.get_value(colname=self.cluster_col)
+            cluster_ids = mgr.sample.get_value(colname=active_cluster_col)
             
         visible = cluster_ids.astype(str).isin(self._active_clusters)
 
@@ -375,10 +701,13 @@ class ClusteringManager:
     def _build_cluster_control_widgets(self, doc) -> list:
         if not self.is_clustered:
             return []
+            
         from bokeh.models import CheckboxGroup, Button
         from bokeh.models import Div as _Div
-        markers = self.component.manager.sample.get_marker_genes(n_genes=settings.MARKER_GENE_COUNT)
+
+        markers = self.get_marker_genes(n_genes=settings.MARKER_GENE_COUNT)
         self._cluster_checkboxes = []
+
         widgets = []
         select_all_btn = Button(label="Select all / Deselect all", button_type="default", name="cluster_select_all")
         widgets.append(select_all_btn)
@@ -437,7 +766,7 @@ class ClusteringManager:
         doc.add_next_tick_callback(_update)
 
     # ------------------------------------------------------------------
-    # Utilities
+    # Utility helpers
     # ------------------------------------------------------------------
 
     def _result_summary(self):
@@ -449,9 +778,10 @@ class ClusteringManager:
 
     def _count_spots(self, label: str) -> int:
         obs = self.component.manager.sample.adata.obs
-        if self.cluster_col not in obs.columns:
+        active_cluster_col = self._active_cluster_col
+        if active_cluster_col is None or active_cluster_col not in obs.columns:
             return 0
-        return int((obs[self.cluster_col].astype(str) == label).sum())
+        return int((obs[active_cluster_col].astype(str) == label).sum())
 
 
     def apply_colors_to_column(self, colname: str):
@@ -466,3 +796,75 @@ class ClusteringManager:
         if not hasattr(self.component, 'loader'):
             self.component.manager.fetch_data()
         self.component.update_hover_tooltips()
+
+    # ------------------------------------------------------------------
+    # Preprocessing and caching
+    # ------------------------------------------------------------------
+
+    _STEP_DEPENDENTS = {
+        "pca": ("neighbors", "tsne", "pca_embedding"),
+        "neighbors": ("umap", "leiden"),
+        "leiden": ("markers",),
+    }
+    _STEP_OBSM_KEYS = {
+        "pca_embedding": "X_pca_2d",
+        "umap": "X_umap",
+        "tsne": "X_tsne",
+    }
+
+    def _is_cached(self, step, params):
+        return step in self._step_params and self._step_params[step] == params
+
+    def _mark_computed(self, step, params):
+        self._invalidate_dependents(step)
+        self._step_params[step] = params
+
+    def _invalidate_dependents(self, step):
+        for dependent in self._STEP_DEPENDENTS.get(step, ()):
+            self._step_params.pop(dependent, None)
+            obsm_key = self._STEP_OBSM_KEYS.get(dependent)
+            if obsm_key is not None and self.has_adata():
+                self.adata.obsm.pop(obsm_key, None)
+            self._invalidate_dependents(dependent)
+
+    def prepare_adata_processed(self):
+        import scanpy as sc
+
+        if self.adata_processed is not None:
+            return self.adata_processed
+
+        report(f"Preprocessing {self.adata.n_obs} observations (normalize, HVG, scale)...")
+        adata = self.adata.copy()
+        adata.var_names_make_unique()
+
+        sc.pp.filter_genes(adata, min_cells=self.min_gene_cells)
+        sc.pp.normalize_total(adata, target_sum=self.normalization_target_sum)
+        sc.pp.log1p(adata)
+        sc.pp.highly_variable_genes(adata)
+        adata = adata[:, adata.var.highly_variable].copy()
+
+        self.adata_processed = adata
+        self._step_params = {}
+        return self.adata_processed
+
+    def _ensure_pca(self, n_pcs=30):
+        import scanpy as sc
+
+        adata = self.prepare_adata_processed()
+        cached = self._step_params.get("pca")
+        if cached is None or cached < n_pcs:
+            report(f"Computing PCA ({n_pcs} components)...")
+            sc.pp.pca(adata, n_comps=n_pcs)
+            self._mark_computed("pca", n_pcs)
+        return adata
+
+    def _ensure_neighbors(self, n_pcs=30, n_neighbors=15):
+        import scanpy as sc
+
+        adata = self._ensure_pca(n_pcs)
+        params = (n_pcs, n_neighbors)
+        if not self._is_cached("neighbors", params):
+            report(f"Computing neighbor graph (k={n_neighbors})...")
+            sc.pp.neighbors(adata, n_neighbors=n_neighbors, n_pcs=n_pcs)
+            self._mark_computed("neighbors", params)
+        return adata

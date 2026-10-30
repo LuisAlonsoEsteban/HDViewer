@@ -1,4 +1,7 @@
 
+import pandas as pd
+import numpy as np
+
 from bokeh.layouts import column, row
 from bokeh.models import Button, ColumnDataSource, Select, TabPanel, Tabs
 from bokeh.plotting import figure
@@ -7,6 +10,7 @@ from ...settings.config import embedding_kwargs
 from . import Panel
 from ..utils.loading import LoadingLogger
 from ...help import help_header
+from ...startup.utils.progress import report
 
 
 class EmbeddingPanel(Panel):
@@ -24,9 +28,21 @@ class EmbeddingPanel(Panel):
         self.components = {}
         self._syncing = False
         self._component_views = {}
+        self._embedding_keys = {
+            "pca": "X_pca_2d",
+            "umap": "X_umap",
+            "tsne": "X_tsne",
+        }
         self.tabs = Tabs(tabs=[])
 
         self.set_children([help_header("Embeddings", "embedding"), self.tabs])
+
+    def _get_component_context(self, component):
+        sample = getattr(component.manager, "sample", None)
+        clustering_manager = getattr(component, "clustering_manager", None)
+        if sample is None or clustering_manager is None:
+            raise RuntimeError(f"Embedding requires a component with both a sample and a clustering manager: {component!r}")
+        return sample, clustering_manager
 
     def set_components(self, components):
         component_map = {}
@@ -116,6 +132,65 @@ class EmbeddingPanel(Panel):
             "panel": panel,
         }
 
+    def _store_embedding(self, component, method, values):
+        sample, clustering_manager = self._get_component_context(component)
+        key = self._embedding_keys[method]
+        adata_processed = clustering_manager.adata_processed
+        if adata_processed is None:
+            return
+
+        full = np.full((sample.adata.n_obs, 2), np.nan, dtype=float)
+        obs_index = pd.Index(sample.adata.obs_names.astype(str))
+        processed_index = pd.Index(adata_processed.obs_names.astype(str))
+        common_idx = obs_index.get_indexer(processed_index)
+        valid = common_idx >= 0
+        full[common_idx[valid], :] = values[valid, :]
+        sample.adata.obsm[key] = full
+
+    def compute_embedding(self, component, method: str, n_pcs=30, n_neighbors=15):
+        import scanpy as sc
+
+        sample, clustering_manager = self._get_component_context(component)
+        method = method.lower()
+        if method not in self._embedding_keys:
+            raise ValueError(f"Unsupported embedding method: {method}")
+
+        key = self._embedding_keys[method]
+        step = "pca_embedding" if method == "pca" else method
+        params = (n_pcs, n_neighbors) if method == "umap" else n_pcs
+
+        if clustering_manager.adata_processed is not None and clustering_manager._is_cached(step, params) and key in sample.adata.obsm:
+            report(f"Using cached {method.upper()} embedding")
+            return sample.adata.obsm[key]
+
+        if method == "pca":
+            adata = clustering_manager._ensure_pca(n_pcs)
+            values = adata.obsm["X_pca"][:, :2]
+        elif method == "umap":
+            adata = clustering_manager._ensure_neighbors(n_pcs, n_neighbors)
+            report("Running UMAP...")
+            sc.tl.umap(adata)
+            values = adata.obsm["X_umap"][:, :2]
+        else:
+            adata = clustering_manager._ensure_pca(n_pcs)
+            report("Running t-SNE...")
+            sc.tl.tsne(adata, n_pcs=n_pcs)
+            values = adata.obsm["X_tsne"][:, :2]
+
+        self._store_embedding(component, method, np.asarray(values, dtype=float))
+        clustering_manager._mark_computed(step, params)
+        return sample.adata.obsm[key]
+
+    def get_embedding_dataframe(self, component, method: str, resolution_level=None, *, n_pcs=30, n_neighbors=15) -> pd.DataFrame:
+        sample, _ = self._get_component_context(component)
+        method = method.lower()
+        values = np.asarray(self.compute_embedding(component, method, n_pcs=n_pcs, n_neighbors=n_neighbors), dtype=float)
+        df = pd.DataFrame(values, columns=["x", "y"], index=sample.adata.obs_names.astype(str))
+        df.index.name = "obs_name"
+        df.reset_index(inplace=True)
+        df = df.dropna(subset=["x", "y"]).copy()
+        return df
+
     def _run_embedding(self, sample_type):
         view = self._component_views.get(sample_type)
         if view is None:
@@ -131,7 +206,7 @@ class EmbeddingPanel(Panel):
         resolution_level = getattr(component.manager, "effective_resolution_level", None)
 
         def _work():
-            return component.sample.get_embedding_dataframe(method, resolution_level=resolution_level, **embedding_kwargs())
+            return self.get_embedding_dataframe(component, method, resolution_level=resolution_level, **embedding_kwargs())
 
         def _on_error(exc):
             view["run_button"].disabled = False

@@ -231,7 +231,7 @@ class MetadataPanel(Panel):
         )
 
     def update_marker_table(self, geom):
-        markers = geom.sample.get_marker_genes(n_genes=settings.METADATA_MARKER_GENE_COUNT)
+        markers = geom.clustering_manager.get_marker_genes(n_genes=settings.METADATA_MARKER_GENE_COUNT)
         if geom.key not in self._marker_divs:
             return
         if not markers:

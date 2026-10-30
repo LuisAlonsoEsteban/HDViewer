@@ -52,8 +52,6 @@ GENE_CACHE_SIZE = 8
 assert STATIC_RANGE <= OFFSET, "Offset must be larger than the static range for efficient loading"
 
 # Clustering, embeddings and expression preprocessing
-CLUSTER_COL = "leiden"
-CLUSTER_PREFIX = "leiden_"
 CLUSTER_COLOR_LABEL = "cluster_color"
 CLUSTER_RESOLUTION = 0.9
 CLUSTER_ALGORITHM = "leiden"

@@ -326,7 +326,7 @@ class Layer:
 
     def get_hover_tooltips(self):
         items = []
-        cluster_col = getattr(getattr(self, "clustering_manager", None), "cluster_col", settings.CLUSTER_COL)
+        cluster_col = getattr(getattr(self, "clustering_manager", None), "cluster_col", None)
         for param in self.manager.parameters:
             if (not param.is_static and param.colname_hovered
                     and param.colname not in (settings.GROUPS_COL, cluster_col)
@@ -335,7 +335,7 @@ class Layer:
 
         if settings.GROUPS_COL in self.manager.source.data:
             items.append(f"Group: @{{{settings.GROUPS_COL}}}")
-        if cluster_col in self.manager.source.data:
+        if cluster_col is not None and cluster_col in self.manager.source.data:
             items.append(f"Cluster: @{{{cluster_col}}}")
 
         if len(items) > 0:

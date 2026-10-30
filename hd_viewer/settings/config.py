@@ -10,7 +10,7 @@ from . import *
 
 
 def sample_kwargs(kind=None):
-    options = dict(gene_cache_size=GENE_CACHE_SIZE, cluster_col=CLUSTER_COL,
+    options = dict(gene_cache_size=GENE_CACHE_SIZE,
                    min_gene_cells=MIN_GENE_CELLS,
                    normalization_target_sum=NORMALIZATION_TARGET_SUM,
                    marker_method=DE_METHOD)
@@ -18,7 +18,6 @@ def sample_kwargs(kind=None):
         options.update(aggregated_prefix=AGGREGATED_PREFIX,
                        aggregation_factors=AGGREGATION_FACTORS,
                        max_cache_entries=MAX_CACHE_ENTRIES,
-                       cluster_prefix=CLUSTER_PREFIX,
                        aggregate_obs_prefix=AGGREGATE_OBS_PREFIX)
     elif kind == 'cells':
         options.update(lod_prefix=LOD_PREFIX, lod_base_tolerance=LOD_BASE_TOLERANCE,

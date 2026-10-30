@@ -199,15 +199,17 @@ class GroupsManager:
                     "<p style='color:red;font-size:11px'>Gene and value are required.</p>"
                 )
                 return
-            try:
-                float(val)
-            except ValueError:
-                self._status_div.text = (
-                    "<p style='color:red;font-size:11px'>Value must be numeric.</p>"
-                )
-                return
+
 
             if col in self.sample.adata.var_names:
+                try:
+                    float(val)
+                except ValueError:
+                    self._status_div.text = (
+                        "<p style='color:red;font-size:11px'>Gene expression conditions require a numeric value.</p>"
+                    )
+                    return
+
                 var_idx = {g: i for i, g in enumerate(self.sample.adata.var_names)}
                 expr = self.sample.adata.X[:, var_idx[col]]
                 if hasattr(expr, 'toarray'):
@@ -219,8 +221,27 @@ class GroupsManager:
                     f"{col}: max={float(expr.max()):.2f}, "
                     f"mean={float(expr.mean()):.3f}</p>"
                 )
-            else:
+            elif col in self.sample.adata.obs.columns:
+                series = self.sample.adata.obs[col]
+                if pd.api.types.is_numeric_dtype(series):
+                    try:
+                        float(val)
+                    except ValueError:
+                        self._status_div.text = (
+                            "<p style='color:red;font-size:11px'>Numeric metadata requires a numeric value.</p>"
+                        )
+                        return
+                elif op in (">", "<", ">=", "<="):
+                    self._status_div.text = (
+                        "<p style='color:red;font-size:11px'>Only == is supported for non-numeric metadata values.</p>"
+                    )
+                    return
                 self._status_div.text = ""
+            else:
+                self._status_div.text = (
+                    "<p style='color:red;font-size:11px'>Unknown gene or metadata column.</p>"
+                )
+                return
 
             self._conditions.append((col, op, val, logic))
             doc.add_next_tick_callback(_render_conditions)
@@ -478,8 +499,6 @@ class GroupsManager:
         mask    = None
 
         for col, op, val, logic in conditions:
-            val_f = float(val)
-
             if col in var_idx:
                 expr = adata.X[:, var_idx[col]]
                 if hasattr(expr, 'toarray'):
@@ -487,14 +506,29 @@ class GroupsManager:
                 else:
                     expr = np.asarray(expr).flatten()
                 series = pd.Series(expr, index=obs.index)
+                try:
+                    val_f = float(val)
+                except ValueError as exc:
+                    raise ValueError(f"Gene condition '{col}' requires a numeric value.") from exc
+                ops = {'>': series > val_f, '<': series < val_f,
+                       '>=': series >= val_f, '<=': series <= val_f}
+                cond_mask = ops.get(op, series == val_f)
             elif col in obs.columns:
-                series = obs[col].astype(float)
+                series = obs[col]
+                if pd.api.types.is_numeric_dtype(series):
+                    try:
+                        val_f = float(val)
+                    except ValueError as exc:
+                        raise ValueError(f"Column '{col}' requires a numeric value for operator '{op}'.") from exc
+                    ops = {'>': series > val_f, '<': series < val_f,
+                           '>=': series >= val_f, '<=': series <= val_f}
+                    cond_mask = ops.get(op, series == val_f)
+                else:
+                    if op not in ("==",):
+                        raise ValueError(f"Operator '{op}' is only supported for numeric columns; use == for '{col}'.")
+                    cond_mask = series.astype(str) == str(val)
             else:
                 continue
-
-            ops       = {'>': series > val_f, '<': series < val_f,
-                         '>=': series >= val_f, '<=': series <= val_f}
-            cond_mask = ops.get(op, series == val_f)
 
             if mask is None:
                 mask = cond_mask

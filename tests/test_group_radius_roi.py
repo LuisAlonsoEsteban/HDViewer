@@ -129,6 +129,14 @@ class GroupRadiusROITests(unittest.TestCase):
         document.add_root(manager.component.figure)
         document.to_json()
 
+    def test_categorical_group_conditions_work(self):
+        layer = make_layer()
+        layer.sample.adata.obs['cell_type'] = ['Tumor', 'Tumor', 'Normal', 'Normal']
+        mask = layer.groups_manager._build_mask([
+            ('cell_type', '==', 'Tumor', 'AND')
+        ], layer.sample.adata)
+        np.testing.assert_array_equal(mask.to_numpy(), np.array([True, True, False, False]))
+
     def test_latest_preview_wins_and_cancel_discards_work(self):
         layer = make_layer()
         manager = layer.roi_manager
