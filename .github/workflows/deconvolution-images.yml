@@ -21,7 +21,7 @@ jobs:
     strategy:
       fail-fast: false
       matrix:
-        plugin: [nnls, cell2location, music]
+        plugin: [nnls, cell2location, music, spacexr]
     steps:
       - uses: actions/checkout@v4
       - id: manifest

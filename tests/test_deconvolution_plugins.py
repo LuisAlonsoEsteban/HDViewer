@@ -40,7 +40,7 @@ class PluginServiceTests(unittest.TestCase):
         self.service = DeconvolutionService(dict(runner='local', work_dir=str(self.work), threads_per_run=1))
 
     def test_discovery_and_required_method_parameters(self):
-        self.assertEqual(set(self.service.plugins), {'nnls', 'cell2location', 'music', 'cibersortx'})
+        self.assertEqual(set(self.service.plugins), {'nnls', 'cell2location', 'music', 'spacexr', 'cibersortx'})
         self.assertEqual(self.service.plugins['nnls'].resolve_params()['batch_size'], 256)
         with self.assertRaisesRegex(ValueError, 'required'):
             self.service.validate_params('cell2location', reference(), 'cell_type')
@@ -302,7 +302,7 @@ class ContainerCommandTests(unittest.TestCase):
             kwargs = dict(sdk_dir=SDK_DIR, segmentation_root=ROOT)
             apptainer = ApptainerRunner({'apptainer': {'images_dir': folder}}, **kwargs)
             docker = DockerRunner({}, **kwargs)
-            for name in ('nnls', 'cell2location', 'music'):
+            for name in ('nnls', 'cell2location', 'music', 'spacexr'):
                 plugin = discover()[name]
                 expected = f'ghcr.io/luisalonsoesteban/visium-deconv-{name}:0.1.0'
                 self.assertEqual(plugin.image, expected)
@@ -451,6 +451,11 @@ class ExternalAdapterSmokeTests(unittest.TestCase):
 
     def test_music(self):
         self.smoke('music', dict(sample_column='donor', batch_size=2))
+
+    def test_spacexr(self):
+        for mode in ('doublet', 'full', 'multi'):
+            with self.subTest(mode=mode):
+                self.smoke('spacexr', dict(doublet_mode=mode, MAX_MULTI_TYPES=2, UMI_min_sigma=100))
 
     def test_cibersortx_credentials_and_real_container(self):
         runner = os.environ.get('VHD_TEST_CIBERSORTX_RUNNER')

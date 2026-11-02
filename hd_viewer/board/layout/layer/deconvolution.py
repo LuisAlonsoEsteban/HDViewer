@@ -242,6 +242,8 @@ class DeconvolutionManager:
                 import anndata as ad
                 target = ad.AnnData(sample.adata.X.copy(), obs=pd.DataFrame(index=sample.adata.obs_names.copy()),
                                     var=pd.DataFrame(index=sample.adata.var_names.copy()))
+                if name == 'spacexr' and 'spatial' in sample.adata.obsm:
+                    target.obsm['spatial'] = sample.adata.obsm['spatial'].copy()
             reference = self.reference
             work_dir = self.work_dir
             run.disabled = method.disabled = labels.disabled = True

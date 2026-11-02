@@ -149,6 +149,13 @@ class DeconvolutionService:
             raise ValueError('Minimum signature genes must not exceed maximum signature genes.')
         if name == 'music' and resolved['sample_column'] == label_column:
             raise ValueError('Choose a donor/sample column distinct from the cell-type column.')
+        if name == 'spacexr':
+            if reference.obs[label_column].astype(str).nunique() < 2:
+                raise ValueError('RCTD requires at least two reference cell types.')
+            if resolved['UMI_min'] > resolved['UMI_max']:
+                raise ValueError('UMI_min must not exceed UMI_max.')
+            if resolved['n_max_cells'] < resolved['CELL_MIN_INSTANCE']:
+                raise ValueError('n_max_cells must be at least CELL_MIN_INSTANCE.')
         return resolved, list(dict.fromkeys(columns))
 
     def run(self, name, target, reference, label_column, params=None, on_progress=None, *, work_dir=None):
@@ -167,10 +174,19 @@ class DeconvolutionService:
             values = data.X.data if sparse.issparse(data.X) else np.asarray(data.X)
             if not np.isfinite(values).all() or (values < 0).any():
                 raise ValueError('Expression must contain finite, nonnegative linear counts.')
+            if name == 'spacexr' and not np.allclose(values, np.round(values), rtol=0, atol=1e-6):
+                raise ValueError('RCTD requires raw integer counts in .X.')
         if len(target.var_names.intersection(reference.var_names)) < 2:
             raise ValueError('Too few shared genes.')
+        coordinates = None
+        if name == 'spacexr' and 'spatial' in target.obsm:
+            coordinates = np.asarray(target.obsm['spatial'], dtype=float)
+            if coordinates.shape != (target.n_obs, 2) or not np.isfinite(coordinates).all():
+                raise ValueError('RCTD spatial coordinates must be a finite observations-by-2 matrix.')
         target = ad.AnnData(target.X, obs=pd.DataFrame(index=target.obs_names.copy()),
                             var=pd.DataFrame(index=target.var_names.copy()))
+        if coordinates is not None:
+            target.obsm['spatial'] = coordinates.copy()
         reference = ad.AnnData(reference.X, obs=reference.obs[columns].astype(str).copy(),
                                var=pd.DataFrame(index=reference.var_names.copy()))
         reference_spec = dict(matrix=matrix_fingerprint(reference), annotations=reference.obs.to_dict('list'),
@@ -181,6 +197,8 @@ class DeconvolutionService:
         reference_key = _key(reference_spec)
         spec = dict(reference=reference_key, target=matrix_fingerprint(target), params=resolved,
                     runner=self.runner.name, gpu=self.runner.gpu)
+        if coordinates is not None:
+            spec['spatial'] = hashlib.sha256(coordinates.astype('<f8').tobytes()).hexdigest()
         key = _key(spec)
         destination = work_dir / name / key
         artifacts = work_dir / '_references' / name / reference_key

@@ -12,6 +12,7 @@ aggregation. All-zero observations remain unassigned.
 | NNLS (default) | Cell-type labels | Expression mixture fractions |
 | cell2location | Explicit expected cells/location; optional reference batch | Posterior mean expected cells and fractions normalized from those means |
 | MuSiC | Donor/sample annotation with at least two subjects, distinct from cell types | Weighted proportions from `music_prop` |
+| spacexr (RCTD) | Raw integer counts; at least two reference cell types | Full, doublet, or multi-mode fractions after platform-effect normalization |
 | CIBERSORTx | Container runtime and server credentials | Relative fractions; signature generated from the reference |
 
 Fractions sum to one for assigned rows. These methods have different statistical
@@ -43,6 +44,7 @@ local:
   python:
     cell2location: /path/to/cell2location/bin/python
     music: /path/to/music/bin/python
+    spacexr: /path/to/spacexr/bin/python
 ```
 
 MuSiC additionally needs `Rscript` on PATH (or `VHD_MUSIC_RSCRIPT` pointing to it),
@@ -51,12 +53,13 @@ the official `xuranw/MuSiC` R package, `SingleCellExperiment`, `Matrix`, and
 counts cross the Python/R boundary as Matrix Market files; only bounded target
 batches become dense in R.
 
-NNLS, cell2location, and MuSiC pull versioned images from GHCR, using the same
+NNLS, cell2location, MuSiC, and spacexr pull versioned images from GHCR, using the same
 registry namespace as segmentation:
 
 - `ghcr.io/luisalonsoesteban/visium-deconv-nnls:0.1.0`
 - `ghcr.io/luisalonsoesteban/visium-deconv-cell2location:0.1.0`
 - `ghcr.io/luisalonsoesteban/visium-deconv-music:0.1.0`
+- `ghcr.io/luisalonsoesteban/visium-deconv-spacexr:0.1.0`
 
 Docker uses an existing local image or pulls the manifest image. As with segmentation,
 a bundled Dockerfile remains a fallback if pulling fails. Apptainer uses a configured
@@ -64,7 +67,7 @@ a bundled Dockerfile remains a fallback if pulling fails. Apptainer uses a confi
 it pulls `docker://<manifest image>` and caches the SIF. Apptainer does not build images.
 
 The `Deconvolution plugin images` GitHub Actions workflow builds and publishes these
-three images when their sources change on `main`, or when run manually. The workflow
+four images when their sources change on `main`, or when run manually. The workflow
 must complete successfully and GHCR packages must be public or accessible to the
 execution host before remote pulls can succeed. Changing manifests alone does not
 publish images. Bump both the manifest version and image tag when changing methods.
@@ -74,7 +77,50 @@ To build an image manually, run from this API directory:
 
 ```bash
 docker build -t ghcr.io/luisalonsoesteban/visium-deconv-music:0.1.0 -f plugins/music/Dockerfile .
+docker build -t ghcr.io/luisalonsoesteban/visium-deconv-spacexr:0.1.0 -f plugins/spacexr/Dockerfile .
 ```
+
+### spacexr (RCTD)
+
+The adapter follows the upstream [RCTD vignette](https://raw.githack.com/dmcable/spacexr/master/vignettes/spatial-transcriptomics.html):
+construct `Reference` and `SpatialRNA`, then call `create.RCTD` and `run.RCTD`.
+Local execution needs `Rscript` on PATH (or `VHD_SPACEXR_RSCRIPT`), `Matrix`,
+`jsonlite`, and the **GitHub** `dmcable/spacexr` package with this API. The
+Bioconductor package has a different API. Install into the R library visible to
+that Rscript, for example:
+
+```r
+install.packages(c("remotes", "jsonlite"), repos="https://cloud.r-project.org")
+remotes::install_github("dmcable/spacexr", build_vignettes=FALSE, upgrade="never")
+```
+
+No donor/sample column is required. `.X` must contain untransformed integer
+counts; fractional or normalized expression fails validation. The default
+reference filter requires 100 UMIs per cell and 25 cells per type after filtering.
+RCTD also selects marker genes and filters target depth; sparse HD bins may
+need aggregation or adjusted cutoffs. `max_cores` cannot exceed the runner's
+`threads_per_run`. A seed controls reference downsampling.
+
+Choose `doublet` (default, at most two types), `full` (all types), or `multi`
+(up to `MAX_MULTI_TYPES`). Full and multi weights are normalized per observation.
+In doublet mode, singlets receive a unit fraction for their first type;
+`doublet_certain` uses the two fitted weights. Rejected and `doublet_uncertain`
+observations remain wholly unassigned: an uncertain second identity does not
+define confident mixture fractions. Filtered observations retain their original
+rows as unassigned. Native confidence information remains in `rctd_results.rds`
+and `r_inputs/rctd.json`; `cell_type_labels.json` maps R's safe identifiers back
+to the original labels, including slashes and numeric strings.
+
+Counts cross into R as sparse Matrix Market files. RCTD fits the whole layer
+because its platform-effect and noise estimates depend on the dataset; arbitrary
+independent batches would change the model. Upstream fitting can create dense
+matrices, so large layers need sufficient RAM. No fitted model is reused between
+layers, since its normalization depends on the target counts.
+
+When available, `target.obsm['spatial']` (an observations-by-2 matrix) is retained.
+Otherwise `SpatialRNA` uses its documented placeholder-coordinate option, with
+a progress message. RCTD's mixture fit does not use spatial coordinates for
+smoothing; placeholders do not change fitted fractions.
 
 ### CIBERSORTx
 
@@ -222,15 +268,17 @@ artifacts to `job.reference_output`. They must depend only on reference inputs a
 Run from the repository root:
 
 ```bash
-.venv/bin/python -m unittest tests.test_deconvolution tests.test_segmentation tests.test_deconvolution_plugins tests.test_param_form
+.venv/bin/python -m unittest tests.test_deconvolution tests.test_segmentation tests.test_deconvolution_plugins tests.test_spacexr_plugin tests.test_param_form
 ```
 
 The suite runs NNLS as a real isolated subprocess and tests command construction,
 CIBERSORTx format conversion, output validation, cache invalidation, reference reuse,
 failure recovery, UI controls, history, and AnnData round trips. To run small real
 external-method smoke tests, set `VHD_TEST_CELL2LOCATION_PYTHON` and/or
-`VHD_TEST_MUSIC_PYTHON` to suitable plugin interpreters. Without those environments,
-the corresponding tests skip explicitly. MuSiC's interpreter must also find Rscript.
+`VHD_TEST_MUSIC_PYTHON` / `VHD_TEST_SPACEXR_PYTHON` to suitable plugin interpreters.
+Without those environments, the corresponding tests skip explicitly. MuSiC and
+spacexr also need Rscript and their R packages. The spacexr smoke test exercises
+all three RCTD modes; contract tests simulate R output and do not verify model fitting.
 
 CIBERSORTx format/command tests use simulated official outputs. Set `VHD_TEST_CIBERSORTX_RUNNER=docker` (or `apptainer`) with server credentials
 to run the optional real-container smoke test. A successful credentialed run is required before claiming
@@ -239,4 +287,5 @@ signature and fractions are cached and that a second layer reuses the signature.
 
 Method references: [cell2location](https://cell2location.readthedocs.io/en/latest/notebooks/cell2location_tutorial.html),
 [MuSiC](https://xuranw.github.io/MuSiC/articles/MuSiC.html),
+[spacexr/RCTD](https://raw.githack.com/dmcable/spacexr/master/vignettes/spatial-transcriptomics.html),
 [CIBERSORTx](https://cibersortx.stanford.edu/).
