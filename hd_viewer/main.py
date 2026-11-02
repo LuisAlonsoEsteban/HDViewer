@@ -2,7 +2,7 @@
 from bokeh.plotting import curdoc
 from bokeh.layouts import column
 
-from .startup import create_startup
+from .startup import create_startup, on_session_destroyed
 
 
 doc = curdoc()
@@ -24,3 +24,5 @@ placeholders = {
 for name, comp in placeholders.items():
     comp.name = name
     doc.add_root(comp)
+
+doc.on_session_destroyed(on_session_destroyed)

@@ -121,7 +121,7 @@ batch_size=256)` entry point remains available from
 In the viewer, runs live in `<dataset base directory>/deconvolution/<method>/<hash>/`,
 next to the dataset's `segmentation/` folder. The base directory follows segmentation:
 for configured datasets it is the tissue image's parent directory; for uploads it
-is the uploaded-files directory. All bins, spots, and segmentation-derived cells
+is the session's uploaded-files directory (`tmp/<session_id>/`). All bins, spots, and segmentation-derived cells
 for that dataset use this directory, including layers added later. Reference
 artifacts and locks also live under its `deconvolution/` folder. Results remain
 stored in the layer's AnnData as well.

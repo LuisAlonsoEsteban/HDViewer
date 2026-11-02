@@ -3,8 +3,9 @@ import base64
 import time
 import unittest
 from io import BytesIO
-from unittest.mock import patch
+from unittest.mock import PropertyMock, patch
 from pathlib import Path
+from types import SimpleNamespace
 
 import anndata as ad
 import h5py
@@ -61,6 +62,24 @@ class ImmediateDoc(Document):
 
 
 class DeconvolutionTests(unittest.TestCase):
+    def test_uploaded_files_and_layer_results_use_each_sessions_folder(self):
+        with tempfile.TemporaryDirectory() as folder, \
+                patch("hd_viewer.startup.settings.UPLOAD_DIR", Path(folder)):
+            for session_id in ("first-session", "second-session"):
+                with patch.object(Document, "session_context", new_callable=PropertyMock,
+                                  return_value=SimpleNamespace(id=session_id)):
+                    startup = StartupController(ImmediateDoc())
+                session_dir = Path(folder) / session_id
+                self.assertEqual(startup.SESSION_UPLOAD_DIR, session_dir)
+                self.assertEqual(startup.app.deconvolution_work_dir, session_dir / "deconvolution")
+                upload = FileInput(filename="counts.h5", value=base64.b64encode(b"counts").decode())
+                saved = Path(startup._save_uploaded_file(upload))
+                self.assertEqual(saved, session_dir / "counts.h5")
+                self.assertEqual(saved.read_bytes(), b"counts")
+                layer, _ = make_layer()
+                startup.app.add_geometry(layer)
+                self.assertEqual(layer.deconvolution_manager.work_dir, session_dir / "deconvolution")
+
     def test_pending_reference_upload_keeps_startup_form_usable(self):
         startup = StartupController(ImmediateDoc())
         startup.reference_annotations_input = FileInput(
@@ -70,7 +89,7 @@ class DeconvolutionTests(unittest.TestCase):
             restart.assert_not_called()
             prepare.assert_not_called()
         self.assertFalse(startup.loading)
-        self.assertFalse(startup.load_button.disabled)
+        self.assertTrue(startup.load_button.disabled)
         self.assertFalse(startup.reference_input.disabled)
         self.assertIn("has not reached the server", startup.status_text.text)
 
@@ -90,7 +109,7 @@ class DeconvolutionTests(unittest.TestCase):
         startup = StartupController(ImmediateDoc())
         upload_folder = tempfile.TemporaryDirectory()
         self.addCleanup(upload_folder.cleanup)
-        startup.UPLOAD_DIR = Path(upload_folder.name)
+        startup.SESSION_UPLOAD_DIR = Path(upload_folder.name) / "test-session"
         self.assertTrue(startup.reference_input_widget.visible)
         self.assertIn(startup.reference_input, startup.layout.references())
         with tempfile.TemporaryDirectory() as folder:
@@ -111,12 +130,12 @@ class DeconvolutionTests(unittest.TestCase):
             startup._prepare_data()
             shared = startup.app.deconvolution_reference
             self.assertIsNotNone(shared)
-            self.assertEqual(startup.app.deconvolution_work_dir, startup.UPLOAD_DIR / 'deconvolution')
+            self.assertEqual(startup.app.deconvolution_work_dir, startup.SESSION_UPLOAD_DIR / 'deconvolution')
             for _ in range(2):
                 layer, _ = make_layer()
                 startup.app.add_geometry(layer)
                 self.assertIs(layer.deconvolution_manager.reference, shared)
-                self.assertEqual(layer.deconvolution_manager.work_dir, startup.UPLOAD_DIR / 'deconvolution')
+                self.assertEqual(layer.deconvolution_manager.work_dir, startup.SESSION_UPLOAD_DIR / 'deconvolution')
                 tabs = layer.get_widgets(ImmediateDoc())
                 widgets = next(t.child.children for t in tabs.tabs if t.title == "Deconvolution")
                 run = next(w for w in widgets if isinstance(w, Button) and w.label == "Run deconvolution")
@@ -137,7 +156,7 @@ class DeconvolutionTests(unittest.TestCase):
                 self.assertIn("deconvolution", layer.sample.adata.obsm)
                 self.assertEqual(layer.sample.adata.uns["deconvolution"]["reference_name"], "reference.h5")
                 saved_log = Path(layer.sample.adata.uns['deconvolution']['log_path'])
-                self.assertTrue(saved_log.is_relative_to(startup.UPLOAD_DIR / 'deconvolution'))
+                self.assertTrue(saved_log.is_relative_to(startup.SESSION_UPLOAD_DIR / 'deconvolution'))
                 self.assertTrue(saved_log.exists())
             self.assertEqual(read.call_count, 1)
 

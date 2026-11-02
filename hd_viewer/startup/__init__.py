@@ -7,11 +7,14 @@ from bokeh.models import (
     Checkbox, CustomJS, RadioButtonGroup, TextInput, NumericInput,
 )
 from bokeh.layouts import row, column
+from bokeh.events import DocumentReady
 
 import base64
 import hashlib
 import os
 import sys
+import shutil
+import uuid
 from pathlib import Path
 from html import escape
 
@@ -28,12 +31,13 @@ from ..help import TUTORIAL_CARD_HTML, help_button
 
 class StartupController:
 
-    UPLOAD_DIR = settings.UPLOAD_DIR
-
     PROGRESS_WIDTH = settings.PROGRESS_WIDTH
 
     def __init__(self, doc):
         self.doc = doc
+        session = doc.session_context
+        session_id = session.id if session is not None else uuid.uuid4().hex
+        self.SESSION_UPLOAD_DIR = settings.UPLOAD_DIR / session_id
         self.doc.template_variables["layout_settings"] = settings.PANEL_SPLITS
 
         self.loading = False
@@ -58,6 +62,7 @@ class StartupController:
         self.tasks = {}
 
         self.app = App(self.doc)
+        self.app.deconvolution_work_dir = self.SESSION_UPLOAD_DIR / "deconvolution"
 
     def restart(self):
         self.app.reset_geometries()
@@ -73,13 +78,13 @@ class StartupController:
             placeholder="https://example.org/dataset.zip",
         )
 
-        self.h5_input = FileInput(accept=".h5", value="")
+        self.h5_input = FileInput(accept=".h5", value="", filename="")
         self.h5_input_widget = column(
             Div(text="<b>1. Expression data (.h5)</b>"),
             self.h5_input
         )
 
-        self.positions_input = FileInput(accept=".parquet", value="")
+        self.positions_input = FileInput(accept=".parquet", value="", filename="")
         self.positions_input_widget = column(
             Div(text="<b>2. Positions data (.parquet)</b>"),
             self.positions_input
@@ -95,7 +100,7 @@ class StartupController:
             self.resolution_select
         )
 
-        self.image_input = FileInput(accept=".btf, .png, .tiff", value="")
+        self.image_input = FileInput(accept=".btf, .png, .tiff", value="", filename="")
         self.tiles_progress_bar = Div(text="", width=1000)
         self.image_input_widget = column(
             Div(text="<b>4. Tissue image (.btf, .png, .tiff)</b>"),
@@ -103,7 +108,7 @@ class StartupController:
         )
 
         self.reference_input = FileInput(accept=".h5ad, .h5", value="", filename="")
-        self.reference_annotations_input = FileInput(accept=".csv,.parquet", value="")
+        self.reference_annotations_input = FileInput(accept=".csv,.parquet", value="", filename="")
         self.reference_upload_status = Div(text=
             "No single-cell reference received yet. After selecting a file, wait for the upload confirmation before loading data.")
         self.reference_input_widget = column(
@@ -136,8 +141,21 @@ class StartupController:
         self.pseudospots_progress = Div(text="", width=200)
         self.status_text = Div(text="Upload your data")
 
-        self.load_button = Button(label="Load Data", button_type="success")
+        self.load_button = Button(label="Load Data", button_type="success", disabled=True)
         self.load_button.on_click(self.load_data_callback)
+
+        # Track selection separately: FileInput.value arrives only after the browser
+        # has read and transferred the file, including when replacing an old upload.
+        self._uploads = [
+            (self.h5_input, "Expression data", True, (".h5",)),
+            (self.positions_input, "Positions data", True, (".parquet",)),
+            (self.image_input, "Tissue image", True, (".btf", ".png", ".tiff")),
+            (self.reference_input, "Single-cell reference", False, (".h5ad", ".h5")),
+            (self.reference_annotations_input, "Reference annotations", False, (".csv", ".parquet")),
+        ]
+        self._upload_pending = {widget.id: TextInput(value="", visible=False)
+                                for widget, *_ in self._uploads}
+        self.upload_status = Div(text="", styles={"overflow_wrap": "anywhere"})
 
     def _build_segmentation_widgets(self):
         self.segmentation_controls = {}
@@ -292,7 +310,8 @@ class StartupController:
                 self.reference_input_widget,
             ),
             self.preprocessing_panel,
-            self.load_button, self.status_text, self.progress_panel,
+            self.upload_status, self.load_button, self.status_text, self.progress_panel,
+            *self._upload_pending.values(),
             sizing_mode="stretch_width", spacing=20,
             styles=dict(color="#e5edf0"), name="startup",
         )
@@ -323,7 +342,8 @@ class StartupController:
         self.upload_panel.visible = mode == "upload"
         self.example_panel.visible = mode == "example"
         self.url_panel.visible = mode == "url"
-        self.load_button.disabled = mode == "url"
+        self.upload_status.visible = mode == "upload"
+        self.load_button.disabled = self.loading or mode == "url"
 
         bundled = self._example_config().get("reference_path")
         self.reference_input_widget.visible = mode == "upload"
@@ -337,15 +357,97 @@ class StartupController:
                                      "No upload is required.")
             if self._example_config().get("reference_annotations_path"):
                 self.status_text.text += " Single-cell annotations are included for deconvolution."
+        self._update_upload_status()
+
+    def _upload_state(self, widget, required, suffixes):
+        pending = self._upload_pending[widget.id].value
+        name = pending or widget.filename or ""
+        if name and not name.lower().endswith(suffixes):
+            return False, f"Invalid file: {name}. Expected {' or '.join(suffixes)}."
+        if pending or (name and not widget.value):
+            return False, f"Uploading {name}… Please wait for server confirmation."
+        if widget.value and name:
+            return True, f"Uploaded: {name}"
+        return not required, "Required — waiting for a file." if required else "Optional — no file selected."
+
+    def _uploads_ready(self):
+        return (all(self._upload_state(widget, required, suffixes)[0]
+                    for widget, _, required, suffixes in self._uploads)
+                and not self._reference_upload_error())
+
+    def _update_upload_status(self):
+        rows = []
+        for widget, label, required, suffixes in self._uploads:
+            _, message = self._upload_state(widget, required, suffixes)
+            rows.append(f"<li><b>{escape(label)}:</b> {escape(message)}</li>")
+        reference_error = self._reference_upload_error()
+        if reference_error:
+            rows.append(f"<li>{escape(reference_error)}</li>")
+        self.upload_status.text = '<ul style="margin:0;padding-left:20px">' + "".join(rows) + "</ul>"
+        if self.loading or self.source_mode != "upload":
+            return
+        ready = self._uploads_ready()
+        self.load_button.disabled = not ready
+        self.status_text.text = ("All selected files received. Ready to load." if ready else
+                                 "Complete the required uploads and wait for all selected files to arrive.")
 
     def _example_config(self):
         return AVAILABLE_DATASETS.get(self.example_select.value, {}) if self.source_mode == "example" else {}
 
     def _add_callbacks(self):
+        for index, (widget, label, _, _) in enumerate(self._uploads):
+            pending = self._upload_pending[widget.id]
+            css_class = f"startup-upload-{index}"
+            widget.css_classes = [*widget.css_classes, css_class]
+
+            def received(attr, old, new, pending=pending):
+                if new:
+                    pending.value = ""
+                self._update_upload_status()
+
+            widget.on_change("value", received)
+            widget.on_change("filename", lambda attr, old, new: self._update_upload_status())
+            pending.on_change("value", lambda attr, old, new: self._update_upload_status())
+            # Listen before Bokeh's asynchronous FileReader starts. Shadow roots
+            # must be traversed because widgets render inside their own roots.
+            self.doc.js_on_event(DocumentReady, CustomJS(args=dict(
+                widget=widget, pending=pending, button=self.load_button,
+                status=self.status_text, source=self.data_source,
+                css_class=css_class, label=label,
+            ), code="""
+                function findHost(root) {
+                    const match = root.querySelector('.' + css_class);
+                    if (match != null) return match;
+                    for (const element of root.querySelectorAll('*')) {
+                        if (element.shadowRoot != null) {
+                            const found = findHost(element.shadowRoot);
+                            if (found != null) return found;
+                        }
+                    }
+                    return null;
+                }
+                const host = findHost(document);
+                const input = host?.shadowRoot?.querySelector('input[type=file]')
+                    ?? host?.querySelector('input[type=file]');
+                if (input == null) return;
+                input.addEventListener('change', () => {
+                    const file = input.files?.[0];
+                    // Clear the previous payload so even a replacement with
+                    // identical contents produces a new server confirmation.
+                    widget.setv({value: '', filename: ''});
+                    pending.value = file?.name ?? '';
+                    if (source.active === 0) {
+                        button.disabled = true;
+                        status.text = file == null ? 'Choose a file to continue.'
+                            : 'Uploading ' + label + '… Please wait for server confirmation.';
+                    }
+                }, {capture: true});
+            """))
+
         def reference_received(attr, old, new):
             if new:
                 name = escape(self.reference_input.filename or "Single-cell reference")
-                self.reference_upload_status.text = f"Reference uploaded: {name}. Ready to load."
+                self.reference_upload_status.text = f"Reference uploaded: {name}. Received by server."
             else:
                 self.reference_upload_status.text = "No single-cell reference received yet. Wait for upload confirmation."
 
@@ -485,8 +587,8 @@ class StartupController:
         ))
 
     def _save_uploaded_file(self, file_input):
-        self.UPLOAD_DIR.mkdir(parents=True, exist_ok=True)
-        path = self.UPLOAD_DIR / file_input.filename
+        self.SESSION_UPLOAD_DIR.mkdir(parents=True, exist_ok=True)
+        path = self.SESSION_UPLOAD_DIR / file_input.filename
         with open(path, "wb") as f:
             f.write(base64.b64decode(file_input.value))
         return str(path)
@@ -755,8 +857,10 @@ class StartupController:
             self.status_text.text = reference_error
             return
 
-        if self.source_mode == "upload" and not self._validate_inputs():
-            return
+        if self.source_mode == "upload":
+            self._update_upload_status()
+            if not self._uploads_ready():
+                return
             
         if self.source_mode == "example" and self.example_select.value not in AVAILABLE_DATASETS:
             self.status_text.text = "Please choose an example dataset"
@@ -862,7 +966,7 @@ class StartupController:
         )
 
         base_dir = (
-            self.UPLOAD_DIR if self.source_mode == "upload"
+            self.SESSION_UPLOAD_DIR if self.source_mode == "upload"
             else Path(AVAILABLE_DATASETS[self.example_select.value]["image_path"]).resolve().parent
         )
         # Use the same dataset base directory as segmentation, before generators
@@ -899,3 +1003,12 @@ class StartupController:
 def create_startup(doc):
     controller = StartupController(doc)
     controller.add_to_document()
+
+def on_session_destroyed(session_context):
+    upload_dir = settings.UPLOAD_DIR / session_context.id
+    if upload_dir.exists():
+        try:
+            shutil.rmtree(upload_dir)
+            print(f"[startup] Removed upload directory {upload_dir}")
+        except Exception as exc:
+            print(f"[startup] Failed to remove upload directory {upload_dir}: {exc}", file=sys.stderr)
