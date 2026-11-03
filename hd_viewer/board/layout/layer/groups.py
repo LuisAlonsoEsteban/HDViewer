@@ -1,15 +1,19 @@
 
+from html import escape
+
 import numpy as np
 import pandas as pd
 
 from bokeh.models import (
     Button, Div, Select, TextInput,
-    AutocompleteInput, CheckboxGroup,
+    AutocompleteInput, CheckboxGroup, ColorPicker,
 )
 from bokeh.layouts import column, row
 
 from .... import settings
 from ...utils.palette import GROUP_PALETTE, palette_color
+from ...utils.loading import LoadingLogger
+from ....startup.utils.progress import report, reporting
 
 OPERATORS  = [">", "<", ">=", "<=", "=="]
 GROUPS_COL = settings.GROUPS_COL
@@ -40,6 +44,8 @@ class GroupsManager:
 
         self._conditions_div = None
         self._status_div = None
+        self.logger = None
+        self._operation_running = False
 
     @property
     def sample(self):
@@ -67,7 +73,7 @@ class GroupsManager:
     def group_for_roi(self, roi_id):
         return next((name for name, origin in self._group_origins.items() if origin == roi_id), None)
 
-    def add_mask_group(self, name, mask, doc, origin_roi_id=None):
+    def add_mask_group(self, name, mask, doc, origin_roi_id=None, prepared=None):
         """Create a fixed membership group, independently of gene conditions."""
         mask = np.asarray(mask, dtype=bool)
         
@@ -87,7 +93,7 @@ class GroupsManager:
         self._active_groups.add(name)
         
         try:
-            self._apply_groups_to_adata()
+            self._apply_groups_to_adata(prepared)
         except Exception:
             self._groups.pop(name)
             self._fixed_masks.pop(name)
@@ -100,10 +106,15 @@ class GroupsManager:
         self._notify_group_change()
         return name
 
-    def delete_group(self, name, doc):
+    def delete_group(self, name, doc, prepared=None):
         """Shared deletion path for condition groups and ROI snapshot groups."""
         if name not in self._groups:
             return
+        report(f"Removing group '{name}' and clearing its selection...")
+        mask_key = f"{settings.GROUP_MASK_PREFIX}{name}"
+        if mask_key in self.sample.adata.obs:
+            members = set(self.sample.adata.obs_names[self.sample.adata.obs[mask_key].astype(bool)])
+            self.component.set_selected_obs_names(self.component.get_selected_obs_names() - members)
         del self._groups[name]
         self._fixed_masks.pop(name, None)
         self._group_origins.pop(name, None)
@@ -112,7 +123,7 @@ class GroupsManager:
         if hasattr(self.sample, 'clear_multiscale_cache'):
             self.sample.clear_multiscale_cache()
         if self._groups:
-            self._apply_groups_to_adata()
+            self._apply_groups_to_adata(prepared)
         else:
             if GROUPS_COL in self.sample.adata.obs:
                 self.component.show_colname(self.sample.adata.var_names[0])
@@ -163,7 +174,8 @@ class GroupsManager:
         create_group_btn = Button(label="✓ Create group", button_type="success", width=130)
         delete_group_btn = Button(label="🗑 Delete group", button_type="danger",  width=130)
 
-        self._status_div = Div(text="", width=270)
+        self.logger = LoadingLogger(doc, width=270, font_size=11)
+        self._status_div = self.logger.div
 
         if self._group_layout is None:
             self._group_layout = column(
@@ -189,6 +201,8 @@ class GroupsManager:
             )
 
         def on_add_condition():
+            if self._operation_running:
+                return
             col = self.gene_metadata_input.value.strip()
             op = operator_select.value
             val = value_input.value.strip()
@@ -247,10 +261,14 @@ class GroupsManager:
             doc.add_next_tick_callback(_render_conditions)
 
         def on_clear_conditions():
+            if self._operation_running:
+                return
             self._conditions.clear()
             doc.add_next_tick_callback(_render_conditions)
 
         def on_create_group():
+            if self._operation_running:
+                return
             if not self._conditions:
                 self._status_div.text = (
                     "<p style='color:red;font-size:11px'>Add at least one condition first.</p>"
@@ -264,40 +282,42 @@ class GroupsManager:
                 )
                 return
 
-            self._groups[cname] = list(self._conditions)
-            self._active_groups.add(cname)
-            self._conditions.clear()
+            if self.logger.running:
+                return
+            conditions = list(self._conditions)
+            groups = {**self._groups, cname: conditions}
 
-            try:
-                self._apply_groups_to_adata()
-                self._status_div.text = (
-                    f"<p style='color:green;font-size:11px'>Group '{cname}' created.</p>"
-                )
-            except Exception as e:
-                self._status_div.text = (
-                    f"<p style='color:red;font-size:11px'>Error: {str(e)[:80]}</p>"
-                )
-
-            def _update():
+            def done(prepared):
+                self._groups[cname] = conditions
+                self._active_groups.add(cname)
+                try:
+                    self._apply_groups_to_adata(prepared)
+                except Exception:
+                    self._groups.pop(cname)
+                    self._active_groups.discard(cname)
+                    self.sample.adata.obs.drop(columns=[f"{settings.GROUP_MASK_PREFIX}{cname}"], errors="ignore", inplace=True)
+                    raise
+                self._conditions.clear()
                 _render_conditions()
                 self._rebuild_group_widgets(doc)
                 self._notify_group_change()
 
-            doc.add_next_tick_callback(_update)
+            self.run_group_action(doc, f"Creating group '{cname}'",
+                                  lambda: self._prepare_groups(groups), done,
+                                  f"Group '{escape(cname)}' created.")
 
         def on_delete_group():
             cname = group_name_input.value.strip()
-            if cname not in self._groups:
-                self._status_div.text = (
-                    f"<p style='color:red;font-size:11px'>Group '{cname}' does not exist.</p>"
-                )
+            if self.logger.running:
                 return
-
-            try:
-                self.delete_group(cname, doc)
-                self._status_div.text = f"<p style='color:#f0a500'>Group '{cname}' deleted.</p>"
-            except Exception as exc:
-                self._status_div.text = f"<p style='color:red'>Error: {str(exc)[:80]}</p>"
+            if cname not in self._groups:
+                self.logger.error(f"Group '{cname}' does not exist.")
+                return
+            remaining = {name: conditions for name, conditions in self._groups.items() if name != cname}
+            self.run_group_action(doc, f"Removing group '{cname}'",
+                                  lambda: self._prepare_groups(remaining),
+                                  lambda prepared: self.delete_group(cname, doc, prepared),
+                                  f"Group '{escape(cname)}' deleted.")
 
         add_condition_btn.on_click(on_add_condition)
         clear_conditions_btn.on_click(on_clear_conditions)
@@ -367,7 +387,31 @@ class GroupsManager:
             doc.add_next_tick_callback(self._apply_visibility_mask)
 
         self._group_checkbox.on_change("active", _on_checkbox_change)
-        return [self._group_checkbox]
+        color_pickers = []
+        for name in self._groups:
+            picker = ColorPicker(title=name, color=self._color_map[name], width=130)
+
+            def on_color_change(attr, old, new, group_name=name):
+                if group_name not in self._groups:
+                    return
+                self._color_map[group_name] = new
+                manager = self.component.manager
+                param = manager.get_param('color')
+                if getattr(param, 'colname', None) == GROUPS_COL:
+                    param.category_colors = dict(self._color_map)
+                    data = dict(manager.source.data)
+                    if self.component.lazy_loading and GROUPS_COL in data:
+                        labels = pd.Series(data[GROUPS_COL])
+                    else:
+                        labels = pd.Series(data.get('obs_name', []), dtype=object).map(
+                            self.sample.adata.obs[GROUPS_COL]
+                        )
+                    data['color'] = param.get_values(labels)
+                    manager.source.data = data
+
+            picker.on_change('color', on_color_change)
+            color_pickers.append(picker)
+        return [self._group_checkbox, *color_pickers]
 
     def _rebuild_group_widgets(self, doc):
         if self._group_layout is None:
@@ -407,11 +451,6 @@ class GroupsManager:
                         in_group = obs_names.map(adata.obs[col_key].astype(bool))
                         visible |= in_group.fillna(False).astype(bool)
             visible = visible.to_numpy(dtype=bool)
-            if not self.component.show_not_sequenced:
-                is_nan = mgr.get_nan_vector()
-                if is_nan.shape[0] == visible.shape[0]:
-                    visible &= ~is_nan
-            mgr.view_filter = visible
         else:
             visible = pd.Series([False] * len(gdf), index=gdf.index)
             for gname in self._active_groups:
@@ -422,6 +461,13 @@ class GroupsManager:
                         group_series = pd.Series(group_series, index=gdf.index)
                     group_series = group_series.reindex(gdf.index).fillna(False).astype(bool)
                     visible |= group_series
+
+        # Unsequenced geometry is independent of group membership.
+        visible = np.asarray(visible, dtype=bool)
+        is_nan = mgr.get_nan_vector()
+        visible[is_nan] = self.component.show_not_sequenced
+        if self.component.lazy_loading:
+            mgr.view_filter = visible
 
         col = pd.Series([None] * len(adata.obs), index=adata.obs.index, dtype=object)
         for gname in self._groups:
@@ -438,17 +484,64 @@ class GroupsManager:
     # Apply groups to adata.obs[GROUPS_COL]
     # ------------------------------------------------------------------
 
-    def _apply_groups_to_adata(self):
-        adata = self.sample.adata
+    def run_group_action(self, doc, title, work, done, success, logger=None):
+        """Compute membership in a worker; update Bokeh models on the document thread."""
+        logger = logger or self.logger
+        if logger is None:
+            self.logger = logger = LoadingLogger(doc, width=270, font_size=11)
+        if logger.running or self._operation_running:
+            return
 
-        for gname, conditions in self._groups.items():
-            mask = (self._fixed_masks[gname].reindex(adata.obs_names, fill_value=False)
-                    if gname in self._fixed_masks else self._build_mask(conditions, adata))
+        self._operation_running = True
+
+        def failed(exc):
+            self._operation_running = False
+            logger.error(exc)
+
+        def finish(result):
+            try:
+                with reporting(logger.log):
+                    report("Updating group colours and map...")
+                    done(result)
+                logger.success(success)
+            except Exception as exc:
+                logger.error(exc)
+            finally:
+                self._operation_running = False
+
+        logger.run(title, work, finish, failed)
+
+    def _prepare_groups(self, groups, fixed_masks=None):
+        """Prepare membership and labels without changing observations or Bokeh models."""
+        adata = self.sample.adata
+        fixed_masks = self._fixed_masks if fixed_masks is None else fixed_masks
+        masks = {}
+        labels = pd.Series(None, index=adata.obs_names, dtype=object)
+        for gname, conditions in groups.items():
+            report(f"Evaluating group '{gname}' ({adata.n_obs:,} observations)...")
+            key = f"{settings.GROUP_MASK_PREFIX}{gname}"
+            if key in adata.obs:
+                mask = adata.obs[key].astype(bool)
+            elif gname in fixed_masks:
+                mask = fixed_masks[gname].reindex(adata.obs_names, fill_value=False)
+            else:
+                mask = self._build_mask(conditions, adata)
+            masks[gname] = mask
+            labels.loc[mask] = gname
+            report(f"Group '{gname}': {int(mask.sum()):,} members")
+        report("Preparing group labels...")
+        return masks, labels.astype('category')
+
+    def _apply_groups_to_adata(self, prepared=None):
+        adata = self.sample.adata
+        masks, labels = prepared if prepared is not None else self._prepare_groups(self._groups)
+
+        for gname, mask in masks.items():
             adata.obs[f"{settings.GROUP_MASK_PREFIX}{gname}"] = mask.values
             if gname not in self._color_map:
                 self._color_map[gname] = palette_color(GROUP_PALETTE, len(self._color_map))
 
-        self._rebuild_custom_groups_col()
+        adata.obs[GROUPS_COL] = labels
         if hasattr(self.sample, 'clear_multiscale_cache'):
             self.sample.clear_multiscale_cache()
         
@@ -499,6 +592,7 @@ class GroupsManager:
         mask    = None
 
         for col, op, val, logic in conditions:
+            report(f"Evaluating condition: {col} {op} {val}")
             if col in var_idx:
                 expr = adata.X[:, var_idx[col]]
                 if hasattr(expr, 'toarray'):

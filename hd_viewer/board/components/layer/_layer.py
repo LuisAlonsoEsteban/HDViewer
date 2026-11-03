@@ -540,6 +540,11 @@ class Layer:
             general_widgets = [self.get_visible_checkbox()]
             self._all_widgets.append(self.checkbox)
 
+            clear_selection = Button(label="Clear selection", width=130)
+            clear_selection.on_click(lambda: self.set_selected_obs_names([]))
+            general_widgets.append(clear_selection)
+            self._all_widgets.append(clear_selection)
+
             general_widgets.append(self.get_not_sequenced_visible_checkbox())
             self._all_widgets.append(self.notsequenced_checkbox)
 

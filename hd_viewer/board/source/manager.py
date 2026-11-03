@@ -43,8 +43,7 @@ class SourceManager:
         return params
 
     def get_nan_vector(self):
-        dummy_vector = self.sample.get_value(colname=self.get_colnames()[0])
-        return dummy_vector.isna().to_numpy()
+        return self.sample.get_obs_names().isna().to_numpy()
     
     def add_parameter(self, param):
         existing_param = self.get_param(param.attr)
@@ -318,12 +317,19 @@ class DynamicSourceManager(SourceManager):
             self.component.apply_selected_obs_names()
 
     def get_nan_vector(self):
-        colnames = self.get_colnames()
-        if len(colnames) > 0 and colnames[0] in self.source.data:
-            return pd.Series(self.source.data[colnames[0]]).isna().to_numpy()
-        obs_names = pd.Series(self.source.data['obs_name'])
-        return obs_names.isna().to_numpy()
-        
+        names = pd.Series(self.source.data.get('obs_name', []), dtype=object)
+        sequenced = names.isin(self.sample.adata.obs_names)
+        # Aggregated bins use display names rather than native observation names.
+        prefix = getattr(self.sample, 'aggregate_obs_prefix', None)
+        if prefix is not None:
+            summaries = names.dropna().astype(str)
+            factors = {int(name.rsplit(':', 1)[-1]) for name in summaries
+                       if name.startswith(prefix) and name.rsplit(':', 1)[-1].isdigit()}
+            for factor in factors:
+                if factor in self.sample.AGGREGATION_FACTORS:
+                    sequenced |= names.isin(self.sample.aggregation_names(factor).dropna())
+        return ~sequenced.to_numpy(dtype=bool)
+
     @property
     def effective_resolution_level(self):
         """Cluster locking takes precedence over a fixed level, then zoom."""
@@ -479,8 +485,8 @@ class DynamicSourceManager(SourceManager):
             gm = getattr(self.component, "groups_manager", None)
             color_param = self.get_param('color')
             # El color puede ser un StaticParameter (sin colname).
-            showing_groups = getattr(color_param, "colname", None) == "custom_clusters"
-            if showing_groups and gm is not None and getattr(gm, "_clusters", None):
+            showing_groups = getattr(color_param, "colname", None) == settings.GROUPS_COL
+            if showing_groups and gm is not None and getattr(gm, "_groups", None):
                 gm._apply_visibility_mask()
             elif (not showing_groups and cm is not None and getattr(cm, "is_clustered", False)
                     and len(cm._active_clusters) < len(cm._cluster_labels)):

@@ -7,6 +7,7 @@ import uuid
 import threading
 
 import numpy as np
+import pandas as pd
 
 import shapely
 from shapely.geometry import Point, Polygon, box
@@ -564,16 +565,21 @@ class ROIManager:
         if roi.mask is not None and roi.mask.any():
             self.component.set_selected_obs_names(self.sample.adata.obs_names[roi.mask])
 
-    def create_group(self, roi):
+    def unselect(self, roi):
+        if roi.mask is not None:
+            members = set(self.sample.adata.obs_names[roi.mask])
+            self.component.set_selected_obs_names(self.component.get_selected_obs_names() - members)
+
+    def create_group(self, roi, prepared=None):
         if roi.mask is None or not roi.mask.any():
             return
 
-        name = self.component.groups_manager.add_mask_group(f"ROI: {roi.name}", roi.mask, self.doc, roi.id)
+        name = self.component.groups_manager.add_mask_group(f"ROI: {roi.name}", roi.mask, self.doc, roi.id, prepared=prepared)
         self.logger.set_message(f"Created group: {escape(name)}")
         self._refresh_list()
         return name
 
-    def remove_roi(self, roi):
+    def remove_roi(self, roi, prepared=None):
         if isinstance(roi, str):
             roi = next((item for item in self.rois if item.id == roi), None)
         if roi is None or not any(item is roi for item in self.rois):
@@ -581,7 +587,8 @@ class ROIManager:
         groups = self.component.groups_manager
         linked = groups.group_for_roi(roi.id)
         if linked:
-            groups.delete_group(linked, self.doc)
+            groups.delete_group(linked, self.doc, prepared=prepared)
+        self.unselect(roi)
         self.rois = [item for item in self.rois if item is not roi]
         self._refresh_overlay()
         self._refresh_list()
@@ -699,6 +706,7 @@ class ROIManager:
             
             focus = Button(label='Focus', width=65)
             select = Button(label='Select', width=65, disabled=not roi.count)
+            unselect = Button(label='Unselect', width=75, disabled=not roi.count)
             group = Button(label='Create group', width=110,
                            disabled=not roi.count or bool(self.component.groups_manager.group_for_roi(roi.id)))
             delete = Button(label='Delete', width=65, button_type='danger')
@@ -706,11 +714,12 @@ class ROIManager:
             
             focus.on_click(lambda item=roi: self.focus(item))
             select.on_click(lambda item=roi: self.select(item))
+            unselect.on_click(lambda item=roi: self.unselect(item))
             group.on_click(lambda item=roi: self._group_click(item))
-            delete.on_click(lambda item=roi: self.remove_roi(item))
+            delete.on_click(lambda item=roi: self._delete_click(item))
             visible.on_change('active', lambda attr, old, new, item=roi: self._toggle_outline(item, new))
             
-            children.append(column(title, row(focus, select, visible), row(group, delete), sizing_mode='stretch_width'))
+            children.append(column(title, row(focus, select, unselect), row(group, delete, visible), sizing_mode='stretch_width'))
         
         self.roi_list.children = children or [Div(text='No ROIs saved in this layer.')]
 
@@ -719,10 +728,43 @@ class ROIManager:
         self._refresh_overlay()
 
     def _group_click(self, roi):
-        try:
-            self.create_group(roi)
-        except Exception as exc:
-            self._error(exc)
+        if self.logger.running or roi.mask is None or not roi.mask.any():
+            return
+        groups = self.component.groups_manager
+        if groups.group_for_roi(roi.id):
+            return
+        # Reserve the same unique name used by add_mask_group.
+        base = name = f"ROI: {roi.name}"
+        suffix = 2
+        while name in groups._groups:
+            name = f"{base} ({suffix})"
+            suffix += 1
+        definitions = {**groups._groups, name: []}
+        fixed = dict(groups._fixed_masks)
+        fixed[name] = pd.Series(roi.mask.copy(), index=self.sample.adata.obs_names.copy())
+
+        def done(prepared):
+            if any(item is roi for item in self.rois):
+                self.create_group(roi, prepared=prepared)
+
+        groups.run_group_action(self.doc, f"Creating group '{name}'",
+                                lambda: groups._prepare_groups(definitions, fixed), done,
+                                f"Group '{escape(name)}' created.", logger=self.logger)
+
+    def _delete_click(self, roi):
+        if self.logger.running:
+            return
+        groups = self.component.groups_manager
+        linked = groups.group_for_roi(roi.id)
+        if linked is None:
+            self.remove_roi(roi)
+            self.logger.set_message('ROI deleted.')
+            return
+        remaining = {name: conditions for name, conditions in groups._groups.items() if name != linked}
+        groups.run_group_action(self.doc, f"Removing ROI and group '{linked}'",
+                                lambda: groups._prepare_groups(remaining),
+                                lambda prepared: self.remove_roi(roi, prepared=prepared),
+                                f"ROI and group '{escape(linked)}' deleted.", logger=self.logger)
 
     def get_widgets(self, doc):
         self.doc = doc
