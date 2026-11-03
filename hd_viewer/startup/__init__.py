@@ -49,6 +49,7 @@ class StartupController:
         self._progress_lock = threading.Lock()
         self._progress_timer = None
         self._ready_to_finish = False
+        self._running_workers = 0
         self.dataset = None
 
         self.image_processor = None
@@ -66,6 +67,12 @@ class StartupController:
 
     def restart(self):
         self.app.reset_geometries()
+        self.failed = False
+        self.finished = False
+        self._ready_to_finish = False
+        self.dataset = None
+        self.image_processor = None
+        self.b2s = None
 
     def _build_widgets(self):
         self.data_source = RadioButtonGroup(
@@ -583,7 +590,7 @@ class StartupController:
             return
         message = f"{name} failed: {reason}" if reason else "Loading failed."
         self.doc.add_next_tick_callback(lambda: setattr(
-            self.status_text, "text", escape(message) + " Reload to try again."
+            self.status_text, "text", escape(message) + " Change the settings and try again."
         ))
 
     def _save_uploaded_file(self, file_input):
@@ -608,12 +615,42 @@ class StartupController:
 
         return True
     
+    @property
+    def _loading_controls(self):
+        return (self.data_source, self.load_button, self.pseudospots_checkbox,
+                self.example_select, self.h5_input,
+                self.positions_input, self.image_input, self.resolution_select,
+                self.reference_input, self.reference_annotations_input,
+                *[widget for controls in self.segmentation_controls.values()
+                  for widget in (controls["checkbox"], *controls["params"].values())])
+
+    def _restore_controls_after_failure(self):
+        if not self.failed or self.preparing or self._running_workers or not self.loading:
+            return
+        self.loading = False
+        self._ready_to_finish = False
+        self._render_progress()
+        if self._progress_timer is not None:
+            self.doc.remove_periodic_callback(self._progress_timer)
+            self._progress_timer = None
+        for widget in self._loading_controls:
+            widget.disabled = False
+        # Reapply the readiness rules while retaining the useful failure message.
+        error = self.status_text.text
+        self._update_source_mode()
+        self.status_text.text = error
+
     def _check_all_done(self):
+        if self.failed:
+            if not self.preparing and not self._running_workers:
+                self.doc.add_next_tick_callback(self._restore_controls_after_failure)
+            return
         if not self.preparing and not self.failed and all(self.tasks.values()):
             self.doc.add_next_tick_callback(self._all_tasks_finished)
     
     def run_in_thread(self, func, sample_type=None, task=None, sample_kwargs=None, fatal=True):
         task = task or sample_type
+        self._running_workers += 1
 
         def finish(error=None):
             if error is not None:
@@ -622,6 +659,7 @@ class StartupController:
                 self.update_progress(self._task_progress(task), 100, "Complete")
             if task in self.tasks:
                 self.tasks[task] = True
+            self._running_workers -= 1
             self._check_all_done()
 
         def wrapper():
@@ -879,13 +917,7 @@ class StartupController:
         self.preparing = True
         self._reset_progress()
         self._progress_timer = self.doc.add_periodic_callback(self._render_progress, settings.STARTUP_PROGRESS_REFRESH_MS)
-        for widget in (self.data_source, self.load_button, self.pseudospots_checkbox,
-                       self.example_select, self.h5_input,
-                       self.positions_input, self.image_input, self.resolution_select,
-                       self.reference_input,
-                       self.reference_annotations_input,
-                       *[w for c in self.segmentation_controls.values()
-                         for w in (c["checkbox"], *c["params"].values())]):
+        for widget in self._loading_controls:
             widget.disabled = True
 
         self.update_progress(self.tiles_progress_bar, status="Checking image metadata and cached tiles")
@@ -995,8 +1027,13 @@ class StartupController:
         if self._progress_timer is not None:
             self.doc.remove_periodic_callback(self._progress_timer)
             self._progress_timer = None
+        try:
+            self.app.build()
+        except Exception as exc:
+            self._report_failure(None, exc)
+            self._check_all_done()
+            return
         self.finished = True
-        self.app.build()
         self.status_text.text = "Done"
 
 

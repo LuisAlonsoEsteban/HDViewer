@@ -229,7 +229,7 @@ class Sample:
         if return_coords:
             data = self.get_coordinates(cropped_gdf, **coord_kwargs)
         else:
-            data = pd.DataFrame()
+            data = pd.DataFrame(index=cropped_gdf.index)
 
         data['obs_name'] = self.get_obs_names(cropped_adata, cropped_gdf).values
 

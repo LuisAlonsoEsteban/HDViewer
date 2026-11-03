@@ -67,8 +67,8 @@ class ParamFormTests(unittest.TestCase):
         param = layer.manager.get_param("line_width")
         self.assertIsInstance(param, StaticParameter)
         self.assertEqual(param.value, 2.5)
-        # Drawn straight away: the viewport was reloaded with the new column
-        self.assertEqual(layer.manager.source.data["line_width"], [2.5] * 6)
+        # Drawn straight away from the updated source column.
+        np.testing.assert_array_equal(layer.manager.source.data["line_width"], [2.5] * 6)
         self.assertEqual(layer.glyph_renderer.glyph.line_width, "line_width")   # drawn from the column
         self.assertNotIn("line_width", form.attr_select.options)
         self.assertEqual(len(form.list_column.children), 1)

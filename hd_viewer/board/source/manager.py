@@ -6,6 +6,25 @@ from bokeh.models import ColumnDataSource
 
 from ... import settings
 
+
+def source_columns(frame):
+    """Keep numeric columns binary-serializable; polygon/string columns stay lists.
+
+    Own the arrays so source updates cannot mutate a sample's cached DataFrame.
+    Object columns deliberately stay one-dimensional lists, including equal-size
+    polygon rings, which NumPy would otherwise expand into a rectangular array.
+    """
+    return {name: column.to_numpy(copy=True) if column.dtype.kind in 'biuf'
+            else column.tolist() for name, column in frame.items()}
+
+
+def parameter_column(values, size):
+    if np.isscalar(values):
+        values = [values] * size
+    array = np.asarray(values)
+    return array if array.dtype.kind in 'biuf' else list(values)
+
+
 class SourceManager:
 
     def __init__(self, sample):
@@ -90,9 +109,7 @@ class SourceManager:
                 valores = param.get_values(
                     pd.Series(self.cache[param.colname]).copy()
                 )
-                current_data = dict(self.source.data)
-                current_data[param.attr] = valores
-                self.source.data = current_data
+                self.source.data[param.attr] = parameter_column(valores, len(self.source.data['x']))
         else:
             self.reset()
 
@@ -165,7 +182,7 @@ class SourceManager:
             if not param.is_static and not param.colname_hovered
         ]
         fetched_data.drop(cols_to_drop, axis=1, inplace=True)
-        self.source.data = fetched_data.to_dict(orient='list')
+        self.source.data = source_columns(fetched_data)
         if self.component is not None:
             self.component.apply_selected_obs_names()
         self.is_empty = False
@@ -173,7 +190,8 @@ class SourceManager:
     def update_param(self, attr, *args, **kwargs):
         param = self.get_param(attr)
         if param.is_static:
-            self.source.data[param.attr] = param.update(*args, **kwargs)
+            self.source.data[param.attr] = parameter_column(
+                param.update(*args, **kwargs), len(self.source.data['x']))
         else:
             if param.colname not in self.cache.columns:
                 if self.is_empty:
@@ -204,6 +222,9 @@ class DynamicSourceManager(SourceManager):
         self._generation = 0
         self._in_flight = False
         self._queued_doc = None
+        # Raw, non-hovered values remain on the server for slider/style changes.
+        # Only columns used by active parameters are retained.
+        self._value_cache = {}
         self.indexes = []
         self.bbox = None
         self.fetch_kwargs = {}
@@ -229,6 +250,7 @@ class DynamicSourceManager(SourceManager):
         self.is_sequenced.clear()
 
         self.cache = self.cache[0:0]
+        self._value_cache.clear()
 
         if len(self.parameters) > 0:
             attr_dict = {param.attr: [] for param in self.parameters}
@@ -254,6 +276,7 @@ class DynamicSourceManager(SourceManager):
     def update_colname(self, old_colname, new_colname, attrs=None):
         """Point the parameters reading `old_colname` at `new_colname`; with `attrs`,
         only those attributes (other parameters may read the same column)."""
+        previous_level = self.effective_resolution_level
         for param in self.get_params_by_colname(old_colname):
             if attrs is not None and param.attr not in attrs:
                 continue
@@ -268,12 +291,14 @@ class DynamicSourceManager(SourceManager):
                     param.min_counts = min_val
                     param.max_counts = max_val
 
-        self.clear_sources()
-        self.fetch_data()
+        if not self._refresh_loaded_parameters(previous_level, refetch=True):
+            self.clear_sources()
+            self.fetch_data()
 
     def add_parameter(self, param):
         # Replace any parameter already bound to this attribute (e.g. clustering
         # swaps the static color for the cluster column)
+        previous_level = self.effective_resolution_level
         existing_param = self.get_param(param.attr)
         if existing_param is not None:
             self.parameters.remove(existing_param)
@@ -284,8 +309,10 @@ class DynamicSourceManager(SourceManager):
         elif self.sample.is_continous(param.colname):
             param.min_counts, param.max_counts = self.sample.get_range(param.colname)
 
-        # The loaded rows lack the new column: reload the viewport (without this a
-        # newly added parameter left the map empty until the next pan)
+        if self._refresh_loaded_parameters(previous_level, refetch=not param.is_static):
+            return
+
+        # Changed resolution or incomplete row coverage requires a full reload.
         self.clear_sources()
         if self.bbox is not None:
             self.fetch_data()
@@ -294,7 +321,10 @@ class DynamicSourceManager(SourceManager):
         param = self.get_param(attr)
         if param is None:
             return
+        previous_level = self.effective_resolution_level
         self.parameters.remove(param)
+        if self._refresh_loaded_parameters(previous_level):
+            return
         self.clear_sources()
         if self.bbox is not None:
             self.fetch_data()
@@ -302,11 +332,13 @@ class DynamicSourceManager(SourceManager):
     def update_param(self, attr, *args, **kwargs):
         param = self.get_param(attr)
         if param.is_static:
-            self.source.data[param.attr] = param.update(*args, **kwargs)
-        elif param.colname in self.source.data:
-            # The cache is not filled with lazy loading: rescale the loaded values
-            series = pd.Series(self.source.data[param.colname])
-            self.source.data[param.attr] = param.update(series, *args, **kwargs)
+            self.source.data[param.attr] = parameter_column(
+                param.update(*args, **kwargs), len(self.indexes))
+        elif param.colname in self.source.data or param.colname in self._value_cache:
+            values = self.source.data.get(param.colname, self._value_cache.get(param.colname))
+            series = pd.Series(values)
+            self.source.data[param.attr] = parameter_column(
+                param.update(series, *args, **kwargs), len(self.indexes))
         else:
             param.update(pd.Series(dtype=object), *args, **kwargs)
             self.clear_sources()
@@ -315,6 +347,70 @@ class DynamicSourceManager(SourceManager):
 
         if self.component is not None:
             self.component.apply_selected_obs_names()
+
+    def _refresh_loaded_parameters(self, previous_level, refetch=False):
+        """Update values/style without retransmitting the loaded geometry.
+
+        A pan may have retained rows outside the latest fetch box. If a new
+        column cannot cover every loaded row, use the ordinary reload path.
+        In-flight requests and resolution changes also use that path.
+        """
+        if (not self.indexes or self._in_flight
+                or previous_level != self.effective_resolution_level):
+            return False
+        colnames = self.get_colnames()
+        if refetch:
+            request = self._request(self.bbox)
+            fetched = self._fetch(dict(request, return_coords=False))
+            if not fetched.index.is_unique:
+                return False
+            positions = fetched.index.get_indexer(self.indexes)
+            if (positions < 0).any():
+                return False
+            values = {name: fetched[name].to_numpy()[positions] for name in colnames}
+        else:
+            values = {name: self.source.data.get(name, self._value_cache.get(name))
+                      for name in colnames}
+            if any(value is None for value in values.values()):
+                return False
+
+        if colnames:
+            self.is_sequenced[:] = (~pd.isna(values[colnames[0]])).tolist()
+        updates = {}
+        for param in self.parameters:
+            if not refetch and not param.is_static and param.attr in self.source.data:
+                continue
+            if param.is_static:
+                result = param.get_values(is_sequenced_values=self.is_sequenced)
+            else:
+                series = pd.Series(values[param.colname])
+                if param.colname.startswith('Group'):
+                    series = series.fillna('No asignado').astype(str)
+                result = param.get_values(series)
+                if param.colname_hovered:
+                    updates[param.colname] = parameter_column(values[param.colname], len(self.indexes))
+            # Static edits only need to send their own column. Other style
+            # columns have not changed if their raw values are unchanged.
+            if refetch or param.attr not in self.source.data or param.is_static:
+                updates[param.attr] = parameter_column(result, len(self.indexes))
+        hovered = {param.colname for param in self.parameters
+                   if not param.is_static and param.colname_hovered}
+        self._value_cache = {name: np.asarray(value) for name, value in values.items() if name not in hovered}
+        keep = {'x', 'y', 'width', 'height', 'angle', 'obs_name', *updates,
+                *(param.attr for param in self.parameters), *hovered}
+        removed = set(self.source.data) - keep
+        if removed:
+            self.source.data = {**{key: value for key, value in self.source.data.items() if key in keep}, **updates}
+        else:
+            self.source.data.update(updates)
+        self.view_filter = np.ones(len(self.indexes), dtype=bool)
+        if (self.component is not None and not self.component.show_not_sequenced
+                and len(self.is_sequenced) == len(self.indexes)):
+            self.view_filter = np.asarray(self.is_sequenced, dtype=bool)
+        self._generation += 1
+        self._notify_context_change()
+        self._update_component()
+        return True
 
     def get_nan_vector(self):
         names = pd.Series(self.source.data.get('obs_name', []), dtype=object)
@@ -432,7 +528,7 @@ class DynamicSourceManager(SourceManager):
         """Add the rows of `fetched_data` that are not loaded yet."""
         start = perf_counter()
         colnames = request["colnames"]
-        new_data = fetched_data[~fetched_data.index.isin(self.indexes)]
+        new_data = fetched_data[~fetched_data.index.isin(self.indexes)].copy()
 
         if new_data.shape[0] == 0:
             return
@@ -452,7 +548,13 @@ class DynamicSourceManager(SourceManager):
                 new_data[param.attr] = param.get_values(is_sequenced_values=new_is_sequenced)
 
         cols_to_drop = [param.colname for param in self.parameters 
-                if not param.is_static and not param.colname_hovered]
+                if not param.is_static and not param.colname_hovered
+                and not any(not other.is_static and other.colname == param.colname
+                            and other.colname_hovered for other in self.parameters)]
+        for name in set(cols_to_drop):
+            values = new_data[name].to_numpy(copy=True)
+            previous = self._value_cache.get(name)
+            self._value_cache[name] = values if previous is None else np.concatenate((previous, values))
         new_data = new_data.drop(cols_to_drop, axis=1, inplace=False)
         
         existing_cols = set(self.source.data.keys())
@@ -466,7 +568,7 @@ class DynamicSourceManager(SourceManager):
             new_data = new_data.drop(columns=list(extra), inplace=False)
 
         prepared = perf_counter()
-        self.source.stream(new_data.to_dict(orient='list'))
+        self.source.stream(source_columns(new_data))
         streamed = perf_counter()
 
         self.indexes.extend(new_data.index.tolist())
@@ -477,6 +579,9 @@ class DynamicSourceManager(SourceManager):
         self.view_filter = np.concatenate((self.view_filter, new_visible))
         self.is_sequenced += new_is_sequenced
 
+        self._update_component()
+
+    def _update_component(self):
         if self.component is not None:
             self.component.apply_selected_obs_names()
 
@@ -510,9 +615,15 @@ class DynamicSourceManager(SourceManager):
 
         new_source_data = {}
         for key, values in self.source.data.items():
-            values_array = np.asarray(values, dtype=object)
-            new_source_data[key] = values_array[keep_mask].tolist()
+            new_source_data[key] = (values[keep_mask] if isinstance(values, np.ndarray)
+                                    else [value for value, keep in zip(values, keep_mask) if keep])
         self.source.data = new_source_data
+
+        self._value_cache = {name: values[keep_mask] for name, values in self._value_cache.items()}
+        if len(self.cache) == len(keep_mask):
+            self.cache = self.cache.iloc[keep_mask].reset_index(drop=True)
+        if len(self.is_sequenced) == len(keep_mask):
+            self.is_sequenced[:] = np.asarray(self.is_sequenced, dtype=bool)[keep_mask].tolist()
 
         self.view_filter = self.view_filter[keep_mask]
         if self.component is not None:
@@ -520,6 +631,7 @@ class DynamicSourceManager(SourceManager):
 
         indexes_array = np.asarray(self.indexes, dtype=object)
         self.indexes = indexes_array[keep_mask].tolist()
+        self._update_component()
 
     def remove_data(self, bbox):
         fetch_kwargs = dict(self.fetch_kwargs)
