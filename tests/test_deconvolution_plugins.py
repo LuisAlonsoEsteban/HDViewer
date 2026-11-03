@@ -289,6 +289,18 @@ assert not any(m.startswith(('bokeh', 'hd_viewer.board.layout', 'hd_viewer.board
 
 
 class ContainerCommandTests(unittest.TestCase):
+    def test_apptainer_r_plugins_disable_host_user_libraries(self):
+        runner = ApptainerRunner({}, sdk_dir=SDK_DIR, segmentation_root=ROOT)
+        env = runner.plugin_env()
+        original = env.copy()
+        for name in ('spacexr', 'music', 'nnls', 'cell2location'):
+            with self.subTest(plugin=name):
+                argv, _ = runner.command(discover()[name], ROOT, ROOT, env)
+                assignments = [argv[i + 1] for i, argument in enumerate(argv) if argument == '--env']
+                self.assertEqual('R_LIBS_USER=/nonexistent' in assignments, name in ('spacexr', 'music'))
+                self.assertIn('--cleanenv', argv)
+        self.assertEqual(env, original)
+
     def test_unstructured_container_startup_output_is_visible(self):
         runner = DockerRunner({}, sdk_dir=SDK_DIR, segmentation_root=ROOT)
         log, messages = io.StringIO(), []

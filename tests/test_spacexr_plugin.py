@@ -111,6 +111,8 @@ class SpacexrBridgeTests(unittest.TestCase):
         spec = json.loads((job.output_dir / 'r_inputs' / 'spec.json').read_text())
         self.assertEqual(spec['params']['max_cores'], 2)
         self.assertEqual(spec['coordinates'], self.target.obsm['spatial'].tolist())
+        self.assertEqual(json.loads((job.output_dir / 'observation_labels.json').read_text()),
+                         dict(zip(['s0', 's1', 's2', 's3'], self.target.obs_names)))
         np.testing.assert_array_equal(mmread(job.output_dir / 'r_inputs' / 'target.mtx').toarray(),
                                       self.target.X.T.toarray())
 

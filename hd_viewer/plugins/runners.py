@@ -212,6 +212,10 @@ class ApptainerRunner(Runner):
         argv = [self.binary, "run", "--cleanenv",
                 "--bind", f"{input_dir.resolve()}:{plugin.input_mount}:ro,"
                           f"{output_dir.resolve()}:{plugin.output_mount}"]
+        if plugin.name in ("spacexr", "music"):
+            # --cleanenv still mounts HOME. R otherwise discovers host packages
+            # in ~/R, whose compiled dependencies may not exist in the image.
+            env = {**env, "R_LIBS_USER": "/nonexistent"}
         for name, value in env.items():
             argv += ["--env", f"{name}={value}"]
         if self.gpu:

@@ -55,6 +55,7 @@ def run(job):
             raise ValueError(f'{name}: RCTD requires finite, nonnegative raw integer counts in .X.')
     labels = reference.obs[job.label_column].astype(str)
     type_names = sorted(set(labels))
+
     if len(type_names) < 2:
         raise ValueError('RCTD requires at least two reference cell types.')
     if job.params['UMI_min'] > job.params['UMI_max']:
@@ -87,10 +88,12 @@ def run(job):
         reference_labels=labels.map(type_map).tolist(), type_ids=type_ids, coordinates=coordinates,
     ), allow_nan=False))
     (job.output_dir / 'cell_type_labels.json').write_text(json.dumps(dict(zip(type_ids, type_names))))
+    (job.output_dir / 'observation_labels.json').write_text(json.dumps(dict(zip(target_ids, target.obs_names))))
     if coordinates is None:
         job.report(.05, 'No spatial coordinates supplied; using RCTD placeholder coordinates (not used by the fit)')
     job.report(.1, 'Running whole-layer spacexr RCTD in R')
     executable = os.environ.get('VHD_SPACEXR_RSCRIPT', 'Rscript')
+    
     try:
         subprocess.run([executable, '--vanilla', str(Path(__file__).with_name('run.R')),
                         str(bridge.resolve())], check=True)
@@ -102,9 +105,11 @@ def run(job):
     fractions = read_fractions(result, target_ids, type_ids, params['doublet_mode'])
     fractions.index = target.obs_names
     fractions.columns = type_names
+    
     genes = result['genes']
     if not isinstance(genes, list) or len(set(genes)) != len(genes) or set(genes) - set(target.var_names.intersection(reference.var_names)):
         raise ValueError('RCTD must return unique shared gene identifiers.')
+
     job.write_result(fractions, genes)
 
 

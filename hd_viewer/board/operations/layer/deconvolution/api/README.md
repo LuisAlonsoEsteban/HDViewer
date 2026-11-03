@@ -65,6 +65,10 @@ Docker uses an existing local image or pulls the manifest image. As with segment
 a bundled Dockerfile remains a fallback if pulling fails. Apptainer uses a configured
 `apptainer.images` entry or local `images/<plugin-name>.sif` when provided; otherwise
 it pulls `docker://<manifest image>` and caches the SIF. Apptainer does not build images.
+For spacexr and MuSiC, the Apptainer runner sets `R_LIBS_USER=/nonexistent` so R
+uses the image's installed libraries. `--cleanenv` alone still exposes the mounted
+home directory, where host R packages can require libraries absent from the image
+(for example, a host `Matrix.so` linked against `libflexiblas.so.3`).
 
 The `Deconvolution plugin images` GitHub Actions workflow builds and publishes these
 four images when their sources change on `main`, or when run manually. The workflow
@@ -109,7 +113,8 @@ observations remain wholly unassigned: an uncertain second identity does not
 define confident mixture fractions. Filtered observations retain their original
 rows as unassigned. Native confidence information remains in `rctd_results.rds`
 and `r_inputs/rctd.json`; `cell_type_labels.json` maps R's safe identifiers back
-to the original labels, including slashes and numeric strings.
+to the original labels, including slashes and numeric strings. `observation_labels.json`
+maps the native result's observation identifiers back to the original barcodes.
 
 Counts cross into R as sparse Matrix Market files. RCTD fits the whole layer
 because its platform-effect and noise estimates depend on the dataset; arbitrary

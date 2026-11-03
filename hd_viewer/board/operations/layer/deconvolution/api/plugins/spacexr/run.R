@@ -45,12 +45,14 @@ fitted <- create.RCTD(
     UMI_min=p$UMI_min, UMI_max=p$UMI_max, counts_MIN=p$counts_MIN,
     UMI_min_sigma=p$UMI_min_sigma, CELL_MIN_INSTANCE=p$CELL_MIN_INSTANCE,
     MAX_MULTI_TYPES=p$MAX_MULTI_TYPES)
+
 if (ncol(fitted@spatialRNA@counts) < 2L) {
     stop('RCTD needs at least two target observations after filtering for its dataset-level fit. Lower thresholds or use a larger layer.')
 }
 if (!any(fitted@spatialRNA@nUMI > p$UMI_min_sigma)) {
     stop('No target observations pass UMI_min_sigma. Lower the threshold or supply higher-depth counts.')
 }
+
 cat('##progress 0.40 Normalizing platform effects and fitting RCTD mixtures\n')
 fitted <- run.RCTD(fitted, doublet_mode=p$doublet_mode)
 results <- fitted@results
@@ -58,6 +60,7 @@ barcodes <- colnames(fitted@spatialRNA@counts)
 
 # Preserve the native output, including doublet confidence / multi-mode details.
 saveRDS(results, file.path(folder, '..', 'rctd_results.rds'))
+
 predictions <- lapply(seq_along(barcodes), function(i) {
     barcode <- barcodes[[i]]
     if (p$doublet_mode == 'doublet') {
@@ -73,7 +76,9 @@ predictions <- lapply(seq_along(barcodes), function(i) {
         list(types=as.character(prediction$cell_type_list), weights=as.numeric(prediction$sub_weights))
     }
 })
+
 genes <- unique(c(fitted@internal_vars$gene_list_reg, fitted@internal_vars$gene_list_bulk))
 write_json(list(barcodes=barcodes, predictions=predictions, genes=genes),
            file.path(folder, 'rctd.json'), auto_unbox=FALSE, digits=NA, na='null')
+           
 cat('##progress 0.95 Exported RCTD predictions\n')
