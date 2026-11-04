@@ -263,7 +263,6 @@ class AlignedIntegrationTests(unittest.TestCase):
         self.assertLess(expected.symmetric_difference(combined).area, 1e-8)
         corners = transform.points([[20,30],[60,30],[60,80],[20,80]], inverse=True)
         self.assertEqual(readout.bbox(), tuple(round(v) for v in (*corners.min(axis=0), *corners.max(axis=0))))
-        self.assertIn('enclosing bounds', readout.text.text)
         measure = MeasureTool(plot)
         measure.set_transform(transform, .5)
         s = measure.scale.data

@@ -265,9 +265,11 @@
     <section id="app-overview">
       <h2>Overview and coordinates</h2>
       <p>The overview (top right) shows the whole slide, with a rectangle marking the region the map is
-        showing. Its corner gives the <b>coordinates</b> of that region in full-resolution image pixels (the
-        same system as Space Ranger's <code>pxl_col_in_fullres</code> / <code>pxl_row_in_fullres</code>) and
-        the size of its enclosing bounding box. The coordinates refer to the original image, excluding the canvas padding. The copy button copies <code>x0,y0,x1,y1</code>, e.g. to crop the image elsewhere.</p>
+        showing. <span class="ui">Copy viewport coordinates</span>, in its corner, copies the region shown on
+        the map as <code>x0,y0,x1,y1</code> in full-resolution image pixels (the same system as Space Ranger's
+        <code>pxl_col_in_fullres</code> / <code>pxl_row_in_fullres</code>), e.g. to crop the image elsewhere. The
+        coordinates refer to the original image, excluding the canvas padding; for a rotated image they
+        are the bounding box of the region.</p>
     </section>
 
     <section id="app-layers">
@@ -290,6 +292,13 @@
       <h3 id="app-color">Color tab</h3>
       <ul>
         <li><b>Gene / Metadata</b>: start typing and pick a gene or a metadata column from the suggestions.</li>
+        <li><b>Expression values</b>: how genes are displayed. <i>Counts</i> are the raw UMI counts;
+            <i>Normalized</i> divides each observation by its total counts and multiplies by 10,000;
+            <i>Log-normalized</i> applies log(1 + x) to the normalized value, which compresses highly
+            expressed genes and makes differences in sequencing depth across the tissue less prominent.
+            Aggregated bins are normalized by their own total counts. The choice applies to the map, its
+            color scale and tooltips of this layer only; clustering, differential expression and group
+            conditions always use counts.</li>
         <li>For <b>genes and numeric columns</b>, observations use one color chosen with the color picker;
             opacity follows the value.</li>
         <li>For <b>categorical columns</b> (clusters, groups, …), the single-color picker is disabled and each category gets its own color. Clusters
@@ -494,6 +503,10 @@
         <span class="ui">Run embedding</span>. Embeddings use the same preprocessing as clustering, so a UMAP
         after clustering only computes the UMAP itself. For bins they use the displayed aggregation level.
         Select points in the embedding to highlight the same observations on the map, and the other way round.</p>
+      <p><span class="ui">Color by</span> colors the points by a gene or a metadata column. Genes use a
+        color gradient on the layer's <b>Expression values</b> scale; clusters and groups keep the colors
+        assigned to them, and other categories get one color each. When a clustering finishes, the embedding
+        switches to the new clusters. Hover a point to see its value.</p>
     </section>
 
     <section id="app-comparison">

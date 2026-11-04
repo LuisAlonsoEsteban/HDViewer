@@ -11,6 +11,7 @@ from bokeh.models import (
     Select,
     Spinner,
     BooleanFilter,
+    InlineStyleSheet,
 )
 from bokeh.layouts import column, row
 
@@ -32,6 +33,14 @@ SUPPORTED_ALGORITHMS = (
     "agglomerative",
 )
 
+
+
+def cluster_label_css(color):
+    """A cluster's checkbox label in its assigned colour, with a swatch."""
+    return (f".bk-input-group label span {{ color: {color}; font-weight: 600; }}"
+            f".bk-input-group label span::before {{ content: ''; display: inline-block; width: 10px;"
+            f" height: 10px; margin-right: 6px; border-radius: 2px; vertical-align: -1px;"
+            f" background: {color}; }}")
 
 class ClusteringManager:
     """
@@ -704,7 +713,9 @@ class ClusteringManager:
 
         for label in self._cluster_labels:
             unit = f"{self.component.alias.lower()}s"  # spots / bins / cells
-            cb = CheckboxGroup(labels=[("Noise" if label == "Noise" else "Cluster " + str(label)) + "  (" + str(self._count_spots(label)) + f" {unit})"], active=[0])
+            color = self._color_map.get(str(label), "#cccccc")
+            cb = CheckboxGroup(labels=[("Noise" if label == "Noise" else "Cluster " + str(label)) + "  (" + str(self._count_spots(label)) + f" {unit})"], active=[0],
+                               stylesheets=[InlineStyleSheet(css=cluster_label_css(color))])
             cb.on_change("active", _on_any_change)
             self._cluster_checkboxes.append(cb)
             entry = markers.get(str(label)) or markers.get(label)

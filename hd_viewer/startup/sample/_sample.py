@@ -21,6 +21,13 @@ class Sample:
 
     GENE_CACHE_SIZE = 8
 
+    # How gene values are displayed; analyses (DE, clustering, groups) use counts.
+    EXPRESSION_SCALES = {
+        "counts": "Counts",
+        "normalized": "Normalized (counts per 10k)",
+        "log1p": "Log-normalized (log1p)",
+    }
+
     def __init__(
             self, 
             gdf, 
@@ -58,6 +65,8 @@ class Sample:
 
         self._gene_cache = OrderedDict()
         self._gene_cache_adata = None
+        self._library_sizes = (None, None)
+        self.expression_scale = "counts"
 
         self._obs_index = None
         self._centroids = None
@@ -74,10 +83,43 @@ class Sample:
     def has_adata(self):
         return self.adata is not None
     
+    @property
+    def expression_scale(self):
+        return self._expression_scale
+
+    @expression_scale.setter
+    def expression_scale(self, scale):
+        if scale not in self.EXPRESSION_SCALES:
+            raise ValueError(f"Unknown expression scale {scale!r}; use one of {list(self.EXPRESSION_SCALES)}")
+        self._expression_scale = scale
+
+    def library_sizes(self, adata=None):
+        """Total counts per observation of `adata` (default self.adata)."""
+        if adata is not None and adata is not self.adata:
+            return np.asarray(adata.X.sum(axis=1), dtype=float).ravel()
+        with self.fetch_lock:
+            cached_adata, sizes = self._library_sizes
+            if cached_adata is not self.adata:
+                sizes = np.asarray(self.adata.X.sum(axis=1), dtype=float).ravel()
+                self._library_sizes = (self.adata, sizes)
+            return sizes
+
+    def scale_expression(self, counts, library_sizes):
+        """Counts → the display scale. NaN (not sequenced) stays NaN; empty
+        observations are 0 rather than 0/0."""
+        if self.expression_scale == "counts":
+            return counts
+        counts = np.asarray(counts, dtype=float)
+        library_sizes = np.asarray(library_sizes, dtype=float)
+        with np.errstate(divide="ignore", invalid="ignore"):
+            values = counts * self.normalization_target_sum / library_sizes
+        values = np.where(library_sizes == 0, 0.0, values)
+        return np.log1p(values) if self.expression_scale == "log1p" else values
+
     def get_range(self, colname):
         if colname in self.adata.var_names:
-            values = self._gene_vector(colname)
-            return values.min(), values.max()
+            values = self.scale_expression(self._gene_vector(colname), self.library_sizes())
+            return np.nanmin(values), np.nanmax(values)
         elif colname in self.adata.obs.columns:
             col = self.adata.obs[colname]
             if hasattr(col, 'cat'):
@@ -172,6 +214,15 @@ class Sample:
 
             return values
 
+    def library_values(self, gdf):
+        """Library size of the observation behind each row of `gdf` (NaN if none)."""
+        sizes = self.library_sizes()
+        positions = self._obs_positions(gdf)
+        if positions is not None:
+            return np.where(positions >= 0, sizes[np.maximum(positions, 0)], np.nan)
+        lookup = pd.Series(sizes, index=self.adata.obs_names.astype(str))
+        return self.get_obs_names(self.adata, gdf).map(lookup).to_numpy(dtype=float)
+
     def get_adata_vector(self, adata, colname):
         if colname in adata.var_names:
             return adata[:, colname].to_df()
@@ -181,7 +232,8 @@ class Sample:
             raise ValueError(f"'{colname}' not found in adata")
          
 
-    def get_value(self, adata=None, gdf=None, colname=None):
+    def get_value(self, adata=None, gdf=None, colname=None, raw=False):
+        """Values of `colname` for `gdf`; genes on the display scale unless `raw`."""
         if gdf is None:
             gdf = self.gdf
         if adata is None:
@@ -194,12 +246,18 @@ class Sample:
             if colname in adata.var_names and adata is self.adata:
                 positions = self._obs_positions(gdf)
                 if positions is not None:
-                    values = self._gene_vector(colname)[np.maximum(positions, 0)]
+                    rows = np.maximum(positions, 0)
+                    values = self._gene_vector(colname)[rows]
+                    if not raw:
+                        values = self.scale_expression(values, self.library_sizes()[rows])
                     values = np.where(positions >= 0, values, np.nan)
                     return pd.Series(values, index=gdf[self.on].to_numpy(), name=colname)
 
             value_df = self.get_adata_vector(adata, colname)
-            
+            if colname in adata.var_names and not raw:
+                value_df[colname] = self.scale_expression(value_df[colname].to_numpy(),
+                                                          self.library_sizes(adata))
+
             if colname in adata.obs.columns:
                 obs_series = self.get_obs_names(adata, gdf)
                 result = obs_series.map(value_df[colname])

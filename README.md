@@ -26,8 +26,8 @@ same application on your own computer; the rest of this document explains how.
 - **Multi-resolution viewing** of Visium HD bins (2, 8, 16 µm and aggregates),
   Visium v2-like 55 µm pseudospots and segmented cells, over a tiled
   full-resolution H&E image.
-- **Expression and metadata maps** with gene/metadata autocomplete and
-  expression-based queries.
+- **Expression and metadata maps** with gene/metadata autocomplete, genes shown
+  as raw, normalized or log-normalized counts, and expression-based queries.
 - **Clustering** (Leiden, k-means, DBSCAN, HDBSCAN, Gaussian mixture,
   agglomerative) with marker genes and UMAP/PCA embeddings.
 - **Groups and regions of interest** drawn on the tissue, by radius around seeds,

@@ -57,6 +57,9 @@ HELP = {
         Choose a <b>gene or metadata column</b> to display:
         <ul>
           <li>Genes and numeric columns: choose one color with the color picker; opacity follows the value.</li>
+          <li><b>Expression values</b>: show genes as raw counts, normalized counts (per 10,000 counts of
+              each observation) or log-normalized counts (log1p). Only the display changes; analyses
+              and group conditions use counts.</li>
           <li>Categorical columns (clusters, groups, ...): the single-color picker is disabled. Each category has its own color, the same colors used
               in the cluster/group lists and the DE results.</li>
         </ul>"""),
@@ -165,7 +168,9 @@ HELP = {
     "embedding": ("Embeddings", """
         PCA, UMAP or t-SNE of a layer, computed on the same preprocessing as clustering (so a UMAP after
         clustering only computes the UMAP itself). For bins it uses the displayed aggregation level.
-        Select points to highlight the same observations on the map, and the other way round."""),
+        Select points to highlight the same observations on the map, and the other way round.
+        <b>Color by</b> colors the points by a gene (on the layer's expression scale) or a metadata column;
+        clusters and groups keep their assigned colors, and a new clustering is shown automatically."""),
     "metadata": ("Summary", """
         Per layer: quality metrics (counts, detected genes and % mitochondrial reads per observation), the marker genes of the last
         clustering, and differential-expression results."""),

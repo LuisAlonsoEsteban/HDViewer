@@ -3,9 +3,11 @@ import pandas as pd
 import numpy as np
 
 from bokeh.layouts import column, row
-from bokeh.models import Button, ColumnDataSource, Select, TabPanel, Tabs
+from bokeh.models import AutocompleteInput, Button, ColumnDataSource, HoverTool, Select, TabPanel, Tabs
+from bokeh.palettes import Viridis256
 from bokeh.plotting import figure
 
+from ... import settings
 from ...settings.config import embedding_kwargs
 from . import Panel
 from ..utils.loading import LoadingLogger
@@ -20,6 +22,9 @@ class EmbeddingPanel(Panel):
         "umap": "UMAP",
         "tsne": "t-SNE",
     }
+
+    DEFAULT_COLOR = "#6baed6"
+    MISSING_COLOR = "#555555"
 
     def __init__(self, doc):
         super().__init__(name="embedding_panel")
@@ -49,6 +54,8 @@ class EmbeddingPanel(Panel):
         for component in components:
             component_map[component.key] = component
             component.add_selection_listener(self._on_component_selection_change)
+            component.add_columns_listener(self._on_component_columns_change)
+            component.add_clustering_listener(self._on_component_clustered)
         self.components = component_map
 
         existing_keys = set(self._component_views.keys())
@@ -77,6 +84,7 @@ class EmbeddingPanel(Panel):
             "x": [],
             "y": [],
             "color": [],
+            "value": [],
         })
         source.selected.on_change(
             "indices",
@@ -89,6 +97,19 @@ class EmbeddingPanel(Panel):
             value="pca",
         )
         run_button = Button(label="Run embedding", button_type="success")
+        _, clustering_manager = self._get_component_context(component)
+        color_input = AutocompleteInput(
+            title="Color by",
+            completions=component.get_colnames(),
+            value=clustering_manager.cluster_col if clustering_manager.is_clustered else "",
+            placeholder="Gene or metadata column",
+            min_characters=settings.AUTOCOMPLETE_MIN_CHARACTERS,
+            case_sensitive=settings.AUTOCOMPLETE_CASE_SENSITIVE,
+            search_strategy=settings.AUTOCOMPLETE_SEARCH_STRATEGY,
+            restrict=True,
+        )
+        color_input.on_change(
+            "value", lambda attr, old, new, sample_type=component.key: self._recolor(sample_type))
         status = LoadingLogger(
             self.doc,
             text=f"Select a method and run an embedding for {component.name}.",
@@ -108,6 +129,7 @@ class EmbeddingPanel(Panel):
             color="color",
             alpha=0.8,
         )
+        plot.add_tools(HoverTool(tooltips=[("", "@obs_name"), ("value", "@value")]))
         plot.toolbar.logo = None
 
         def _on_run():
@@ -117,6 +139,7 @@ class EmbeddingPanel(Panel):
 
         content = column(
             row(method_select, run_button, sizing_mode="stretch_width"),
+            color_input,
             status.div,
             plot,
         )
@@ -127,6 +150,7 @@ class EmbeddingPanel(Panel):
             "source": source,
             "method_select": method_select,
             "run_button": run_button,
+            "color_input": color_input,
             "status": status,
             "plot": plot,
             "panel": panel,
@@ -229,12 +253,14 @@ class EmbeddingPanel(Panel):
         component = view["component"]
         view["run_button"].disabled = False
         try:
-            df["color"] = self._get_colors_for_component(component, df["obs_name"].tolist())
+            obs_names = df["obs_name"].astype(str).tolist()
+            colors, values = self.colors_for(component, view["color_input"].value, obs_names)
             view["source"].data = {
-                "obs_name": df["obs_name"].astype(str).tolist(),
+                "obs_name": obs_names,
                 "x": df["x"].tolist(),
                 "y": df["y"].tolist(),
-                "color": df["color"].tolist(),
+                "color": colors,
+                "value": values,
             }
             view["plot"].xaxis.axis_label = f"{self.METHOD_LABELS[method]} 1"
             view["plot"].yaxis.axis_label = f"{self.METHOD_LABELS[method]} 2"
@@ -245,20 +271,76 @@ class EmbeddingPanel(Panel):
             view["status"].error(exc)
             view["plot"].visible = False
 
-    def _get_colors_for_component(self, component, obs_names):
-        source_data = component.manager.source.data
-        obs_name_values = [str(value) for value in source_data.get("obs_name", [])]
-        color_values = source_data.get("color", [])
-        color_map = {
-            obs_name: color
-            for obs_name, color in zip(obs_name_values, color_values)
-        }
+    def colors_for(self, component, colname, obs_names):
+        """Colours (and hover values) of `obs_names` by `colname`, over every
+        embedded observation rather than only the map's loaded viewport.
+        Clusters and groups keep their assigned colours; genes follow the
+        layer's expression scale."""
+        sample = component.manager.sample
+        n = len(obs_names)
+        if not colname or colname not in component.get_colnames():
+            return [self.DEFAULT_COLOR] * n, [""] * n
+        adata = sample.adata
+        rows = adata.obs_names.astype(str).get_indexer(pd.Index(obs_names, dtype=str))
+        found = rows >= 0
+        safe = np.maximum(rows, 0)
 
-        default_color = "#6baed6"
-        if len(color_values) > 0:
-            default_color = color_values[0]
+        if sample.is_continous(colname):
+            if colname in adata.var_names:
+                column = adata.X[:, [adata.var_names.get_loc(colname)]]
+                counts = column.toarray().ravel() if hasattr(column, "toarray") else np.asarray(column).ravel()
+                values = sample.scale_expression(counts[safe], sample.library_sizes()[safe])
+            else:
+                values = pd.to_numeric(adata.obs[colname], errors="coerce").to_numpy(dtype=float)[safe]
+            values = np.where(found, np.asarray(values, dtype=float), np.nan)
+            finite = np.isfinite(values)
+            low, high = (np.min(values[finite]), np.max(values[finite])) if finite.any() else (0.0, 1.0)
+            span = high - low if high > low else 1.0
+            positions = np.clip(((np.nan_to_num(values, nan=low) - low) / span * 255).astype(int), 0, 255)
+            colors = [Viridis256[p] if ok else self.MISSING_COLOR for p, ok in zip(positions, finite)]
+            return colors, [f"{v:.3g}" if ok else "NA" for v, ok in zip(values, finite)]
 
-        return [color_map.get(str(obs_name), default_color) for obs_name in obs_names]
+        labels = adata.obs[colname].astype(object).to_numpy()[safe]
+        labels = ["NA" if not ok or pd.isna(label) or str(label) in ("None", "nan", "")
+                  else str(label) for label, ok in zip(labels, found)]
+        palette = dict(component.known_category_colors(colname))
+        color_param = component.manager.get_param("color")
+        if color_param is not None and not color_param.is_static and color_param.colname == colname:
+            palette = {**getattr(color_param, "category_colors", {}), **palette}
+        for index, label in enumerate(sorted(set(labels) - set(palette) - {"NA"})):
+            palette[label] = settings.CATEGORICAL_PALETTE[index % len(settings.CATEGORICAL_PALETTE)]
+        return [palette.get(label, self.MISSING_COLOR) for label in labels], labels
+
+    def _recolor(self, sample_type):
+        view = self._component_views.get(sample_type)
+        if view is None:
+            return
+        obs_names = list(view["source"].data.get("obs_name", []))
+        if not obs_names:
+            return
+        try:
+            colors, values = self.colors_for(view["component"], view["color_input"].value, obs_names)
+        except Exception as exc:
+            view["status"].error(exc)
+            return
+        view["source"].data.update(color=colors, value=values)
+
+    def _on_component_columns_change(self, component):
+        view = self._component_views.get(component.key)
+        if view is not None:
+            view["color_input"].completions = component.get_colnames()
+
+    def _on_component_clustered(self, component):
+        """New clusters have their colours assigned: show them on the embedding."""
+        view = self._component_views.get(component.key)
+        if view is None:
+            return
+        cluster_col = component.clustering_manager.cluster_col
+        view["color_input"].completions = component.get_colnames()
+        if view["color_input"].value == cluster_col:
+            self._recolor(component.key)
+        else:
+            view["color_input"].value = cluster_col     # recolours through on_change
 
     def _update_embedding_selection_from_component(self, sample_type):
         view = self._component_views.get(sample_type)

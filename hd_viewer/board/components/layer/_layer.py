@@ -9,6 +9,7 @@ from bokeh.models import (
     HoverTool, 
     CheckboxGroup,
     AutocompleteInput,
+    Select,
     Slider,
     ColorPicker,
     Button,
@@ -92,6 +93,7 @@ class Layer:
         self.slider = None
         self.colorpicker = None
         self.autocomplete_input = None
+        self.expression_scale_select = None
 
         self.clustering_manager = ClusteringManager(self)
         self.deconvolution_manager = DeconvolutionManager(self)
@@ -102,6 +104,8 @@ class Layer:
 
         self.selected_obs_names = set()
         self._selection_listeners = []
+        self._columns_listeners = []      # called when obs columns change
+        self._clustering_listeners = []   # called when a clustering finishes
         self._suspend_selection_sync = False
         self._selection_callback_bound = False
         
@@ -202,7 +206,8 @@ class Layer:
             self.hover = None
 
     def refresh_hover(self):
-        self.remove_existing_hover()
+        # Reuse the tool: adding/removing tools makes BokehJS rebuild the toolbar,
+        # which could leave the main figure without one.
         self.add_hover()
 
     def refresh_figure(self):
@@ -226,6 +231,14 @@ class Layer:
 
     def selection_indices_for(self, obs_names):
         return selection_indices(self.sample, self.selected_obs_names, obs_names)
+
+    def add_columns_listener(self, callback):
+        if callback not in self._columns_listeners:
+            self._columns_listeners.append(callback)
+
+    def add_clustering_listener(self, callback):
+        if callback not in self._clustering_listeners:
+            self._clustering_listeners.append(callback)
 
     def add_selection_listener(self, callback):
         if callback not in self._selection_listeners:
@@ -349,7 +362,10 @@ class Layer:
             if (not param.is_static and param.colname_hovered
                     and param.colname not in (settings.GROUPS_COL, cluster_col)
                     and param.attr != 'alpha'):
-                items.append(f"{param.colname}: @{param.colname}")
+                label = param.colname
+                if self.sample.expression_scale != "counts" and param.colname in self.sample.adata.var_names:
+                    label += f" ({'log-normalized' if self.sample.expression_scale == 'log1p' else 'normalized'})"
+                items.append(f"{label}: @{param.colname}")
 
         if settings.GROUPS_COL in self.manager.source.data:
             items.append(f"Group: @{{{settings.GROUPS_COL}}}")
@@ -362,12 +378,16 @@ class Layer:
             return "@obs_name"
 
     def add_hover(self):
-        if self.glyph_renderer:
+        if not self.glyph_renderer:
+            return
+        if self.hover is None:
             self.hover = HoverTool(
                 tooltips=self.get_hover_tooltips(),
                 renderers=[self.glyph_renderer]
             )
             self.figure.add_tools(self.hover)
+        else:
+            self.hover.update(renderers=[self.glyph_renderer], tooltips=self.get_hover_tooltips())
         
     def update_hover_tooltips(self):
         if self.hover:
@@ -502,6 +522,28 @@ class Layer:
 
         return self.autocomplete_input
 
+    def get_expression_scale_select(self, doc):
+        """Display genes as counts, normalized or log-normalized counts."""
+        self.expression_scale_select = Select(
+            title="Expression values",
+            value=self.sample.expression_scale,
+            options=list(self.sample.EXPRESSION_SCALES.items()),
+        )
+
+        def on_change(_, old, new):
+            doc.add_next_tick_callback(lambda: self.set_expression_scale(new))
+
+        self.expression_scale_select.on_change('value', on_change)
+        return self.expression_scale_select
+
+    def set_expression_scale(self, scale):
+        if scale == self.sample.expression_scale:
+            return
+        with self.sample.fetch_lock:
+            self.sample.expression_scale = scale
+        self.manager.refresh_values()
+        self.update_hover_tooltips()
+
     def show_colname(self, colname):
         """Display `colname`, deciding from the current parameters rather than the
         previous input value: clustering/groups change the colour behind the
@@ -594,6 +636,9 @@ class Layer:
                 autocomplete = self.get_autocomplete_input(doc)
                 color_widgets.append(autocomplete)
                 self._all_widgets.append(autocomplete)
+                scale_select = self.get_expression_scale_select(doc)
+                color_widgets.append(scale_select)
+                self._all_widgets.append(scale_select)
 
             for param in self.manager.parameters:
                 if param.attr == 'color':
@@ -628,6 +673,8 @@ class Layer:
 
                 self.de_manager.refresh_de_clusters()
                 self.metadata_comparison_manager.refresh_clusters()
+                for callback in self._clustering_listeners:
+                    callback(self)
                 on_markers_ready(doc)       # placeholder until the new markers are ranked
 
             def on_markers_ready(doc):
@@ -690,6 +737,8 @@ class Layer:
         # Display gene/metadata
         if self.autocomplete_input is not None:
             self.autocomplete_input.completions = self.get_colnames()
+        for callback in self._columns_listeners:
+            callback(self)
 
         # Group definition
         if self.groups_manager is not None:

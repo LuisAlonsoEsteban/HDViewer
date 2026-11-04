@@ -157,6 +157,18 @@ class SourceManager:
     def get_colnames(self):
         return list({param.colname for param in self.parameters if not param.is_static})
 
+    def _gene_parameters(self):
+        adata = self.sample.adata
+        return [param for param in self.parameters
+                if not param.is_static and adata is not None and param.colname in adata.var_names]
+
+    def refresh_values(self):
+        """Re-read gene values after the sample's expression scale changed."""
+        for param in self._gene_parameters():
+            if param.colname in self.cache.columns:
+                self.cache.drop(columns=param.colname, inplace=True)
+            self.update_colname(param.colname, param.colname, attrs=(param.attr,))
+
     def fetch_data(self):
         fetched_data = self.sample.fetch_data(colnames=self.get_colnames())
         colnames = self.get_colnames()
@@ -293,6 +305,21 @@ class DynamicSourceManager(SourceManager):
 
         if not self._refresh_loaded_parameters(previous_level, refetch=True):
             self.clear_sources()
+            self.fetch_data()
+
+    def refresh_values(self):
+        """Re-read gene values after the sample's expression scale changed,
+        keeping the loaded geometry when possible."""
+        params = self._gene_parameters()
+        if not params:
+            return
+        for param in params:
+            if hasattr(param, "min_counts"):
+                param.min_counts, param.max_counts = self.sample.get_range(param.colname)
+        if self._refresh_loaded_parameters(self.effective_resolution_level, refetch=True):
+            return
+        self.clear_sources()
+        if self.bbox is not None:
             self.fetch_data()
 
     def add_parameter(self, param):

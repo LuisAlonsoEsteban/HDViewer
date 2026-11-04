@@ -56,3 +56,7 @@ th, td { border-color: #344d40; }
 .slick-row.selected .slick-cell { background: #385d46; }
 code { color: #b3e6c7; background: #11231a; border-radius: 4px; padding: 1px 4px; }
 
+/* Autocomplete suggestions: Bokeh's light menu would inherit the light :host text. */
+.bk-menu { background-color: #11231d; color: var(--vv-text); border: 1px solid var(--vv-border); }
+.bk-menu > :not(.bk-divider):hover, .bk-menu > :not(.bk-divider).bk-active { background-color: #2a4738; color: #ffffff; }
+option { background-color: #11231d; color: var(--vv-text); }

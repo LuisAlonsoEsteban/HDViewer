@@ -191,8 +191,8 @@ class Bins(Sample):
         while len(self._multiscale_cache) > self.MAX_CACHE_ENTRIES:
             self._multiscale_cache.popitem(last=False)
 
-    def _get_numeric_value(self, adata, gdf, colname):
-        values = self.get_value(adata=adata, gdf=gdf, colname=colname)
+    def _get_numeric_value(self, adata, gdf, colname, raw=False):
+        values = self.get_value(adata=adata, gdf=gdf, colname=colname, raw=raw)
         if not isinstance(values, pd.Series):
             values = pd.Series(values, index=gdf.index)
         return pd.to_numeric(values, errors="coerce")
@@ -226,7 +226,7 @@ class Bins(Sample):
         cell_height = self.native_height * factor
 
         cache_key = (factor, None if bbox is None else tuple(round(v, 4) for v in bbox),
-                     tuple(sorted(colnames or [])))
+                     tuple(sorted(colnames or [])), self.expression_scale)
         if cache_key in self._multiscale_cache:
             self._multiscale_cache.move_to_end(cache_key)
             return self._multiscale_cache[cache_key].copy()
@@ -262,6 +262,19 @@ class Bins(Sample):
                 
             for colname in colnames:
                 is_categorical = colname in self.adata.obs.columns and not self.is_continous(colname)
+                if colname in self.adata.var_names and self.expression_scale != "counts":
+                    # Normalize each aggregate by its own total counts: summing
+                    # per-bin normalized values would weight sparse bins up.
+                    frame = pd.DataFrame({
+                        "grid_x": grid_x, "grid_y": grid_y,
+                        "counts": self._get_numeric_value(cropped_adata, cropped_gdf, colname, raw=True).values,
+                        "library": self.library_values(cropped_gdf),
+                    })
+                    sums = frame.groupby(["grid_x", "grid_y"], sort=False)[["counts", "library"]].sum(min_count=1)
+                    grouped[colname] = pd.Series(
+                        self.scale_expression(sums["counts"].to_numpy(), sums["library"].to_numpy()),
+                        index=sums.index)
+                    continue
                 if is_categorical:
                     values = self.get_value(adata=cropped_adata, gdf=cropped_gdf, colname=colname)
                 else:
