@@ -174,9 +174,11 @@ def help_button(topic, position="right"):
 
 
 def tutorial_link():
-    """Link opening the tutorial in a new browser tab."""
+    """Links opening the tutorial and biological walkthrough in new tabs."""
     return Div(text=f"<a href='{TUTORIAL_URL}' target='_blank' rel='noopener' "
-                    f"style='color:#88f5dc;font-size:12px;white-space:nowrap'>📖 Tutorial</a>",
+                    f"style='color:#88f5dc;font-size:12px;white-space:nowrap'>📖 Tutorial</a>"
+                    f" · <a href='{BIOLOGICAL_USE_CASE_URL}' target='_blank' rel='noopener' "
+                    f"style='color:#88f5dc;font-size:12px'>Biological use case</a>",
                align="center", margin=(0, 0, 0, 12))
 
 
@@ -188,6 +190,7 @@ def help_header(text, topic, style="color:#888888"):
 # ------------------------------------------------------------- tutorial page
 # Standalone tutorial page in bokeh_server/static (served next to the app)
 TUTORIAL_URL = "/hd_viewer/static/tutorial.html"
+BIOLOGICAL_USE_CASE_URL = "/hd_viewer/static/biological-use-case.html"
 
 # Section of the tutorial each help topic links to
 TUTORIAL_ANCHORS = {
@@ -205,6 +208,8 @@ TUTORIAL_CARD_HTML = f"""
     <h2 style="margin:0 0 4px;font-size:19px">New here?</h2>
     <p style="margin:0;color:#b7cbd1">The tutorial explains every part of the platform: which files to load,
        what each option computes, and how to explore the results.</p>
+    <p style="margin:8px 0 0"><a href="{BIOLOGICAL_USE_CASE_URL}" target="_blank" rel="noopener"
+       style="color:#88f5dc">Follow the biological use-case walkthrough →</a></p>
   </div>
   <a href="{TUTORIAL_URL}" target="_blank" rel="noopener"
      style="background:#5ee0c2;color:#102a24;font-weight:600;text-decoration:none;

@@ -4,72 +4,7 @@
 <meta charset="utf-8">
 <meta name="viewport" content="width=device-width, initial-scale=1">
 <title>Visium HD Viewer · Tutorial</title>
-<style>
-  :root {
-    --bg: #151f23; --panel: #202c31; --panel-2: #182327; --line: #3b5057;
-    --text: #e5edf0; --muted: #b7cbd1; --faint: #8aa1a8; --accent: #5ee0c2; --accent-2: #88f5dc;
-    --warn: #f0c36b; --code: #0f181b;
-  }
-  * { box-sizing: border-box; }
-  html { scroll-behavior: smooth; }
-  body { margin: 0; background: var(--bg); color: var(--text);
-         font: 15px/1.6 Arial, Helvetica, sans-serif; }
-  a { color: var(--accent-2); }
-  a:focus-visible, button:focus-visible { outline: 3px solid var(--accent-2); outline-offset: 2px; }
-
-  header { padding: 28px 32px 0; max-width: 1240px; margin: 0 auto; }
-  .eyebrow { color: var(--accent-2); letter-spacing: 2px; font-size: 12px; font-weight: 700; }
-  h1 { font-size: 30px; margin: 8px 0 6px; }
-  .lead { color: var(--muted); margin: 0 0 20px; max-width: 760px; }
-
-  .tabs { display: flex; gap: 6px; border-bottom: 1px solid var(--line); }
-  .tabs button { background: none; border: 1px solid transparent; border-bottom: none;
-                 color: var(--muted); font: 600 15px Arial, sans-serif; padding: 10px 18px;
-                 border-radius: 10px 10px 0 0; cursor: pointer; }
-  .tabs button[aria-selected="true"] { background: var(--panel); color: var(--text);
-                                        border-color: var(--line); margin-bottom: -1px; }
-
-  .page { display: none; max-width: 1240px; margin: 0 auto; padding: 24px 32px 80px; gap: 32px; }
-  .page.active { display: grid; grid-template-columns: 240px minmax(0, 1fr); }
-  nav.toc { position: sticky; top: 16px; align-self: start; max-height: calc(100vh - 32px);
-            overflow-y: auto; font-size: 14px; }
-  nav.toc p { color: var(--faint); font-size: 12px; letter-spacing: 1px; text-transform: uppercase;
-              margin: 0 0 8px; }
-  nav.toc a { display: block; color: var(--muted); text-decoration: none; padding: 4px 8px;
-              border-left: 2px solid var(--line); }
-  nav.toc a:hover { color: var(--text); border-left-color: var(--accent); }
-  nav.toc a.sub { padding-left: 20px; font-size: 13px; }
-
-  main section { background: var(--panel); border: 1px solid var(--line); border-radius: 14px;
-                 padding: 20px 24px; margin-bottom: 18px; scroll-margin-top: 16px; }
-  main h2 { font-size: 21px; margin: 0 0 10px; }
-  main h3 { font-size: 16px; margin: 20px 0 6px; color: var(--accent-2); scroll-margin-top: 16px; }
-  main p, main li { color: var(--muted); }
-  main b, main strong { color: var(--text); }
-  code { background: var(--code); color: var(--accent-2); padding: 1px 6px; border-radius: 5px;
-         font-size: 13px; word-break: break-word; }
-  .ui { background: var(--panel-2); border: 1px solid var(--line); color: var(--text);
-        padding: 0 7px; border-radius: 6px; font-size: 13px; white-space: nowrap; }
-  table { border-collapse: collapse; width: 100%; margin: 8px 0; font-size: 14px; }
-  th, td { text-align: left; padding: 7px 10px; border-bottom: 1px solid var(--line);
-           vertical-align: top; color: var(--muted); }
-  th { color: var(--text); background: var(--panel-2); }
-  .note { border-left: 3px solid var(--warn); background: rgba(240,195,107,.08); padding: 8px 14px;
-          border-radius: 0 8px 8px 0; margin: 12px 0; }
-  .tip { border-left: 3px solid var(--accent); background: rgba(94,224,194,.07); padding: 8px 14px;
-         border-radius: 0 8px 8px 0; margin: 12px 0; }
-  .layout-map { display: grid; grid-template-columns: 1fr 2fr 1fr; gap: 6px; margin: 12px 0; }
-  .layout-map div { background: var(--panel-2); border: 1px solid var(--line); border-radius: 8px;
-                    padding: 10px; font-size: 13px; color: var(--muted); }
-  .layout-map b { display: block; color: var(--text); margin-bottom: 4px; }
-
-  @media (max-width: 860px) {
-    header, .page { padding-left: 16px; padding-right: 16px; }
-    .page.active { display: block; }
-    nav.toc { position: static; max-height: none; margin-bottom: 16px; }
-    .layout-map { grid-template-columns: 1fr; }
-  }
-</style>
+<link rel="stylesheet" href="tutorial.css">
 </head>
 <body>
 
@@ -83,6 +18,7 @@
     <button role="tab" id="tab-load" aria-controls="load" aria-selected="true">1 · Loading data</button>
     <button role="tab" id="tab-app" aria-controls="app" aria-selected="false">2 · Using the app</button>
   </div>
+  <p><a href="biological-use-case.html">Biological use-case walkthrough →</a></p>
 </header>
 
 <!-- ================================================================== LOADING DATA -->

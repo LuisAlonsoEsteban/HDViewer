@@ -1,0 +1,322 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+  <meta charset="utf-8">
+  <meta name="viewport" content="width=device-width, initial-scale=1">
+  <title>Visium HD Viewer · P1CRC tumor periphery</title>
+  <link rel="stylesheet" href="tutorial.css">
+</head>
+<body>
+<!-- Content source: full_text.pdf, Figure 4a–b (printed p. 1517), Results
+     “Tumor boundary analysis reveals macrophage subpopulations”, and Methods
+     “Spot deconvolution” / “Characterizing the tumor periphery”. Patient-specific
+     choices and singlet counting were checked against the authors' Figure_4.R.
+     Keep published findings distinct from measurements made in this viewer. -->
+<header>
+  <div class="eyebrow">VISIUM HD VIEWER · BIOLOGICAL USE CASE</div>
+  <h1>P1CRC: exploring the tumor periphery</h1>
+  <p class="lead">Which cells occupy the boundary of a colorectal tumor, and how does
+    that neighborhood differ from the surrounding tissue? Explore this question with
+    the P1CRC sample from Oliveira et al. (2025), following Figure 4a–b through
+    interactive tissue maps, gene expression, and regional comparisons.</p>
+  <nav class="tabs" aria-label="Help pages">
+    <a href="tutorial.html#load">Loading data</a>
+    <a href="tutorial.html#app">Using the app</a>
+    <a href="biological-use-case.html" aria-current="page">P1CRC walkthrough</a>
+  </nav>
+</header>
+<div class="page active">
+  <nav class="toc" aria-label="Walkthrough sections">
+    <p>Figure 4a–b · P1CRC</p>
+    <a href="#overview">Biological question</a>
+    <a href="#interactive" class="sub">Why explore interactively?</a>
+    <a href="#inputs">Data and prerequisites</a>
+    <a href="#load">1 · Load P1CRC</a>
+    <a href="#analysis">2 · Identify the tumor</a>
+    <a href="#periphery">3 · Define the 50 µm periphery</a>
+    <a href="#markers">4 · Inspect C1QC and COL1A1</a>
+    <a href="#composition">5 · Compare composition</a>
+    <a href="#published-counts">Match the published bin counts</a>
+    <a href="#results">Check the results</a>
+    <a href="#interpretation">Interpretation and references</a>
+  </nav>
+  <main>
+    <section id="overview">
+      <h2>Which cells surround the tumor?</h2>
+      <p>A colorectal tumor develops within a tissue containing immune cells, fibroblasts,
+        blood vessels, and other populations. Their location matters: a population abundant
+        across the section may be scarce at the tumor boundary, while a smaller population
+        may concentrate there. Understanding this microenvironment therefore requires
+        asking both <b>which cells are present</b> and <b>where they are relative to the tumor</b>.</p>
+      <p>In <a href="https://doi.org/10.1038/s41588-025-02193-3"><i>High-definition spatial
+        transcriptomic profiling of immune cell populations in colorectal cancer</i></a>,
+        Oliveira et al. (<i>Nature Genetics</i> 57, 1512–1523, 2025) investigate human
+        colorectal cancer using Visium HD. They combine spatial gene expression with a
+        single-cell reference to infer cell identities while retaining their tissue locations.
+        This connects the molecular diversity of the tumor microenvironment to its spatial
+        organization, which cannot be recovered from cell-type abundance alone.</p>
+
+      <h3>What the authors did</h3>
+      <p>For Figure 4a–b, the authors analyze <b>8 × 8 µm capture bins</b>, identify tumor
+        regions from RCTD deconvolution labels, and select a <b>50 µm periphery</b> around
+        them, excluding the tumor bins themselves. They compare cell-type proportions in
+        this neighborhood with those in the remaining tissue and inspect <b>C1QC</b>
+        and <b>COL1A1</b> expression as supporting evidence for macrophage and
+        fibroblast localization. They report cancer-associated fibroblasts (CAFs) as the
+        most prominent periphery cell type and macrophages as its most abundant immune
+        population. These findings motivate the subsequent macrophage analyses in the paper.</p>
+
+      <h3>What we will try to replicate</h3>
+      <p>We will follow the reasoning behind <b>Figure 4a–b for patient P1CRC only</b>,
+        moving from a whole-section view to a defined tumor neighborhood and then to a
+        quantitative comparison:</p>
+      <ol>
+        <li><b>Reconstruct the spatial view in panel a:</b> identify the P1CRC tumor
+          population, define its 50 µm periphery, and examine C1QC and COL1A1 in the
+          same tissue region.</li>
+        <li><b>Examine the composition comparison in panel b:</b> assess the representation
+          of CAFs, macrophages, and other annotated populations near the tumor relative
+          to the remaining tissue, keeping the counting rules explicit.</li>
+      </ol>
+      <p>The aim is to understand how the spatial evidence supports the reported pattern
+        and assess whether it is recovered in this sample. The other patients and the
+        macrophage subpopulation analyses in panels c–d are outside this walkthrough.</p>
+
+      <h3 id="interactive">Why explore interactively?</h3>
+      <p>A published figure presents selected views and summaries. To assess the result,
+        we also need to inspect the tissue behind those summaries: whether inferred tumor
+        regions follow the histology, whether marker expression occurs along the boundary
+        or in isolated patches, and which bins enter the comparison. These checks matter
+        because a capture bin can contain transcripts from several cells, and choices about
+        labels, neighborhood membership, and denominators affect the biological interpretation.</p>
+      <p>An interactive viewer makes those checks practical. Zooming connects a section-wide
+        pattern to individual boundary areas; switching between cell-type labels and gene
+        expression lets us examine complementary evidence at the same location; and a visible
+        ROI makes the selected neighborhood inspectable. Regional summaries then connect
+        what we see on the map to measured values. This helps researchers examine the
+        assumptions behind a result and identify discrepancies that need further analysis.</p>
+      <div class="tip"><b>Explore, then document.</b> Follow the published 50 µm definition
+        first. If you later vary the radius or tumor labels, treat that as a sensitivity
+        analysis and record each choice. Interactive inspection supports reproducibility
+        when the data, parameters, region definitions, and readouts remain explicit.</div>
+      <div class="note">The steps below provide an exploratory reproduction in the viewer.
+        Matching the published numbers also requires the original bin classifications,
+        boundary filtering, and singlet-only counting described below. The walkthrough
+        does not claim that a new viewer run has reproduced those numbers.</div>
+      <p>Source: <a href="https://doi.org/10.1038/s41588-025-02193-3">paper, Figure 4a–b
+        and Methods: “Characterizing the tumor periphery”</a>.</p>
+    </section>
+    <section id="inputs">
+      <h2>Data and prerequisites</h2>
+      <p><b>Download the public data:</b> visit the
+        <a href="https://www.10xgenomics.com/platforms/visium/product-family/dataset-human-crc">10x Genomics human colorectal cancer dataset page</a>
+        and select the <b>patient P1 colorectal cancer (P1CRC)</b> sample. For this walkthrough,
+        obtain the Space Ranger binned outputs and tissue image; use the <b>8 µm</b>
+        expression matrix and matching spatial positions. The study's Chromium reference
+        data are also available through this collection, and the authors provide
+        <a href="https://github.com/10XGenomics/HumanColonCancer_VisiumHD/tree/main/MetaData">cell-type annotations and deconvolution metadata</a>
+        in their repository.</p>
+      <div class="tip"><b>We recommend using the preloaded example.</b> On the viewer's loading screen,
+        select the built-in <span class="ui">Human CRC</span> example to load the configured
+        P1CRC data directly. Running <b>spacexr (RCTD)</b> from scratch on this many bins
+        can take approximately <b>7–8 hours</b>, depending on the hardware and settings.
+        The example's deconvolution results are cached: a matching run reuses them instead
+        of repeating the computation. Keep the same input data, reference, and parameters
+        to reuse the cache; changes can trigger a new run. When the example files and cache
+        are installed on the server, no download or upload is needed. Alternatively,
+        download the public files and load them through the own-data upload.</div>
+      <table>
+        <caption>Files relative to data/CRC_P1/</caption>
+        <thead><tr><th>Input</th><th>File / setting</th></tr></thead>
+        <tbody>
+          <tr><td>Spatial counts</td><td><code>VisiumHD/binned_outputs/square_008um/filtered_feature_bc_matrix.h5</code></td></tr>
+          <tr><td>Positions</td><td><code>VisiumHD/binned_outputs/square_008um/spatial/tissue_positions.parquet</code></td></tr>
+          <tr><td>H&amp;E image</td><td><code>VisiumHD/Visium_HD_Human_Colon_Cancer_P1_tissue_image.btf</code></td></tr>
+          <tr><td>Reference counts</td><td><code>Chromium/HumanColonCancer_Flex_Multiplex_count_filtered_feature_bc_matrix.h5</code></td></tr>
+          <tr><td>Reference annotations</td><td><code>Chromium/SingleCell_MetaData.csv</code>; use <b>Level2</b></td></tr>
+        </tbody>
+      </table>
+      <p>Only the <b>spatial sample</b> is restricted to P1CRC. The reference contains
+        multiple patients; selecting Human CRC does not restrict its reference cells to P1CRC.
+        Level2 distinguishes CAF and Macrophage, which are merged into broader classes in Level1.</p>
+      <p>Running RCTD requires the configured <b>spacexr</b> plugin runtime. For a comparison
+        to the paper, use a reference prepared with the authors' QC and cell-type filtering;
+        the built-in CSV also contains <code>QC_Filtered</code> cells, and loading it does
+        not automatically remove them. Published spatial labels offer an alternative to rerunning RCTD.</p>
+    </section>
+    <section id="load">
+      <h2>1 · Load P1CRC</h2>
+      <ol>
+        <li>On the loading screen, choose the <span class="ui">Human CRC</span>
+          example dataset. If using your own downloaded copy instead, upload the P1CRC
+          files listed above and set the bin resolution to <b>8 µm</b>.</li>
+        <li>Use the <b>Bins</b> layer. Pseudospots and cell segmentation are unnecessary
+          for Figure 4a–b, which analyzes 8 µm capture bins.</li>
+        <li>Load the sample and confirm that the bins align with the H&amp;E tissue.
+          For close inspection, set bin resolution to the native level (no aggregation).</li>
+      </ol>
+      <p>The supplied positions file contains coordinates, not the authors' RCTD labels
+        or periphery assignments. Those annotations must be computed or prepared separately.</p>
+      <p><a href="tutorial.html#load-files">Help with loading files →</a></p>
+    </section>
+    <section id="analysis">
+      <h2>2 · Identify the P1CRC tumor population</h2>
+      <ol>
+        <li>In the bins layer's <span class="ui">Deconvolution</span> tab, change
+          <span class="ui">Reference cell-type column (.obs)</span> from the example's
+          default Level1 to <b>Level2</b>.</li>
+        <li>Choose <span class="ui">spacexr (RCTD)</span>, set
+          <span class="ui">RCTD mode</span> to <b>doublet</b>, and
+          <span class="ui">Minimum target UMIs</span> to <b>100</b>, as in the paper.
+          Keep raw integer counts as input. Record the remaining settings and reference
+          preparation; they also affect the result.</li>
+        <li>Click <span class="ui">Run deconvolution</span> and retain that saved run
+          throughout the walkthrough.</li>
+        <li>In <span class="ui">Groups</span>, choose the run's dominant-type metadata
+          column, e.g. <code>deconv_1:most_abundant</code> for the first run. Add the condition
+          <code>== Tumor II</code> and create a group named <b>P1 tumor</b>.</li>
+      </ol>
+      <p>The authors' <a href="https://github.com/10XGenomics/HumanColonCancer_VisiumHD/blob/main/Figures/Figure_4.R">Figure_4.R</a>
+        uses <b>Tumor II</b> for P1CRC. Use this subtype rather than pooling all tumor labels.</p>
+      <div class="note">The viewer's dominant-type column chooses the largest fraction
+        among assigned types, including confident doublets. It is not the original RCTD
+        singlet classification. Do not infer singlet status from a dominant label or a
+        high fraction.</div>
+      <p><a href="tutorial.html#app-deconvolution">Help with deconvolution →</a></p>
+    </section>
+    <section id="periphery">
+      <h2>3 · Define the 50 µm tumor periphery</h2>
+      <ol>
+        <li>Open <span class="ui">ROIs</span> on the bins layer and choose
+          <span class="ui">Seed + radius</span>.</li>
+        <li>Set <span class="ui">Seed source</span> to
+          <span class="ui">All bins in a group</span>, and choose <b>P1 tumor</b>.</li>
+        <li>Confirm the radius unit is <b>µm</b> and enter <b>50</b>. If the control
+          reports pixels, resolve image calibration before continuing.</li>
+        <li>Set <span class="ui">ROI region</span> to <span class="ui">ROI minus group</span>.
+          This removes the source tumor bins from the surrounding neighborhood.</li>
+        <li>Name the region <b>P1 periphery 50um</b>, inspect the preview, click
+          <span class="ui">Save ROI</span>, then use its <span class="ui">Create group</span> button.</li>
+      </ol>
+      <p><b>Checkpoint:</b> the region follows tumor-associated areas across the section,
+        including disconnected areas, rather than a single circle around one click.</p>
+      <p>The paper's method suppresses isolated seeds with fewer than 25 same-label bins
+        in the local neighborhood. The viewer does not apply this filter. Its ROI membership
+        uses bin-shape intersection, whereas the authors' helper uses distances between bin
+        centers. Edge bins can therefore differ even with the same radius.</p>
+      <p><a href="tutorial.html#app-rois">Help with group-based radius ROIs →</a></p>
+    </section>
+    <section id="markers">
+      <h2>4 · Inspect C1QC and COL1A1 — Figure 4a</h2>
+      <ol>
+        <li>Show the tumor and periphery groups. Use red for tumor and blue for periphery
+          to echo the paper's map, and inspect both the section overview and a boundary close-up.</li>
+        <li>In <span class="ui">Color</span>, display <b>C1QC</b> to inspect the macrophage-associated
+          signal. Then display <b>COL1A1</b> to inspect fibroblast-associated expression.</li>
+        <li>Keep the same viewport for both genes. Compare their localization with the
+          saved periphery outline and H&amp;E morphology.</li>
+      </ol>
+      <p>For the published close-up, the figure script specifies a roughly <b>500 µm square</b>
+        centered on barcode <code>s_008um_00556_00532-1</code>. Its location can be found
+        in the positions table; the viewer does not provide a barcode-search control.</p>
+      <p>The paper shows normalized log expression. The viewer's ordinary gene display
+        reads the loaded count matrix, so use it to compare spatial patterns; its color
+        intensity is not the paper's normalized expression scale. Neither marker alone
+        establishes a cell's identity.</p>
+    </section>
+    <section id="composition">
+      <h2>5 · Compare periphery and remaining tissue — Figure 4b</h2>
+      <ol>
+        <li>Keep only the two custom groups created above: <b>P1 tumor</b> and
+          <b>P1 periphery 50um</b>. Delete unrelated custom groups before this comparison.</li>
+        <li>Open <span class="ui">Metadata comparison</span>. Select the periphery group
+          and enable <span class="ui">The rest (outside all defined custom groups)</span>.
+          With these two groups defined, the remainder excludes both tumor and periphery.</li>
+        <li>Choose the same saved deconvolution run's fractions in
+          <span class="ui">Metadata set</span>. Include at least <b>CAF</b> and <b>Macrophage</b>,
+          and choose <span class="ui">Summary</span> = <b>Mean</b>.</li>
+        <li>Click <span class="ui">Compare metadata</span>. Inspect the bars below the map
+          and hover for the values and numbers of finite observations.</li>
+      </ol>
+      <p><b>Readout:</b> these are mean inferred fractions, not percentages of singlet bins.
+        Confident doublets contribute to these means; unassigned values are omitted.
+        Showing fewer cell types does not renormalize their fractions.</p>
+      <p>Hiding an unrelated custom group does not restore its members to The rest;
+        every defined group affects that remainder. An empty remainder cannot be compared.</p>
+      <p><a href="tutorial.html#app-metadata-comparison">Help with metadata comparison →</a></p>
+    </section>
+    <section id="published-counts">
+      <h2>To match the published bin proportions</h2>
+      <p>Panel b counts <b>singlet bins by cell-type label</b>. For each region R and cell type C:</p>
+      <p><code>Proportion (%) = 100 × singlet bins labeled C in R / all singlet bins in R</code></p>
+      <p>The figure script separates tumor, periphery, and remaining tissue before counting.
+        Tumor is excluded from the gray tissue comparison. The denominator includes all
+        singlet types in each compared region, even when only selected types are plotted.</p>
+      <p>For numerical reproduction, use the authors'
+        <a href="https://github.com/10XGenomics/HumanColonCancer_VisiumHD/blob/main/MetaData/DeconvolutionResults_P1CRC.csv.gz">P1CRC deconvolution results</a>
+        and boundary helper, or retain the equivalent original RCTD classification output.
+        Match labels by barcode, use the same in-tissue and missing-data filters, and apply
+        the neighbor filter and center-distance rule. The viewer's current result columns
+        do not expose singlet status.</p>
+      <p>To inspect those counts in this viewer, prepare a <b>separate copy</b> of the positions
+        Parquet outside the app, preserving its required coordinate and barcode columns.
+        Join the following metadata by barcode, then load that copy through the own-data upload:</p>
+      <ul>
+        <li>Numeric flags <code>paper_tumor</code> and <code>paper_periphery</code> (0 or 1),
+          using the published region definitions.</li>
+        <li>One numeric indicator per cell type: 1 for singlets of that type, 0 for other
+          singlets, and NaN for every non-singlet or ineligible bin. Use the same eligible
+          singlets across all indicator columns.</li>
+      </ul>
+      <p>Create just two groups with <code>paper_tumor == 1</code> and
+        <code>paper_periphery == 1</code>. Compare the latter to The rest using
+        <span class="ui">Metadata set</span> = <span class="ui">Numeric metadata</span>,
+        select the indicator columns, and choose <b>Mean</b>. Multiply these means by 100
+        to obtain percentages. This avoids treating mixture weights as singlet counts.</p>
+      <p>Annotation preparation and the original boundary calculation are external steps;
+        the standard Human CRC example does not supply these extra columns.</p>
+    </section>
+    <section id="results">
+      <h2>Check the results</h2>
+      <table>
+        <thead><tr><th>Check</th><th>What to look for</th></tr></thead>
+        <tbody>
+          <tr><td>Figure 4a</td><td>Tumor-associated regions with a surrounding non-tumor band;
+            C1QC and COL1A1 signal in nearby microenvironmental areas.</td></tr>
+          <tr><td>Figure 4b</td><td>The paper reports CAF as the most prominent periphery cell type
+            and macrophages as the most abundant immune population. Assess whether the P1CRC
+            comparison supports this pattern.</td></tr>
+          <tr><td>Reproducibility</td><td>Record the reference/QC choices, Level2 labels, RCTD parameters,
+            tumor definition, radius, membership rule, eligible bin counts, and comparison readout.</td></tr>
+        </tbody>
+      </table>
+      <p>If results differ, first check Level2 versus Level1, Tumor II versus all tumor
+        subtypes, the 100-UMI cutoff, reference QC, and whether you are comparing fractions
+        or singlet counts. Then check distance calibration, isolated-seed filtering, and
+        the groups defining The rest. Numerical values from a new run must be measured;
+        no patient-specific percentages are assumed here.</p>
+    </section>
+    <section id="interpretation">
+      <h2>Interpretation and references</h2>
+      <p>This analysis describes which annotated capture bins occupy the tumor neighborhood
+        in one P1CRC tissue section. It supports investigation of macrophage and fibroblast
+        localization; spatial proximity alone does not demonstrate a functional interaction.
+        Bin proportions also differ from physical cell counts, and the 8 µm bins can mix
+        signals from small immune cells and adjacent populations.</p>
+      <p>Primary source: Oliveira et al., <i>High-definition spatial transcriptomic profiling
+        of immune cell populations in colorectal cancer</i>, Nature Genetics 57, 1512–1523 (2025).
+        See Figure 4a–b and Methods: “Spot deconvolution” and “Characterizing the tumor periphery”.
+        The local source for this guide is <code>full_text.pdf</code>.</p>
+      <ul>
+        <li><a href="https://doi.org/10.1038/s41588-025-02193-3">Paper and source data</a></li>
+        <li><a href="https://github.com/10XGenomics/HumanColonCancer_VisiumHD/blob/main/Figures/Figure_4.R">Figure 4 script</a>
+          and <a href="https://github.com/10XGenomics/HumanColonCancer_VisiumHD/blob/main/Methods/AuxFunctions.R">boundary helper functions</a></li>
+        <li><a href="https://github.com/10XGenomics/HumanColonCancer_VisiumHD/blob/main/Methods/Deconvolution.R">Reference construction and RCTD script</a></li>
+        <li><a href="https://www.ncbi.nlm.nih.gov/geo/query/acc.cgi?acc=GSE280318">Raw data: GEO GSE280318</a></li>
+        <li><a href="https://www.10xgenomics.com/platforms/visium/product-family/dataset-human-crc">Public dataset downloads: 10x Genomics human colorectal cancer collection</a></li>
+      </ul>
+    </section>
+  </main>
+</div>
+</body>
+</html>
