@@ -10,17 +10,17 @@ import numpy as np
 import pandas as pd
 from jinja2 import Environment
 
-from bokeh_server import settings
-from bokeh_server.backend_config import sample_kwargs, image_kwargs, deconvolution_kwargs
-from bokeh_server.components.image import ImageComponent
-from bokeh_server.components.utils.param_form import attr_spec
-from bokeh_server.loader import LazyLoader
-from bokeh_server.panels.startup import StartupController
-from src.data.image.image import ImageProcessor
-from src.sample import Bins, Cells
-from src.sample._sample import Sample
-from src.segmentation import plugins
-from src.utils.deconvolution import deconvolve
+from hd_viewer import settings
+from hd_viewer.settings.config import sample_kwargs, image_kwargs, deconvolution_kwargs
+from hd_viewer.board.components.image import ImageComponent
+from hd_viewer.board.layout.layer.parameter import attr_spec
+from hd_viewer.board.source.lazyloader import LazyLoader
+from hd_viewer.startup import StartupController
+from hd_viewer.startup.data.image.image import ImageProcessor
+from hd_viewer.startup.sample import Bins, Cells
+from hd_viewer.startup.sample._sample import Sample
+from hd_viewer.startup.data.image.segmentation import plugins
+from hd_viewer.board.operations.layer.deconvolution import deconvolve
 from tests.test_roi_manager import ImmediateDoc, make_layer
 
 
@@ -33,7 +33,7 @@ class SettingsTests(unittest.TestCase):
         self.assertEqual(plugins.SDK_DIR, settings.SDK_DIR)
         self.assertEqual(image_kwargs()['tile_size'], settings.TILE_SIZE)
         self.assertEqual(deconvolution_kwargs()['batch_size'], settings.DECONV_BATCH_SIZE)
-        self.assertEqual(settings.DOWNLOADABLE_DATA_PATH, Path(settings.__file__).parent/'static'/'data')
+        self.assertEqual(settings.DOWNLOADABLE_DATA_PATH, Path(settings.__file__).parents[1]/'static'/'data')
 
     def test_custom_roi_radius_and_parameter_specs(self):
         with patch.object(settings, 'ROI_DEFAULT_RADIUS', 73.), \

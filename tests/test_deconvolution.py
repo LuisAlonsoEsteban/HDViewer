@@ -1,5 +1,4 @@
 import tempfile
-import base64
 import time
 import unittest
 from io import BytesIO
@@ -13,7 +12,7 @@ import numpy as np
 import pandas as pd
 from bokeh.document import Document
 from bokeh.events import ButtonClick
-from bokeh.models import Button, FileInput, Select, TextInput
+from bokeh.models import Button, Select, TextInput
 from bokeh.plotting import figure
 from scipy import sparse
 
@@ -21,8 +20,9 @@ from hd_viewer.board.operations.layer.deconvolution import deconvolve
 from hd_viewer.startup.data.singlecell import read_reference
 from hd_viewer.startup.sample import Cells, Spots
 from hd_viewer.board.components.layer import Circles, Patches
-from hd_viewer.startup import StartupController
+from hd_viewer.startup import StartupController, session_upload_dir
 from tests.test_param_form import make_layer
+from tests.test_startup_uploads import start_upload, upload_file, use_temporary_upload_dir
 
 
 def reference():
@@ -69,21 +69,35 @@ class DeconvolutionTests(unittest.TestCase):
                 with patch.object(Document, "session_context", new_callable=PropertyMock,
                                   return_value=SimpleNamespace(id=session_id)):
                     startup = StartupController(ImmediateDoc())
-                session_dir = Path(folder) / session_id
+                session_dir = session_upload_dir(session_id)
+                self.assertEqual(session_dir.parent, Path(folder))
                 self.assertEqual(startup.SESSION_UPLOAD_DIR, session_dir)
                 self.assertEqual(startup.app.deconvolution_work_dir, session_dir / "deconvolution")
-                upload = FileInput(filename="counts.h5", value=base64.b64encode(b"counts").decode())
-                saved = Path(startup._save_uploaded_file(upload))
-                self.assertEqual(saved, session_dir / "counts.h5")
+                self.assertTrue(upload_file(startup.h5_input, "counts.h5", b"counts")["done"])
+                saved = Path(startup._uploaded_path(startup.h5_input))
+                self.assertEqual(saved, session_dir / "expression" / "counts.h5")
                 self.assertEqual(saved.read_bytes(), b"counts")
                 layer, _ = make_layer()
                 startup.app.add_geometry(layer)
                 self.assertEqual(layer.deconvolution_manager.work_dir, session_dir / "deconvolution")
 
+    def test_client_session_ids_and_filenames_stay_inside_the_upload_folder(self):
+        with tempfile.TemporaryDirectory() as folder, \
+                patch("hd_viewer.startup.settings.UPLOAD_DIR", Path(folder) / "uploads"):
+            for session_id in ("../../escape", "/absolute/path"):
+                with patch.object(Document, "session_context", new_callable=PropertyMock,
+                                  return_value=SimpleNamespace(id=session_id)):
+                    startup = StartupController(ImmediateDoc())
+                self.assertEqual(startup.SESSION_UPLOAD_DIR.parent, Path(folder) / "uploads")
+                for filename in ("../../outside.h5", "/tmp/outside.h5", "..\\..\\outside.h5"):
+                    self.assertTrue(upload_file(startup.h5_input, filename, b"x")["done"])
+                    saved = Path(startup._uploaded_path(startup.h5_input))
+                    self.assertEqual(saved, startup.SESSION_UPLOAD_DIR / "expression" / "outside.h5")
+
     def test_pending_reference_upload_keeps_startup_form_usable(self):
         startup = StartupController(ImmediateDoc())
-        startup.reference_annotations_input = FileInput(
-            value=base64.b64encode(b"barcode,cell_type\na,A\n").decode(), filename="labels.csv")
+        use_temporary_upload_dir(self, startup)
+        upload_file(startup.reference_annotations_input, "labels.csv", b"barcode,cell_type\na,A\n")
         with patch.object(startup, "restart") as restart, patch.object(startup, "_prepare_data") as prepare:
             startup.load_data_callback()
             restart.assert_not_called()
@@ -93,15 +107,15 @@ class DeconvolutionTests(unittest.TestCase):
         self.assertFalse(startup.reference_input.disabled)
         self.assertIn("has not reached the server", startup.status_text.text)
 
-        # Simulate the browser finishing and synchronising the delayed reference upload.
-        startup.reference_input.set_from_json("filename", "reference.h5")
-        startup.reference_input.set_from_json("value", base64.b64encode(tenx_reference_bytes()).decode())
+        # Simulate the browser finishing the delayed reference upload chunk by chunk.
+        upload_file(startup.reference_input, "reference.h5", tenx_reference_bytes(), chunk_bytes=1000)
         self.assertIn("Reference uploaded: reference.h5", startup.reference_upload_status.text)
         self.assertIsNone(startup._reference_upload_error())
 
     def test_selected_reference_without_contents_is_not_silently_skipped(self):
         startup = StartupController(ImmediateDoc())
-        startup.reference_input.set_from_json("filename", "reference.h5")
+        use_temporary_upload_dir(self, startup)
+        start_upload(startup.reference_input, "reference.h5", 100)
         with self.assertRaisesRegex(ValueError, "has not reached the server"):
             startup._prepare_deconvolution_reference()
 
@@ -111,17 +125,19 @@ class DeconvolutionTests(unittest.TestCase):
         self.addCleanup(upload_folder.cleanup)
         startup.SESSION_UPLOAD_DIR = Path(upload_folder.name) / "test-session"
         self.assertTrue(startup.reference_input_widget.visible)
-        self.assertIn(startup.reference_input, startup.layout.references())
+        self.assertIn(startup.reference_input.choose_button, startup.layout.references())
+        self.assertIn(startup.reference_input.channel, startup.layout.references())
         with tempfile.TemporaryDirectory() as folder:
             path = Path(folder) / "reference.h5"
             uploaded_reference = reference()
             uploaded_reference.obs["donor"] = ["d1", "d1", "d2"]
             uploaded_reference.write_h5ad(path)
-            startup.reference_input = FileInput(
-                value=base64.b64encode(path.read_bytes()).decode(), filename=path.name)
+            upload_file(startup.reference_input, path.name, path.read_bytes())
+        for field, name in ((startup.h5_input, "counts.h5"), (startup.positions_input, "positions.parquet"),
+                            (startup.image_input, "tissue.png")):
+            upload_file(field, name, b"unused")
         # Exercise the actual preparation entry point without loading spatial data.
         with patch("anndata.read_h5ad", wraps=ad.read_h5ad) as read, \
-             patch.object(startup, "_save_uploaded_file", return_value="unused"), \
              patch("hd_viewer.startup.VisiumHD"), \
              patch.object(startup, "generate_tiles"), \
              patch.object(startup, "generate_pseudospots"), \
@@ -199,11 +215,10 @@ class DeconvolutionTests(unittest.TestCase):
         for format_name, contents in formats:
             with self.subTest(format=format_name):
                 startup = StartupController(ImmediateDoc())
+                use_temporary_upload_dir(self, startup)
                 self.assertIn(".parquet", startup.reference_annotations_input.accept)
-                startup.reference_input = FileInput(
-                    value=base64.b64encode(tenx_reference_bytes()).decode(), filename="counts.h5")
-                startup.reference_annotations_input = FileInput(
-                    value=base64.b64encode(contents).decode(), filename=f"annotations.{format_name}")
+                upload_file(startup.reference_input, "counts.h5", tenx_reference_bytes())
+                upload_file(startup.reference_annotations_input, f"annotations.{format_name}", contents)
                 startup._prepare_deconvolution_reference()
                 layer, _ = make_layer()
                 startup.app.add_geometry(layer)
@@ -242,8 +257,8 @@ class DeconvolutionTests(unittest.TestCase):
         startup.app.deconvolution_reference = reference()
         startup._prepare_deconvolution_reference()
         self.assertIsNone(startup.app.deconvolution_reference)
-        startup.reference_input = FileInput(
-            value=base64.b64encode(b"not an h5ad file").decode(), filename="bad.h5ad")
+        use_temporary_upload_dir(self, startup)
+        upload_file(startup.reference_input, "bad.h5ad", b"not an h5ad file")
         with patch.object(startup, "generate_tiles") as tiles:
             with self.assertRaisesRegex(ValueError, "Cannot load single-cell reference bad.h5ad"):
                 startup._prepare_data()

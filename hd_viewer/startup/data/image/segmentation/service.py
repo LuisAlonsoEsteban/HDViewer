@@ -5,6 +5,7 @@ import hashlib
 import json
 import os
 import shutil
+import tempfile
 import threading
 from pathlib import Path
 
@@ -14,6 +15,7 @@ import yaml
 from shapely.geometry import Polygon, shape
 from shapely.validation import make_valid
 
+from .....plugins.jobs import JOBS
 from .plugins import SEGMENTATION_ROOT, PLUGINS_DIR, SDK_DIR, discover
 from .runners import RunnerError, make_runner
 
@@ -71,28 +73,59 @@ class SegmentationService:
                  sdk_dir=SDK_DIR, segmentation_root=SEGMENTATION_ROOT):
         self.config = load_config(config_path) if config is None else config
         self.plugins = discover(plugins_dir)
-        self.runner = make_runner(self.config, sdk_dir=sdk_dir, segmentation_root=segmentation_root)
+        self._runner_args = dict(sdk_dir=sdk_dir, segmentation_root=segmentation_root)
+        self._runner = None
+        self._runner_lock = threading.Lock()
         # Runs beyond max_parallel wait their turn (segmentation is memory hungry)
         self._slots = threading.Semaphore(max(1, int(self.config.get("max_parallel", 2))))
-        self._input_lock = threading.Lock()
+
+    @property
+    def runner(self):
+        """Detected on first use: `auto` probes the Docker daemon, which may take seconds."""
+        with self._runner_lock:
+            if self._runner is None:
+                self._runner = make_runner(self.config, **self._runner_args)
+            return self._runner
+
+    @property
+    def runner_name(self):
+        """The runner's name, or None while it is not detected yet (never blocks)."""
+        return self._runner.name if self._runner is not None else None
+
+    def detect_runner(self, callback):
+        """Detect the runner in a background thread; callback(runner or exception)."""
+        def detect():
+            try:
+                result = self.runner
+            except Exception as exc:
+                result = exc
+            callback(result)
+        threading.Thread(target=detect, daemon=True).start()
 
     def prepare_image(self, image, image_key, work_dir, bgr=False):
         """Write the image once per dataset; every plugin run links to it."""
         path = Path(work_dir) / "_inputs" / image_key / IMAGE_FILE
-        with self._input_lock:
+        # Datasets (e.g. examples) are shared by sessions: one writer per image
+        with JOBS.join(("segmentation-input", str(path))) as job, job.lock:
             if not path.exists():
                 import tifffile
                 path.parent.mkdir(parents=True, exist_ok=True)
-                tmp = path.with_suffix(".tmp.tif")
-                tifffile.imwrite(tmp, to_rgb(image, bgr=bgr), bigtiff=True, photometric="rgb")
-                os.replace(tmp, path)
+                fd, tmp = tempfile.mkstemp(prefix=".image-", suffix=".tif", dir=path.parent)
+                os.close(fd)
+                try:
+                    tifffile.imwrite(tmp, to_rgb(image, bgr=bgr), bigtiff=True, photometric="rgb")
+                    os.replace(tmp, path)
+                finally:
+                    if os.path.exists(tmp):
+                        os.remove(tmp)
         return path
 
     def run(self, name, image_path, image_key, work_dir, params=None, um_per_px=None,
-            on_progress=None):
+            on_progress=None, owner=None):
         """
         Segment with plugin `name`. Results are cached per image, plugin version
-        and parameters, so re-loading a dataset reuses them.
+        and parameters, so re-loading a dataset reuses them. Concurrent identical
+        requests share one run, which is cancelled once no `owner` (session) awaits it.
 
         Returns a GeoDataFrame of cells in input-image pixel coordinates and the
         output directory (which also holds run.log).
@@ -112,37 +145,54 @@ class SegmentationService:
             on_progress(1.0, "Loaded cached result")
             return read_polygons(result), out_dir
 
-        on_progress(0.0, "Queued: waiting for a free slot")
-        with self._slots:
-            run_dir = out_dir.with_name(key + ".running")
-            shutil.rmtree(run_dir, ignore_errors=True)
-            input_dir, output_dir = run_dir / "input", run_dir / "output"
-            input_dir.mkdir(parents=True)
-            output_dir.mkdir()
-
-            with open(input_dir / PARAMS_FILE, "w") as f:
-                json.dump(spec, f, indent=2)
-            try:
-                os.link(image_path, input_dir / IMAGE_FILE)
-            except OSError:
-                shutil.copy(image_path, input_dir / IMAGE_FILE)
-
-            on_progress(0.0, f"Starting ({self.runner.name})")
-            try:
-                self.runner.run(plugin, input_dir, output_dir, on_progress, run_dir / LOG_FILE)
-            except RunnerError as exc:
-                raise RunnerError(f"{plugin.title} {exc}\nFull log: {run_dir / LOG_FILE}") from None
-            if not (output_dir / RESULT_FILE).exists():
-                raise RunnerError(f"{plugin.title} finished without writing {RESULT_FILE}. "
-                                  f"Log: {run_dir / LOG_FILE}")
-
-            # Publish atomically: a half-written run is never mistaken for a cached one
-            out_dir.mkdir(parents=True, exist_ok=True)
-            shutil.move(str(run_dir / LOG_FILE), out_dir / LOG_FILE)
-            for path in output_dir.iterdir():
-                if path.name != RESULT_FILE:
-                    shutil.move(str(path), out_dir / path.name)
-            os.replace(output_dir / RESULT_FILE, result)
-            shutil.rmtree(run_dir, ignore_errors=True)
-
+        with JOBS.join(("segmentation", str(out_dir.resolve())), owner) as job:
+            if job.lock.locked():
+                on_progress(0.0, "Waiting for the same segmentation started by another session")
+            with job.lock:
+                if result.exists():
+                    on_progress(1.0, "Loaded cached result")
+                    return read_polygons(result), out_dir
+                job.check()
+                on_progress(0.0, "Queued: waiting for a free slot")
+                with job.hold(self._slots):
+                    self._run(plugin, key, spec, image_path, out_dir, on_progress)
         return read_polygons(result), out_dir
+
+    def _run(self, plugin, key, spec, image_path, out_dir, on_progress):
+        result = out_dir / RESULT_FILE
+        out_dir.parent.mkdir(parents=True, exist_ok=True)
+        # Unique: another viewer process may run the same key
+        run_dir = Path(tempfile.mkdtemp(prefix=key + "-", suffix=".running", dir=out_dir.parent))
+        input_dir, output_dir = run_dir / "input", run_dir / "output"
+        input_dir.mkdir()
+        output_dir.mkdir()
+
+        with open(input_dir / PARAMS_FILE, "w") as f:
+            json.dump(spec, f, indent=2)
+        try:
+            os.link(image_path, input_dir / IMAGE_FILE)
+        except OSError:
+            shutil.copy(image_path, input_dir / IMAGE_FILE)
+
+        on_progress(0.0, f"Starting ({self.runner.name})")
+        try:
+            self.runner.run(plugin, input_dir, output_dir, on_progress, run_dir / LOG_FILE)
+            if not (output_dir / RESULT_FILE).exists():
+                raise RunnerError(f"finished without writing {RESULT_FILE}.")
+        except BaseException as exc:
+            # Failed runs keep only their log (no server paths in the browser)
+            shutil.rmtree(input_dir, ignore_errors=True)
+            shutil.rmtree(output_dir, ignore_errors=True)
+            print(f"[segmentation] {plugin.title} failed, log: {run_dir / LOG_FILE}")
+            if isinstance(exc, RunnerError):
+                raise RunnerError(f"{plugin.title} {exc}\nRun id: {run_dir.name}") from None
+            raise
+
+        # Publish atomically: a half-written run is never mistaken for a cached one
+        out_dir.mkdir(parents=True, exist_ok=True)
+        shutil.move(str(run_dir / LOG_FILE), out_dir / LOG_FILE)
+        for path in output_dir.iterdir():
+            if path.name != RESULT_FILE:
+                shutil.move(str(path), out_dir / path.name)
+        os.replace(output_dir / RESULT_FILE, result)
+        shutil.rmtree(run_dir, ignore_errors=True)

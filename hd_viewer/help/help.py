@@ -29,7 +29,7 @@ HELP = {
         Examples use their configured local reference, if available; otherwise they run without one.
         Reference uploads are available only with your own data.<br>
         The <b>Human CRC</b> example loads its Chromium counts, single-cell CSV annotations and spatial
-        Parquet metadata directly from disk. Deconvolution defaults to the <b>Level1</b> cell-type labels;
+        Parquet metadata directly on the server, with no upload. Deconvolution defaults to the <b>Level1</b> cell-type labels;
         you can select Level2 or another reference annotation column."""),
     "preprocessing": ("What to compute", """
         <b>Bins</b> are always loaded.<br>
@@ -38,30 +38,32 @@ HELP = {
         <b>Cell segmentation</b>: each method you tick finds cells (or nuclei) in the tissue image and
         assigns the bins to them; every method becomes its own cells layer, so they can be compared.
         Results are cached, so loading the same image with the same settings is instant.
-        Methods run in their own containers; their parameters are shown when ticked."""),
+        Methods run in their own containers; their parameters are shown when ticked.
+        Available methods depend on the server's setup."""),
     "progress": ("Loading progress", """
         One bar per task. Percentages count completed steps, not time remaining. A failed
         segmentation method turns its bar red with the reason; the rest of the data still loads.
-        The full error is printed in the server console and kept in the method's
-        <code>run.log</code>."""),
+        If a problem persists, report it with the message shown at
+        <a href='https://github.com/LuisAlonsoEsteban/VisiumVisualizer/issues' target='_blank' rel='noopener'>GitHub issues</a>
+        or to <a href='mailto:laesteban@unav.es'>laesteban@unav.es</a>."""),
 
     # ------------------------------------------------------------- layer tabs
     "general": ("General", """
         <b>Show</b> or hide the whole layer, and the <b>not-sequenced</b> observations (those without
         counts).<br>
-        <b>Alpha</b>: maximum opacity. When colouring by a gene, opacity follows its expression up to
+        <b>Alpha</b>: maximum opacity. When coloring by a gene, opacity follows its expression up to
         this value; with categories (clusters, groups) every observation uses it."""),
     "color": ("Color", """
         Choose a <b>gene or metadata column</b> to display:
         <ul>
-          <li>Genes and numeric columns: choose one colour with the colour picker; opacity follows the value.</li>
-          <li>Categorical columns (clusters, groups, ...): the single-colour picker is disabled. Each category has its own colour, the same colours used
+          <li>Genes and numeric columns: choose one color with the color picker; opacity follows the value.</li>
+          <li>Categorical columns (clusters, groups, ...): the single-color picker is disabled. Each category has its own color, the same colors used
               in the cluster/group lists and the DE results.</li>
         </ul>"""),
     "clustering": ("Clustering", """
         Choose <b>Leiden, K-means, DBSCAN, HDBSCAN, Gaussian mixtures or agglomerative clustering</b>.
-        All methods use normalised, log-transformed highly variable gene expression and PCA.
-        Leiden uses a neighbour graph and resolution; K-means, mixtures and agglomerative clustering
+        All methods use normalized, log-transformed highly variable gene expression and PCA.
+        Leiden uses a neighbor graph and resolution; K-means, mixtures and agglomerative clustering
         use a chosen number of clusters. DBSCAN uses an epsilon distance in PCA space and minimum
         samples; HDBSCAN uses minimum cluster size and minimum samples. Density-method outliers
         appear as <b>Noise</b>. Mixtures offer covariance types and agglomerative clustering offers linkage choices.
@@ -75,11 +77,17 @@ HELP = {
         for every layer. Its .obs columns (including an optional annotation CSV or Parquet file) appear here. Select its
         cell-type column and run deconvolution. Both datasets must use matching, unique gene identifiers and linear,
         nonnegative expression in <code>.X</code> (not log-transformed values).<br>
-        Choose <b>NNLS, cell2location, MuSiC, or CIBERSORTx</b> and set its parameters.
+        Choose <b>NNLS, spacexr (RCTD), cell2location, MuSiC, or CIBERSORTx</b> and set its parameters;
+        methods not installed on this server are not listed.
         NNLS estimates expression mixture fractions rather than calibrated cell counts.
+        spacexr (RCTD) needs raw integer counts; set <b>RCTD mode</b> (doublet by default, full or multi)
+        and <b>Minimum target UMIs</b> (default 100), plus normalization cutoffs and reference filters.
+        It can take hours on a whole 8 µm sample.
         cell2location needs an expected number of cells per location and offers posterior mean abundance
         as well as relative fractions. MuSiC requires a donor/sample column with multiple subjects.
-        CIBERSORTx generates a signature from the reference and requires a configured container and credentials.<br>
+        CIBERSORTx generates a signature from the reference; it is offered only where the server operator has
+        installed it with their own CIBERSORTx credentials.<br>
+        Runs continue in the background only while this browser session stays open.<br>
         Results cover all native observations of this layer, independently of the viewport.
         Empty observations stay unassigned. Select a saved run, readout, and cell type to show it on the map.
         Coarse bin levels average fractions and sum expected cell abundance. Previous runs and their
@@ -91,17 +99,16 @@ HELP = {
         measurements account for image scale and padding.
         On bins layers, <b>Find barcode / bin index</b> searches native barcodes with autocomplete.
         Select an exact barcode to preview and focus its radius ROI. The seed is the native bin's
-        centre, even outside the viewport or at a coarser display level. Changing the radius updates
+        center, even outside the viewport or at a coarser display level. Changing the radius updates
         the draft; click <b>Preview barcode</b> to rebuild and focus it, then <b>Save ROI</b>.
         On bins layers, choose <b>All bins in a group</b> as the seed source and select a group.
-        Every native bin in that group supplies a seed; all radius neighbourhoods are combined
-        into <b>one ROI</b>. Choose <b>Full ROI</b> to keep the complete neighbourhood, or
+        Every native bin in that group supplies a seed; all radius neighborhoods are combined
+        into <b>one ROI</b>. Choose <b>Full ROI</b> to keep the complete neighborhood, or
         <b>ROI minus group</b> to subtract the source-group bin shapes and exclude its members.
         The preview updates when the group, radius, or ROI region changes, including
         disconnected regions and holes. Complex outlines use an overview image to keep the map
         responsive; zoomed edges can look pixelated, while membership uses the exact region.
-        Click Save ROI to keep it.
-        Inspect the draft and click <b>Save ROI</b>; Cancel discards it.<br>
+        Inspect the draft and click <b>Save ROI</b> to keep it; Cancel discards it.<br>
         Counts include all sequenced native observations whose shapes intersect the ROI, including
         boundary contact, regardless of the viewport or displayed bin resolution.<br>
         <b>Focus</b> fits the viewport, <b>Select</b> links the selection to the map and embeddings,
@@ -110,11 +117,13 @@ HELP = {
         Outlines can be hidden independently. ROI shapes are fixed after saving; redraw to replace them."""),
     "groups": ("Groups", """
         Define your own groups from conditions on genes or metadata, e.g.
-        <code>Ttr &gt; 2 AND Pmch &gt; 0</code>. Build the conditions, name the group and create it.<br>
+        <code>EPCAM &gt; 2</code> <b>AND</b> <code>COL1A1 &gt; 0</code> (one condition at a time, combined with
+        AND/OR). Categorical columns accept <code>==</code> and a category name.
+        Build the conditions, name the group and create it.<br>
         An observation in several groups is drawn with the group created last. Tick or untick groups to
         show or hide them; this does not change differential expression."""),
     "de": ("Differential expression", """
-        Finds the genes that differ between groups and/or clusters (Wilcoxon test on log1p counts).
+        Finds the genes that differ between groups and/or clusters (Wilcoxon test on log1p library-size-normalized counts).
         <ul>
           <li><b>vs Rest</b>: each ticked group or cluster against everything else.</li>
           <li><b>Between selected</b>: the ticked ones against each other, e.g. a group vs a cluster.
@@ -128,24 +137,24 @@ HELP = {
     "metadata_comparison": ("Metadata comparison", """
         Compare <b>numeric metadata</b> between two or more groups and/or clusters.
         Select <b>The rest</b> to compare one or more selected sets against observations outside
-        <b>all defined custom groups</b>, including hidden and unselected groups. Each selected
-        group/cluster gets its own plot against this common remainder. If groups cover the whole
-        layer, The rest is empty and cannot be compared.
+        <b>all defined custom groups</b> (including hidden and unselected groups) and outside the
+        compared set itself. Each selected group/cluster gets its own plot against its own rest.
+        If nothing is left outside the groups and the set, The rest is empty and cannot be compared.
         Choose a saved deconvolution run to compare its cell-type fractions or abundance,
         or select arbitrary numeric .obs columns. The default summary is the <b>mean</b>;
         median is also available.<br>
         Results appear <b>below the map</b>: horizontal bars put cell types or columns on the y-axis,
-        values on the x-axis, and give each group its own bar and colour. Hover shows the value
+        values on the x-axis, and give each group its own bar and color. Hover shows the value
         and number of finite observations.
         Comparisons use native observations regardless of viewport or displayed bin aggregation.
         Missing and infinite values are omitted per column. Overlapping observations contribute
         to each group. Fractions are averaged, without renormalizing the selected cell types.
         These are descriptive summaries, without significance tests. DE remains a separate tab."""),
     "parameters": ("Parameters", """
-        Extra drawing parameters of this layer: line colour, line width, fill and line opacity.
+        Extra drawing parameters of this layer: line color, line width, fill and line opacity.
         Each is either a <b>fixed value</b> or taken <b>from data</b> (a gene or numeric column scaled to
-        an output range; for colours, a categorical column). Edit (✎) or remove (✕) them from the list.
-        Colour and alpha themselves are set in the Color and General tabs."""),
+        an output range; for colors, a categorical column). Edit (✎) or remove (✕) them from the list.
+        Color and alpha themselves are set in the Color and General tabs."""),
 
     # ----------------------------------------------------------- other panels
     "bin_resolution": ("Bin resolution", """
@@ -193,7 +202,7 @@ def help_header(text, topic, style="color:#888888"):
 
 
 # ------------------------------------------------------------- tutorial page
-# Standalone tutorial page in bokeh_server/static (served next to the app)
+# Standalone tutorial pages in hd_viewer/static (served next to the app)
 TUTORIAL_URL = "/hd_viewer/static/tutorial.html"
 BIOLOGICAL_USE_CASE_URL = "/hd_viewer/static/biological-use-case.html"
 

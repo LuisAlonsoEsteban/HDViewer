@@ -3,12 +3,20 @@ runner: auto
 max_parallel: 1
 threads_per_run: 8
 gpu: false
+# Wall-clock limit of one run (minutes); the run and its container are then killed.
+# RCTD on a full Visium HD slide takes ~8 h. Empty = no limit.
+timeout_minutes: 720
+# Docker only: RAM cap (= swap cap) and process/thread cap per container. Empty = unlimited.
+memory: 64g
+pids_limit: 4096
 # Loaded datasets save under <base>/deconvolution/<input resolution>/<layer>/<method>/<hash>.
 # work_dir configures the fallback for standalone/unbound layers only.
 docker:
   binary: docker
+  image_timeout_minutes: 60 # limit for pulling/building an image
 apptainer:
   binary: apptainer
+  # memory: 64g # apptainer --memory; needs cgroups v2 (with delegation for unprivileged users)
   images_dir: images
   images: {} # plugin name -> local .sif or image URI
 local:

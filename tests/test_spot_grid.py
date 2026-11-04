@@ -7,8 +7,8 @@ import numpy as np
 import pandas as pd
 from scipy.spatial import cKDTree
 
-from src.operations.bins2spots import Bins2Spots
-from src.operations.converter import Converter
+from hd_viewer.startup.operations.bins2spots import Bins2Spots
+from hd_viewer.startup.operations.converter import Converter
 
 PITCH = 58.4                      # full-res pixels per 16 µm bin
 BIN_UM = 16
@@ -53,7 +53,7 @@ class SpotGridTests(unittest.TestCase):
 
     def test_buffer_radius_in_aligned_plot_units(self):
         import shapely
-        from src.data.image.transform import SpatialTransform
+        from hd_viewer.startup.data.image.transform import SpatialTransform
 
         b2s = make_b2s()
         transform = SpatialTransform.fit(b2s.df_tissue_positions, (4000, 5000, 3), image_scale=.5)

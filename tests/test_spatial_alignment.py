@@ -17,16 +17,16 @@ from bokeh.plotting import figure
 from shapely.geometry import Point, box
 from shapely.affinity import rotate
 
-from src.data.image.image import ImageProcessor
-from src.data.image.transform import SpatialTransform
-from src.operations.bins2spots import Bins2Spots
-from src.sample import Bins, Cells, Spots
-from bokeh_server.components.glyphs import Circles, Squares
-from bokeh_server.components.measure import MeasureTool
-from bokeh_server.components.roi import ROIReadout
-from bokeh_server.components.utils.de import DEAnalysis
-from bokeh_server.components.utils.roi import ROIManager
-from bokeh_server.components.utils.selection import aggregation_names, native_selection, selection_indices
+from hd_viewer.startup.data.image.image import ImageProcessor
+from hd_viewer.startup.data.image.transform import SpatialTransform
+from hd_viewer.startup.operations.bins2spots import Bins2Spots
+from hd_viewer.startup.sample import Bins, Cells, Spots
+from hd_viewer.board.components.layer import Circles, Squares
+from hd_viewer.board.utils.measure import MeasureTool
+from hd_viewer.board.layout.thumbnail import ViewportReadout as ROIReadout
+from hd_viewer.board.operations.layer.de import DEAnalysis
+from hd_viewer.board.layout.layer.roi import ROIManager
+from hd_viewer.board.components.layer.utils.selection import aggregation_names, native_selection, selection_indices
 
 
 def fixture(angle=23., reflected=False, skew=.4, image_scale=1., n=6, residual=False):
@@ -182,7 +182,7 @@ class AlignedIntegrationTests(unittest.TestCase):
         self.assertAlmostEqual(partial.gene.sum(), sample.adata.X[:, 0].sum()-sample.adata.X[1, 0])
 
     def test_startup_builds_aligned_image_before_native_layers(self):
-        from bokeh_server.panels.startup import StartupController
+        from hd_viewer.startup import StartupController
         from tests.test_deconvolution import tenx_reference_bytes
         from tests.test_roi_manager import ImmediateDoc
         positions, _, _, _ = fixture()
@@ -199,8 +199,8 @@ class AlignedIntegrationTests(unittest.TestCase):
             (root/'scalefactors_json.json').write_text(json.dumps({'spot_diameter_fullres':4}))
             config = dict(image_path=str(image), expression_path=str(counts),
                           positions_path=str(pos_path), bins_size=2)
-            with patch.dict('bokeh_server.panels.startup.AVAILABLE_DATASETS', {'Human CRC':config}), \
-                 patch('src.data.image.image.ensure_tile_server'):
+            with patch.dict('hd_viewer.startup.AVAILABLE_DATASETS', {'Human CRC':config}), \
+                 patch('hd_viewer.startup.data.image.image.ensure_tile_server'):
                 startup = StartupController(ImmediateDoc())
                 startup.data_source.active = 1
                 startup.example_select.value = 'Human CRC'
@@ -225,7 +225,7 @@ class AlignedIntegrationTests(unittest.TestCase):
                 startup.doc.to_json()
                 # Reopen the same example: neither tile reuse nor bin loading
                 # should materialize the original or padded image.
-                with patch('src.data.VisiumHD.VisiumHD.read_img', side_effect=AssertionError('Cached example decoded pixels')), \
+                with patch('hd_viewer.startup.data.VisiumHD.VisiumHD.read_img', side_effect=AssertionError('Cached example decoded pixels')), \
                      patch.object(SpatialTransform, 'warp_image', side_effect=AssertionError('Cached example padded pixels')):
                     reopened = StartupController(ImmediateDoc())
                     reopened.data_source.active = 1

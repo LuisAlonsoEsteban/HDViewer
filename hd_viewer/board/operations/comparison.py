@@ -1,9 +1,13 @@
 """Coherence metrics between two samples of the same tissue at different resolutions.
 
-The lower-resolution sample (s1, e.g. Visium spots) is the reference: each of its geometries is
-compared with the (area-weighted) sum of the higher-resolution geometries (s2, e.g. Visium HD bins
-or segmented cells) that fall inside it.
+The lower-resolution sample (e.g. Visium spots) is the reference: each of its geometries is
+compared with the (area-weighted) sum of the higher-resolution geometries (e.g. Visium HD bins or
+segmented cells) that fall inside it. The samples may be given in any order: results are labelled
+in the caller's order (``*_sample1`` always refers to `s1`) and ``result["reference_sample"]``
+tells which of them is the low-resolution reference.
 """
+
+import re
 
 import numpy as np
 import pandas as pd
@@ -42,23 +46,33 @@ def compare_samples(
         defaults for library normalisation, batched metrics, spatial neighbours
         and the tissue hull; applications may override them explicitly.
     genes : genes used for the HVG-restricted metrics. Defaults to `n_hvg` HVGs of the low-res sample.
-    sample1_cluster_key, sample2_cluster_key : `adata.obs` columns with cluster labels.
-    sample1_celltype_key : `s1.adata.obsm` key, or DataFrame indexed by obs names, with one column per
-        cell type (deconvolution output, e.g. cell2location/RCTD).
-    sample2_celltype_key : `s2.adata.obs` column with the cell type of each high-res geometry.
+    sample1_cluster_key, sample2_cluster_key : `s1.adata.obs` / `s2.adata.obs` columns with cluster labels.
+    sample1_celltype_key, sample2_celltype_key : cell types of `s1` / `s2`. Each one is either an
+        `adata.obsm` key (or a DataFrame indexed by obs names) with one column per cell type
+        (deconvolution output, e.g. cell2location/RCTD), or an `adata.obs` column with the cell type
+        of each geometry. High-res compositions are area-weighted sums inside each low-res geometry.
+
+    Every per-sample argument follows its sample when the samples are reordered internally.
 
     Returns
     -------
     dict with
-        "local": DataFrame, one row per matched low-res geometry, indexed like `s1.gdf`.
+        "local": DataFrame, one row per matched low-res geometry, indexed like the low-res `gdf`.
         "genes": DataFrame, one row per gene shared by both samples.
         "global": dict of scalar metrics.
+        "reference_sample": 1 or 2, the (low-res) sample whose geometries are the rows of "local".
+    Names ending in ``sample1``/``sample2`` (e.g. ``total_counts_sample1``, ``n_sample2_matched``)
+    refer to `s1`/`s2` as given by the caller.
     """
     if not isinstance(s1, Sample) or not isinstance(s2, Sample):
         raise ValueError("Both inputs must be instances of Sample.")
 
-    if s1.gdf.geometry.area.mean() < s2.gdf.geometry.area.mean():
+    # Internally s1 is the low-res reference: every per-sample argument moves with its sample
+    swapped = bool(s1.gdf.geometry.area.mean() < s2.gdf.geometry.area.mean())
+    if swapped:
         s1, s2 = s2, s1
+        sample1_cluster_key, sample2_cluster_key = sample2_cluster_key, sample1_cluster_key
+        sample1_celltype_key, sample2_celltype_key = sample2_celltype_key, sample1_celltype_key
 
     # Geometric operations only involve the sequenced units (those present in the AnnData)
     gdf1, pos1 = _sequenced(s1)
@@ -75,7 +89,7 @@ def compare_samples(
     del pairs
     if matched is None:
         global_metrics["n_matched"] = 0
-        return {"local": None, "genes": None, "global": global_metrics}
+        return _orient({"local": None, "genes": None, "global": global_metrics}, swapped)
 
     L, H = matched["L"], matched["H"]
     report("Normalizing and selecting genes...")
@@ -128,7 +142,33 @@ def compare_samples(
         local = local.join(celltype_local)
         global_metrics.update(celltype_global)
 
-    return {"local": local, "genes": gene_df, "global": global_metrics}
+    return _orient({"local": local, "genes": gene_df, "global": global_metrics}, swapped)
+
+
+_SAMPLE_LABEL = re.compile(r"sample([12])")
+
+
+def oriented_name(name, swapped):
+    """Name of a result column/metric once ``sample1`` and ``sample2`` are exchanged (if swapped).
+
+    The exchange is its own inverse: it maps caller-order names to the canonical (low-res =
+    sample1) ones used by the help texts, and back.
+    """
+    if not swapped:
+        return name
+    return _SAMPLE_LABEL.sub(lambda m: "sample" + ("2" if m.group(1) == "1" else "1"), str(name))
+
+
+def _orient(result, swapped):
+    """Label the results (computed with s1 = low-res) in the caller's sample order."""
+    result["reference_sample"] = 2 if swapped else 1
+    if not swapped:
+        return result
+    for key in ("local", "genes"):
+        if result[key] is not None:
+            result[key] = result[key].rename(columns=lambda c: oriented_name(c, True))
+    result["global"] = {oriented_name(k, True): v for k, v in result["global"].items()}
+    return result
 
 
 # --------------------------------------------------------------------------------------------
@@ -347,20 +387,56 @@ def _cluster_metrics(s1, s2, matched, sample1_key, sample2_key):
     }
 
 
-def _celltype_metrics(s1, s2, matched, sample1_celltype_key, sample2_key):
-    sample1 = s1.adata.obsm[sample1_celltype_key] if isinstance(sample1_celltype_key, str) else sample1_celltype_key
-    if not isinstance(sample1, pd.DataFrame):
-        raise ValueError("sample1_celltype_key must be a DataFrame (or obsm key holding one) with one column per cell type.")
-    sample1 = sample1.copy()
-    sample1.index = sample1.index.astype(str)
-    sample1.columns = sample1.columns.astype(str)
+def _proportions(sample, key):
+    """Numeric per-observation composition held in `adata.obsm[key]` (or `key` itself), or None."""
+    frame = key if isinstance(key, pd.DataFrame) else (
+        sample.adata.obsm[key] if key in sample.adata.obsm.keys() else None)
+    if not isinstance(frame, pd.DataFrame):
+        return None
+    numeric = [c for c in frame.columns if pd.api.types.is_numeric_dtype(frame[c])
+               and not pd.api.types.is_bool_dtype(frame[c])]
+    frame = frame[numeric].astype(float)
+    frame.index = frame.index.astype(str)
+    frame.columns = frame.columns.astype(str)
+    return frame
 
-    sample2 = _label_composition(matched["A"], s2.adata.obs[sample2_key].to_numpy())
+
+def _labels(sample, key, role):
+    if not isinstance(key, str) or key not in sample.adata.obs.columns:
+        raise ValueError(f"Cell types of the {role} sample ({key!r}) must be an adata.obsm DataFrame "
+                         "with one column per cell type or an adata.obs column of labels.")
+    return sample.adata.obs[key]
+
+
+def _low_composition(s1, key, obs_names):
+    """Cell-type composition of each matched low-res geometry (rows follow `obs_names`)."""
+    frame = _proportions(s1, key)
+    if frame is not None:
+        return frame.reindex(obs_names).fillna(0)
+    labels = _labels(s1, key, "low-res").set_axis(s1.adata.obs_names.astype(str)).reindex(obs_names)
+    labels = pd.Series(labels.to_numpy(), dtype=object).where(labels.notna().to_numpy())
+    onehot = pd.get_dummies(labels.astype("string"), dtype=float)
+    onehot.columns = onehot.columns.astype(str)
+    return onehot
+
+
+def _high_composition(s2, key, A):
+    """Area-weighted cell-type composition of the high-res geometries inside each low-res one."""
+    frame = _proportions(s2, key)
+    if frame is not None:
+        values = frame.reindex(s2.adata.obs_names.astype(str)).fillna(0).to_numpy(dtype=float)
+        return pd.DataFrame(A @ values, columns=frame.columns)
+    return _label_composition(A, _labels(s2, key, "high-res").to_numpy())
+
+
+def _celltype_metrics(s1, s2, matched, sample1_celltype_key, sample2_celltype_key):
+    sample1 = _low_composition(s1, sample1_celltype_key, matched["obs_names"])
+    sample2 = _high_composition(s2, sample2_celltype_key, matched["A"])
     celltypes = sample1.columns.intersection(sample2.columns, sort=False)
     if len(celltypes) == 0:
         raise ValueError("No cell type names shared between sample1_celltype_key and sample2_celltype_key.")
 
-    p = sample1.reindex(matched["obs_names"])[celltypes].fillna(0).to_numpy(dtype=float)
+    p = sample1[celltypes].to_numpy(dtype=float)
     q = sample2[celltypes].to_numpy(dtype=float)
     with np.errstate(invalid='ignore', divide='ignore'):
         p = p / p.sum(1, keepdims=True)

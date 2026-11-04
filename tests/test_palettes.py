@@ -7,10 +7,10 @@ import pandas as pd
 from bokeh.plotting import figure
 from shapely.geometry import box
 
-from bokeh_server.components.glyphs import Squares
-from bokeh_server.components.utils.groups import GROUPS_COL
-from bokeh_server.components.utils.palettes import CLUSTER_PALETTE, GROUP_PALETTE, palette_color
-from src.sample import Bins
+from hd_viewer.board.components.layer import Squares
+from hd_viewer.board.layout.layer.groups import GROUPS_COL
+from hd_viewer.board.utils.palette import CLUSTER_PALETTE, GROUP_PALETTE, palette_color
+from hd_viewer.startup.sample import Bins
 
 
 def make_component(n=40):

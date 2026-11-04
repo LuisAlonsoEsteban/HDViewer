@@ -16,11 +16,23 @@ threads_per_run: 8
 # Pass GPUs to containers (docker --gpus all / apptainer --nv).
 gpu: false
 
+# Wall-clock limit of one run, in minutes: the run (and its container) is then
+# killed and its queue slot freed. Empty = no limit.
+timeout_minutes: 120
+
+# Docker only: RAM cap per container (also the swap cap: no swap) and process/thread
+# cap. Empty = unlimited. For Apptainer see `apptainer.memory`.
+memory: 32g
+pids_limit: 4096
+
 docker:
   binary: docker
+  image_timeout_minutes: 60  # limit for pulling/building an image
 
 apptainer:
   binary: apptainer          # `singularity` is also tried
+  # memory: 32g              # apptainer --memory; needs cgroups v2 (with delegation
+                             # for unprivileged users), so off unless set
   images_dir: images         # relative to this folder; <name>.sif per plugin
   images: {}                 # name -> .sif path or URI overriding docker://<manifest image>
 

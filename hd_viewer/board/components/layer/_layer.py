@@ -1,6 +1,7 @@
 
 from pathlib import Path
 import threading
+import uuid
 import numpy as np
 
 from bokeh.models import (
@@ -106,7 +107,9 @@ class Layer:
         
         self.sample_type = f"{self.alias.lower()}s"
 
-        self._download_cleanup_timer = None
+        # Exports share a public static folder: unguessable per-export names keep
+        # one user's file from being overwritten or fetched by another.
+        self._export_name = None
         self._view = None
 
     @property
@@ -115,11 +118,13 @@ class Layer:
 
     @property
     def static_adata_path(self):
-        return (DOWNLOADABLE_DATA_PATH / f"{self.key}.h5ad").resolve()
+        if self._export_name is None:
+            return None
+        return (DOWNLOADABLE_DATA_PATH / self._export_name).resolve()
 
     @property
     def static_adata_url(self):
-        return f"/hd_viewer/static/data/{self.key}.h5ad"
+        return f"/hd_viewer/static/data/{self._export_name}"
 
     @property
     def widgets_name(self):
@@ -135,14 +140,18 @@ class Layer:
             self._view = [True] * self.manager.n_geometries
         return self._view
     
-    def _cleanup_download_file(self):
-        path = self.adata_path or self.static_adata_path
-        if path is None:
-            return
+    @staticmethod
+    def _remove_export(path):
         try:
             Path(path).unlink(missing_ok=True)
         except OSError:
             pass
+
+    def _cleanup_download_file(self):
+        path = self.adata_path or self.static_adata_path
+        if path is None:
+            return
+        self._remove_export(path)
         self.adata_path = None
 
     def save_adata(self):
@@ -150,9 +159,8 @@ class Layer:
             return None
 
         DOWNLOADABLE_DATA_PATH.mkdir(parents=True, exist_ok=True)
+        self._export_name = f"{self.key}-{uuid.uuid4().hex}.h5ad"
         adata_path = self.static_adata_path
-        if adata_path.exists():
-            adata_path.unlink()
         try:
             with self.sample.fetch_lock:
                 self.sample.adata.write_h5ad(adata_path)
@@ -454,11 +462,12 @@ class Layer:
             button.label = "Preparing download…"
             try:
                 self.save_adata()
-                if self._download_cleanup_timer is not None:
-                    self._download_cleanup_timer.cancel()
-                self._download_cleanup_timer = threading.Timer(3.0, self._cleanup_download_file)
-                self._download_cleanup_timer.daemon = True
-                self._download_cleanup_timer.start()
+                # Each export removes only its own file, after the browser has had
+                # time to fetch it; a fixed 3 s window truncated large downloads.
+                timer = threading.Timer(settings.DOWNLOAD_RETENTION_SECONDS,
+                                        self._remove_export, args=(self.adata_path,))
+                timer.daemon = True
+                timer.start()
                 button.tags = [dict(url=self.static_adata_url, filename=f"{self.key}.h5ad")]
                 button.label = "Download"
             except Exception:

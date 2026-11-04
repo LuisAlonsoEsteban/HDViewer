@@ -4,13 +4,11 @@ from ..settings.config import grid_fit_kwargs, image_kwargs, bins_to_spots_kwarg
 from .. import settings
 from ..presentation import configure_document
 from bokeh.models import (
-    FileInput, Button, Div, Select,
+    Button, Div, Select,
     Checkbox, CustomJS, RadioButtonGroup, TextInput, NumericInput,
 )
 from bokeh.layouts import row, column
-from bokeh.events import DocumentReady
 
-import base64
 import hashlib
 import os
 import sys
@@ -24,10 +22,20 @@ import traceback
 
 from .data.VisiumHD import VisiumHD
 from .data.image.segmentation import SegmentationService
+from ..plugins.jobs import JOBS
 from .datasets import AVAILABLE_DATASETS
+from .uploads import ChunkedUpload
 
-from ..board.app import App
 from ..help import TUTORIAL_CARD_HTML, help_button
+
+
+def __getattr__(name):
+    # Board modules import startup.utils, which runs this package: a module-level
+    # import of the board would make `import hd_viewer.board...` circular.
+    if name == "App":
+        from ..board.app import App
+        return App
+    raise AttributeError(f"module {__name__!r} has no attribute {name!r}")
 
 
 class StartupController:
@@ -39,7 +47,8 @@ class StartupController:
         configure_document(doc)
         session = doc.session_context
         session_id = session.id if session is not None else uuid.uuid4().hex
-        self.SESSION_UPLOAD_DIR = settings.UPLOAD_DIR / session_id
+        self.session_id = session_id
+        self.SESSION_UPLOAD_DIR = session_upload_dir(session_id)
         self.doc.template_variables["layout_settings"] = settings.PANEL_SPLITS
 
         self.loading = False
@@ -64,7 +73,7 @@ class StartupController:
 
         self.tasks = {}
 
-        self.app = App(self.doc)
+        self.app = sys.modules[__name__].App(self.doc)
         self.app.deconvolution_work_dir = self.SESSION_UPLOAD_DIR / "deconvolution"
 
     def restart(self):
@@ -78,25 +87,28 @@ class StartupController:
 
     def _build_widgets(self):
         self.data_source = RadioButtonGroup(
-            labels=["Upload files", "Load example", "ZIP URL"],
+            labels=["Upload files", "Load example"],
             active=0,
             sizing_mode="stretch_width",
         )
-        self.zip_url_input = TextInput(
-            title="Dataset ZIP URL",
-            placeholder="https://example.org/dataset.zip",
-        )
 
-        self.h5_input = FileInput(accept=".h5", value="", filename="")
+        # Files stream to the session folder in chunks (see uploads.py), so
+        # multi-GB uploads fit in Bokeh's default websocket message size.
+        def upload_field(key, suffixes):
+            return ChunkedUpload(key, suffixes, lambda: self.SESSION_UPLOAD_DIR,
+                                 on_change=self._update_upload_status,
+                                 can_upload=lambda: not self.loading)
+
+        self.h5_input = upload_field("expression", (".h5",))
         self.h5_input_widget = column(
             Div(text="<b>1. Expression data (.h5)</b>"),
-            self.h5_input
+            self.h5_input.widget
         )
 
-        self.positions_input = FileInput(accept=".parquet", value="", filename="")
+        self.positions_input = upload_field("positions", (".parquet",))
         self.positions_input_widget = column(
             Div(text="<b>2. Positions data (.parquet)</b>"),
-            self.positions_input
+            self.positions_input.widget
         )
 
         self.resolution_select = Select(
@@ -109,15 +121,15 @@ class StartupController:
             self.resolution_select
         )
 
-        self.image_input = FileInput(accept=".btf, .png, .tiff", value="", filename="")
+        self.image_input = upload_field("image", (".btf", ".png", ".tif", ".tiff"))
         self.tiles_progress_bar = Div(text="", width=1000)
         self.image_input_widget = column(
             Div(text="<b>4. Tissue image (.btf, .png, .tiff)</b>"),
-            self.image_input
+            self.image_input.widget
         )
 
-        self.reference_input = FileInput(accept=".h5ad, .h5", value="", filename="")
-        self.reference_annotations_input = FileInput(accept=".csv,.parquet", value="", filename="")
+        self.reference_input = upload_field("reference", (".h5ad", ".h5"))
+        self.reference_annotations_input = upload_field("reference_annotations", (".csv", ".parquet"))
         self.reference_upload_status = Div(text=
             "No single-cell reference received yet. After selecting a file, wait for the upload confirmation before loading data.")
         self.reference_input_widget = column(
@@ -125,13 +137,13 @@ class StartupController:
                 "<p>Upload once to reuse it for deconvolution in every layer. "
                 "AnnData annotations in .obs are loaded automatically. "
                 "For a 10x .h5 counts file, supply cell-type annotations in a CSV or Parquet file below.</p>"),
-            self.reference_input,
+            self.reference_input.widget,
             self.reference_upload_status,
             Div(text="<b>Reference annotations (.csv or .parquet, optional)</b>"
                 "<p>First column: cell barcode matching the reference. Parquet may also store "
                 "barcodes in its index or a barcode column. "
                 "Remaining columns: cell-type labels or other annotations.</p>"),
-            self.reference_annotations_input,
+            self.reference_annotations_input.widget,
         )
 
         self.pseudospots_checkbox = Checkbox(
@@ -153,23 +165,21 @@ class StartupController:
         self.load_button = Button(label="Load Data", button_type="success", disabled=True)
         self.load_button.on_click(self.load_data_callback)
 
-        # Track selection separately: FileInput.value arrives only after the browser
-        # has read and transferred the file, including when replacing an old upload.
+        # A file counts only once every chunk has reached the server; choosing a
+        # replacement discards the previous file and blocks loading until it arrives.
         self._uploads = [
-            (self.h5_input, "Expression data", True, (".h5",)),
-            (self.positions_input, "Positions data", True, (".parquet",)),
-            (self.image_input, "Tissue image", True, (".btf", ".png", ".tiff")),
-            (self.reference_input, "Single-cell reference", False, (".h5ad", ".h5")),
-            (self.reference_annotations_input, "Reference annotations", False, (".csv", ".parquet")),
+            (self.h5_input, "Expression data", True),
+            (self.positions_input, "Positions data", True),
+            (self.image_input, "Tissue image", True),
+            (self.reference_input, "Single-cell reference", False),
+            (self.reference_annotations_input, "Reference annotations", False),
         ]
-        self._upload_pending = {widget.id: TextInput(value="", visible=False)
-                                for widget, *_ in self._uploads}
         self.upload_status = Div(text="", styles={"overflow_wrap": "anywhere"})
 
     def _build_segmentation_widgets(self):
         self.segmentation_controls = {}
         try:
-            self.segmentation = SegmentationService(**segmentation_kwargs())
+            self.segmentation = segmentation_service()
         except Exception as exc:
             traceback.print_exc()
             self.segmentation = None
@@ -177,13 +187,16 @@ class StartupController:
                 text=f'<span style="color:#fb9292">Segmentation is unavailable: {escape(str(exc))}</span>')
             return
 
-        runner = self.segmentation.runner.name
-        hint = ("" if runner != "local" else
-                " No container runtime found: plugins use this Python environment "
-                "(see segmentation/config.yaml).")
-        self.segmentation_info = Div(text=(
-            '<p style="color:#b7cbd1;margin:0">Select one or more methods to compare; '
-            f'each becomes its own cells layer. Runner: <b>{runner}</b>.{escape(hint)}</p>'))
+        self.segmentation_info = Div(text=self._segmentation_info(self.segmentation.runner_name))
+        if self.segmentation.runner_name is None:
+            # Detection may probe the Docker daemon for seconds: never on the IO loop
+            def detected(runner, info=self.segmentation_info, doc=self.doc):
+                text = self._segmentation_info(runner)
+                try:
+                    doc.add_next_tick_callback(lambda: setattr(info, "text", text))
+                except Exception:
+                    pass  # session already closed
+            self.segmentation.detect_runner(detected)
 
         for plugin in self.segmentation.plugins.values():
             checkbox = Checkbox(label=plugin.title, active=plugin.name == "stardist")
@@ -201,6 +214,18 @@ class StartupController:
                 plugin=plugin, checkbox=checkbox, params=params, box=box,
                 progress=Div(text="", width=200),
             )
+
+    @staticmethod
+    def _segmentation_info(runner):
+        """`runner`: its name, a Runner, the detection error, or None while detecting."""
+        if isinstance(runner, Exception):
+            return f'<span style="color:#fb9292">Segmentation is unavailable: {escape(str(runner))}</span>'
+        runner = getattr(runner, "name", runner)
+        hint = ("" if runner != "local" else
+                " No container runtime found: plugins use this Python environment "
+                "(see segmentation/config.yaml).")
+        return ('<p style="color:#b7cbd1;margin:0">Select one or more methods to compare; '
+                f'each becomes its own cells layer. Runner: <b>{runner or "detecting…"}</b>.{escape(hint)}</p>')
 
     @staticmethod
     def _param_widget(param):
@@ -243,7 +268,7 @@ class StartupController:
 
     @property
     def source_mode(self):
-        return ("upload", "example", "url")[self.data_source.active]
+        return ("upload", "example")[self.data_source.active]
 
     def _build_layout(self):
         widget_css = self.doc._visium_stylesheet
@@ -264,12 +289,6 @@ class StartupController:
         self.example_panel = column(
             Div(text="Explore a ready-to-load dataset with your preprocessing choices."),
             self.example_select, sizing_mode="stretch_width",
-        )
-        self.url_panel = column(
-            self.zip_url_input,
-            Div(text='<span style="color:#88f5dc;font-weight:600">Coming soon</span>'
-                '<p>Paste a ZIP URL here. Loading from a URL is not available yet.</p>'),
-            sizing_mode="stretch_width",
         )
         def heading(html, topic):
             return row(Div(text=html), help_button(topic), sizing_mode="stretch_width")
@@ -300,18 +319,17 @@ class StartupController:
             card(Div(text=TUTORIAL_CARD_HTML)),
             card(
                 heading('<h2 style="margin:0;font-size:19px">Choose your data source</h2>', "data_source"),
-                self.data_source, self.upload_panel, self.example_panel, self.url_panel,
+                self.data_source, self.upload_panel, self.example_panel,
                 self.reference_input_widget,
             ),
             self.preprocessing_panel,
             self.upload_status, self.load_button, self.status_text, self.progress_panel,
-            *self._upload_pending.values(),
             sizing_mode="stretch_width", spacing=20,
             styles=dict(color="#e5edf0"), name="startup",
         )
 
         for model in self.layout.references():
-            if isinstance(model, (FileInput, Select, TextInput, NumericInput, Checkbox,
+            if isinstance(model, (Select, TextInput, NumericInput, Checkbox,
                                   Button, RadioButtonGroup, Div)):
                 model.stylesheets = [widget_css]
                 model.sizing_mode = "stretch_width"
@@ -335,16 +353,14 @@ class StartupController:
 
         self.upload_panel.visible = mode == "upload"
         self.example_panel.visible = mode == "example"
-        self.url_panel.visible = mode == "url"
         self.upload_status.visible = mode == "upload"
-        self.load_button.disabled = self.loading or mode == "url"
+        self.load_button.disabled = self.loading
 
         bundled = self._example_config().get("reference_path")
         self.reference_input_widget.visible = mode == "upload"
         self.status_text.text = {
             "upload": "Choose your files to get started.",
             "example": "This example will load without a single-cell reference.",
-            "url": "URL loading is coming soon.",
         }[mode]
         if bundled:
             self.status_text.text = ("The example's single-cell reference and spatial metadata will load from disk. "
@@ -353,26 +369,21 @@ class StartupController:
                 self.status_text.text += " Single-cell annotations are included for deconvolution."
         self._update_upload_status()
 
-    def _upload_state(self, widget, required, suffixes):
-        pending = self._upload_pending[widget.id].value
-        name = pending or widget.filename or ""
-        if name and not name.lower().endswith(suffixes):
-            return False, f"Invalid file: {name}. Expected {' or '.join(suffixes)}."
-        if pending or (name and not widget.value):
-            return False, f"Uploading {name}… Please wait for server confirmation."
-        if widget.value and name:
-            return True, f"Uploaded: {name}"
-        return not required, "Required — waiting for a file." if required else "Optional — no file selected."
+    @staticmethod
+    def _upload_state(field, required):
+        ready = field.complete or (field.status == field.EMPTY and not required)
+        return ready, field.describe(required)
 
     def _uploads_ready(self):
-        return (all(self._upload_state(widget, required, suffixes)[0]
-                    for widget, _, required, suffixes in self._uploads)
+        return (all(self._upload_state(field, required)[0]
+                    for field, _, required in self._uploads)
                 and not self._reference_upload_error())
 
     def _update_upload_status(self):
+        self._update_reference_status()
         rows = []
-        for widget, label, required, suffixes in self._uploads:
-            _, message = self._upload_state(widget, required, suffixes)
+        for field, label, required in self._uploads:
+            _, message = self._upload_state(field, required)
             rows.append(f"<li><b>{escape(label)}:</b> {escape(message)}</li>")
         reference_error = self._reference_upload_error()
         if reference_error:
@@ -388,64 +399,20 @@ class StartupController:
     def _example_config(self):
         return AVAILABLE_DATASETS.get(self.example_select.value, {}) if self.source_mode == "example" else {}
 
+    def _update_reference_status(self):
+        field = self.reference_input
+        if field.complete:
+            text = f"Reference uploaded: {escape(field.filename)}. Received by server."
+        elif field.status == field.UPLOADING:
+            text = escape(field.describe(False))
+        else:
+            text = "No single-cell reference received yet. Wait for upload confirmation."
+        self.reference_upload_status.text = text
+
     def _add_callbacks(self):
-        for index, (widget, label, _, _) in enumerate(self._uploads):
-            pending = self._upload_pending[widget.id]
-            css_class = f"startup-upload-{index}"
-            widget.css_classes = [*widget.css_classes, css_class]
+        for field, *_ in self._uploads:
+            field.bind_js(self.load_button, self.data_source)
 
-            def received(attr, old, new, pending=pending):
-                if new:
-                    pending.value = ""
-                self._update_upload_status()
-
-            widget.on_change("value", received)
-            widget.on_change("filename", lambda attr, old, new: self._update_upload_status())
-            pending.on_change("value", lambda attr, old, new: self._update_upload_status())
-            # Listen before Bokeh's asynchronous FileReader starts. Shadow roots
-            # must be traversed because widgets render inside their own roots.
-            self.doc.js_on_event(DocumentReady, CustomJS(args=dict(
-                widget=widget, pending=pending, button=self.load_button,
-                status=self.status_text, source=self.data_source,
-                css_class=css_class, label=label,
-            ), code="""
-                function findHost(root) {
-                    const match = root.querySelector('.' + css_class);
-                    if (match != null) return match;
-                    for (const element of root.querySelectorAll('*')) {
-                        if (element.shadowRoot != null) {
-                            const found = findHost(element.shadowRoot);
-                            if (found != null) return found;
-                        }
-                    }
-                    return null;
-                }
-                const host = findHost(document);
-                const input = host?.shadowRoot?.querySelector('input[type=file]')
-                    ?? host?.querySelector('input[type=file]');
-                if (input == null) return;
-                input.addEventListener('change', () => {
-                    const file = input.files?.[0];
-                    // Clear the previous payload so even a replacement with
-                    // identical contents produces a new server confirmation.
-                    widget.setv({value: '', filename: ''});
-                    pending.value = file?.name ?? '';
-                    if (source.active === 0) {
-                        button.disabled = true;
-                        status.text = file == null ? 'Choose a file to continue.'
-                            : 'Uploading ' + label + '… Please wait for server confirmation.';
-                    }
-                }, {capture: true});
-            """))
-
-        def reference_received(attr, old, new):
-            if new:
-                name = escape(self.reference_input.filename or "Single-cell reference")
-                self.reference_upload_status.text = f"Reference uploaded: {name}. Received by server."
-            else:
-                self.reference_upload_status.text = "No single-cell reference received yet. Wait for upload confirmation."
-
-        self.reference_input.on_change("value", reference_received)
         self.data_source.on_change(
             "active", lambda attr, old, new: self._update_source_mode()
         )
@@ -580,27 +547,12 @@ class StartupController:
             self.status_text, "text", escape(message) + " Change the settings and try again."
         ))
 
-    def _save_uploaded_file(self, file_input):
-        self.SESSION_UPLOAD_DIR.mkdir(parents=True, exist_ok=True)
-        path = self.SESSION_UPLOAD_DIR / file_input.filename
-        with open(path, "wb") as f:
-            f.write(base64.b64decode(file_input.value))
-        return str(path)
-
-    def _validate_inputs(self):
-        if not self.h5_input.value:
-            self.status_text.text = "Please upload an .h5 file"
-            return False
-
-        if not self.positions_input.value:
-            self.status_text.text = "Please upload a .parquet positions file"
-            return False
-
-        if not self.image_input.value:
-            self.status_text.text = "Please upload a tissue image (.btf, .png, .tiff)"
-            return False
-
-        return True
+    @staticmethod
+    def _uploaded_path(field):
+        """Path of a fully received upload (already assembled in the session folder)."""
+        if not field.complete:
+            raise ValueError(f"{field.filename or 'A required file'} has not finished uploading")
+        return str(field.path)
     
     @property
     def _loading_controls(self):
@@ -838,7 +790,7 @@ class StartupController:
                 cells, out_dir = self.segmentation.run(
                     plugin.name, image_path, image_key, work_dir,
                     params=self._segmentation_params[plugin.name],
-                    um_per_px=um_per_px, on_progress=on_progress,
+                    um_per_px=um_per_px, on_progress=on_progress, owner=self.session_id,
                 )
                 print(f"[segmentation] {plugin.title}: {len(cells)} cells ({out_dir})")
                 if cells.empty:
@@ -873,7 +825,7 @@ class StartupController:
             self.tasks[f"cells:{name}"] = not controls["checkbox"].active
 
     def load_data_callback(self):
-        if self.loading or self.source_mode == "url":
+        if self.loading:
             return
 
         reference_error = self._reference_upload_error()
@@ -926,10 +878,10 @@ class StartupController:
     def _reference_upload_error(self):
         if self.source_mode != "upload":
             return None
-        if not self.reference_input.value and (self.reference_annotations_input.value or self.reference_input.filename):
+        reference = self.reference_input
+        if not reference.complete and (self.reference_annotations_input.complete or reference.filename):
             return ("The single-cell reference file has not reached the server yet. "
-                    "Wait for the 'Reference uploaded' confirmation, then click Load data again. "
-                    "If it never appears, check the Bokeh server's WebSocket upload-size limit.")
+                    "Wait for the 'Reference uploaded' confirmation, then click Load data again.")
         return None
 
     def _prepare_deconvolution_reference(self):
@@ -948,13 +900,12 @@ class StartupController:
                 reference = read_reference(config["reference_path"], config.get("reference_annotations_path"))
             except Exception as exc:
                 raise ValueError(f"Cannot load example single-cell reference {name}: {exc}") from exc
-        elif self.source_mode == "upload" and self.reference_input.value:
-            name = Path(self.reference_input.filename or "reference.h5ad").name
+        elif self.source_mode == "upload" and self.reference_input.complete:
+            name = self.reference_input.filename
             try:
-                annotations = (base64.b64decode(self.reference_annotations_input.value, validate=True)
-                               if self.reference_annotations_input.value else None)
-                reference = read_reference(
-                    base64.b64decode(self.reference_input.value, validate=True), annotations)
+                annotations = (self._uploaded_path(self.reference_annotations_input)
+                               if self.reference_annotations_input.complete else None)
+                reference = read_reference(self._uploaded_path(self.reference_input), annotations)
             except Exception as exc:
                 raise ValueError(f"Cannot load single-cell reference {name}: {exc}") from exc
         self.app.deconvolution_reference = reference
@@ -965,9 +916,9 @@ class StartupController:
         self._prepare_deconvolution_reference()
         if self.source_mode == "upload":
 
-            adata_path = self._save_uploaded_file(self.h5_input)
-            positions_path = self._save_uploaded_file(self.positions_input)
-            img_path = self._save_uploaded_file(self.image_input)
+            adata_path = self._uploaded_path(self.h5_input)
+            positions_path = self._uploaded_path(self.positions_input)
+            img_path = self._uploaded_path(self.image_input)
 
             bins_size = int(self.resolution_select.value)
 
@@ -1029,8 +980,37 @@ def create_startup(doc):
     controller = StartupController(doc)
     controller.add_to_document()
 
+def session_upload_dir(session_id):
+    # Session ids can be chosen by the client (?bokeh-session-id=...), so never use
+    # one as a path: a hash cannot escape UPLOAD_DIR.
+    return settings.UPLOAD_DIR / hashlib.sha256(session_id.encode()).hexdigest()[:32]
+
+
+_segmentation_service = None
+_segmentation_lock = threading.Lock()
+
+
+def segmentation_service():
+    """One queue (max_parallel) and runner per viewer process, shared by all sessions."""
+    global _segmentation_service
+    with _segmentation_lock:
+        if _segmentation_service is None:
+            _segmentation_service = SegmentationService(**segmentation_kwargs())
+        return _segmentation_service
+
+
 def on_session_destroyed(session_context):
-    upload_dir = settings.UPLOAD_DIR / session_context.id
+    # Stopping containers (docker rm -f) may take seconds: not on the IO loop
+    threading.Thread(target=_cleanup_session, args=(session_context.id,), daemon=True).start()
+
+
+def _cleanup_session(session_id):
+    # Stop its segmentation/deconvolution runs, unless another session awaits the same one,
+    # before removing the folders they write to
+    cancelled = JOBS.cancel_owner(session_id)
+    if cancelled:
+        print(f"[startup] Cancelled {cancelled} analysis job(s) of a closed session")
+    upload_dir = session_upload_dir(session_id)
     if upload_dir.exists():
         try:
             shutil.rmtree(upload_dir)

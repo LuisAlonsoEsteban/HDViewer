@@ -24,14 +24,14 @@ params:
     step: 0.05
     help: Empty uses the model's calibrated threshold.
   - name: norm_low
-    label: Normalisation low percentile
+    label: Normalization low percentile
     type: float
     default: 1
     min: 0
     max: 50
     step: 0.5
   - name: norm_high
-    label: Normalisation high percentile
+    label: Normalization high percentile
     type: float
     default: 99.8
     min: 50

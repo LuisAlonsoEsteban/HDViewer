@@ -11,16 +11,17 @@ from unittest.mock import Mock, patch
 
 import numpy as np
 
-from bokeh_server import backend_config, settings
-from bokeh_server.components.image import ImageComponent
-from bokeh_server.components.utils.selection import native_selection, selection_indices
-from src.data.image.image import ImageProcessor
-from src.data.image import transform as spatial
-from src.operations.bins2spots import Bins2Spots
-from src.sample import Bins, Cells
-from src.segmentation.service import SegmentationService
-from src.segmentation.runners import make_runner
-from src.utils import comparison
+from hd_viewer import settings
+from hd_viewer.settings import config as backend_config
+from hd_viewer.board.components.image import ImageComponent
+from hd_viewer.board.components.layer.utils.selection import native_selection, selection_indices
+from hd_viewer.startup.data.image.image import ImageProcessor
+from hd_viewer.startup.data.image import transform as spatial
+from hd_viewer.startup.operations.bins2spots import Bins2Spots
+from hd_viewer.startup.sample import Bins, Cells
+from hd_viewer.startup.data.image.segmentation.service import SegmentationService
+from hd_viewer.startup.data.image.segmentation.runners import make_runner
+from hd_viewer.board.operations import comparison
 from tests.test_spatial_alignment import fixture
 
 ROOT = Path(__file__).resolve().parents[1]
@@ -47,8 +48,8 @@ class BackendBoundaryTests(unittest.TestCase):
             import anndata as ad
             import numpy as np
             import pandas as pd
-            from src.utils.deconvolution import deconvolve
-            from src.sample._sample import Sample
+            from hd_viewer.board.operations.layer.deconvolution import deconvolve
+            from hd_viewer.startup.sample._sample import Sample
             reference = ad.AnnData(np.array([[10.,0.],[0.,10.]]),
                 obs=pd.DataFrame({'cell_type':['a','b']},index=['r1','r2']),var=pd.DataFrame(index=['g1','g2']))
             target = ad.AnnData(np.array([[6.,4.],[3.,7.]]),
@@ -102,12 +103,12 @@ class BackendConfigurationTests(unittest.TestCase):
 
     def test_application_startup_passes_configured_backend_arguments(self):
         from tests.test_spatial_alignment import AlignedIntegrationTests
-        from src.sample import Bins as BackendBins
+        from hd_viewer.startup.sample import Bins as BackendBins
         with patch.multiple(settings,TILE_SIZE=32,GRID_FIT_MAX_POINTS=17,
                             SPOT_BUFFER_QUAD_SEGS=8,GENE_CACHE_SIZE=3,MIN_GENE_CELLS=2), \
-             patch('src.data.image.image.ImageProcessor',wraps=ImageProcessor) as image_factory, \
-             patch('src.operations.bins2spots.Bins2Spots',wraps=Bins2Spots) as spots_factory, \
-             patch('bokeh_server.panels.app.app.Bins',wraps=BackendBins) as bins_factory:
+             patch('hd_viewer.startup.data.image.image.ImageProcessor',wraps=ImageProcessor) as image_factory, \
+             patch('hd_viewer.startup.operations.bins2spots.Bins2Spots',wraps=Bins2Spots) as spots_factory, \
+             patch('hd_viewer.board.app.Bins',wraps=BackendBins) as bins_factory:
             AlignedIntegrationTests('test_startup_builds_aligned_image_before_native_layers').test_startup_builds_aligned_image_before_native_layers()
             self.assertEqual(image_factory.call_args.kwargs['tile_size'],32)
             self.assertEqual(spots_factory.call_args.kwargs['spot_buffer_quad_segs'],8)
@@ -163,8 +164,8 @@ class BackendConfigurationTests(unittest.TestCase):
     def test_application_analysis_calls_pass_configured_values(self):
         from bokeh.events import ButtonClick
         from bokeh.models import Button
-        from bokeh_server.utils.loading import LoadingLogger
-        from bokeh_server.panels.app.embedding import EmbeddingPanel
+        from hd_viewer.board.utils.loading import LoadingLogger
+        from hd_viewer.board.layout.embedding import EmbeddingPanel
         from tests.test_deconvolution import reference, ImmediateDoc
         from tests.test_param_form import make_layer
         component, _ = make_layer()
@@ -186,7 +187,7 @@ class BackendConfigurationTests(unittest.TestCase):
             component.deconvolution_manager.reference=reference()
             widgets=component.deconvolution_manager.get_widgets(ImmediateDoc())
             run=next(w for w in widgets if isinstance(w,Button) and w.label=='Run deconvolution')
-            with patch('bokeh_server.components.utils.deconvolution.deconvolve') as deconvolution:
+            with patch('hd_viewer.board.layout.layer.deconvolution.deconvolve') as deconvolution:
                 run._trigger_event(ButtonClick(run))
                 self.assertEqual(deconvolution.call_args.kwargs['batch_size'],2)
 

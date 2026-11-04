@@ -4,7 +4,7 @@
 {%- endmacro %}
 {% block preamble %}
 <meta name="viewport" content="width=device-width, initial-scale=1">
-<meta name="description" content="Explore Visium HD gene expression, cell populations, and tissue neighbourhoods in an interactive spatial biology workspace.">
+<meta name="description" content="Explore Visium HD gene expression, cell populations, and tissue neighborhoods in an interactive spatial biology workspace.">
 <meta name="theme-color" content="#234b37">
 <link rel="icon" type="image/svg+xml" href="/hd_viewer/static/assets/mark.svg">
 <link rel="stylesheet" href="/hd_viewer/static/css/app.css">
@@ -16,7 +16,7 @@
 <div id="app-root">
   <div id="landing-container">
     <header class="site-header wrap">
-      <a class="brand" href="#" aria-label="VisiumVisualizer home">{{ mark() }}{{ branding.name }}</a>
+      <a class="brand" href="#" aria-label="{{ branding.name }} home">{{ mark() }}{{ branding.name }}</a>
       <nav class="site-nav" aria-label="Main navigation">
         <a class="desktop-link" href="#features">Explore</a>
         <a class="desktop-link" href="#workflow">Workflow</a>
@@ -30,7 +30,7 @@
         <div>
           <div class="eyebrow">Spatial transcriptomics · Visium HD</div>
           <h1 id="hero-title">See the tissue.<br>Explore the <em>biology.</em></h1>
-          <p class="intro">Bring gene expression, cell populations, and tissue neighbourhoods into one view. An interactive workspace for asking spatial questions, with the original tissue image as your guide.</p>
+          <p class="intro">Bring gene expression, cell populations, and tissue neighborhoods into one view. An interactive workspace for asking spatial questions, with the original tissue image as your guide.</p>
           <div class="hero-actions">
             <button class="button" data-action="launch"><span data-launch-label>Explore your data</span> <span aria-hidden="true">↗</span></button>
             <a class="button secondary" href="/hd_viewer/static/tutorial.html" target="_blank" rel="noopener noreferrer">Read the guide <span aria-hidden="true">↗</span></a>
@@ -68,7 +68,7 @@
         <div class="feature-list">
           <article class="feature"><span class="number">01 / TISSUE &amp; EXPRESSION</span><h3>Find where a gene belongs.</h3><p>Browse gene expression on the tissue. Move between native bins, aggregated views, pseudospots, and segmented cell layers.</p><a href="/hd_viewer/static/tutorial.html#app-color" target="_blank" rel="noopener noreferrer">Explore the map ↗</a></article>
           <article class="feature"><span class="number">02 / CELLS &amp; POPULATIONS</span><h3>Give each region context.</h3><p>Compare segmentation methods, cluster expression profiles, and estimate cell-type composition with deconvolution.</p><a href="/hd_viewer/static/tutorial.html#app-clustering" target="_blank" rel="noopener noreferrer">Understand the populations ↗</a></article>
-          <article class="feature"><span class="number">03 / REGIONS &amp; COMPARISONS</span><h3>Ask a spatial question.</h3><p>Draw a region, start from a barcode, or build a neighbourhood around a group. Compare expression and composition across regions.</p><a href="/hd_viewer/static/biological-use-case.html" target="_blank" rel="noopener noreferrer">Follow a biological use case ↗</a></article>
+          <article class="feature"><span class="number">03 / REGIONS &amp; COMPARISONS</span><h3>Ask a spatial question.</h3><p>Draw a region, start from a barcode, or build a neighborhood around a group. Compare expression and composition across regions.</p><a href="/hd_viewer/static/biological-use-case.html" target="_blank" rel="noopener noreferrer">Follow a biological use case ↗</a></article>
         </div>
       </section>
       <section id="workflow" class="workflow-section section" aria-labelledby="workflow-title">

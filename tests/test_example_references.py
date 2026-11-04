@@ -9,10 +9,11 @@ import numpy as np
 import pandas as pd
 from bokeh.models import Button, Select
 
-from bokeh_server.panels.startup import StartupController
-from src.data.singlecell import read_reference
+from hd_viewer.startup import StartupController
+from hd_viewer.startup.data.singlecell import read_reference
 from tests.test_deconvolution import ImmediateDoc, tenx_reference_bytes
 from tests.test_param_form import make_layer
+from tests.test_startup_uploads import start_upload, upload_file, use_temporary_upload_dir
 
 
 class ExampleReferenceTests(unittest.TestCase):
@@ -30,20 +31,20 @@ class ExampleReferenceTests(unittest.TestCase):
                       "positions_path": "unused.parquet", "bins_size": 8}
             spatial = ad.AnnData(np.ones((2, 2)), obs=pd.DataFrame(index=["s0", "s1"]))
             dataset = SimpleNamespace(adata=spatial, df_tissue_positions=pd.DataFrame(), bins_size=8)
-            with patch.dict("bokeh_server.panels.startup.AVAILABLE_DATASETS", {"Human CRC": config}):
+            with patch.dict("hd_viewer.startup.AVAILABLE_DATASETS", {"Human CRC": config}):
                 startup = StartupController(ImmediateDoc())
                 startup.example_select.value = "Human CRC"
                 startup.data_source.active = 1
                 self.assertFalse(startup.reference_input_widget.visible)
-                self.assertFalse(startup.reference_input.value)
-                self.assertFalse(startup.reference_annotations_input.value)
+                self.assertFalse(startup.reference_input.complete)
+                self.assertFalse(startup.reference_annotations_input.complete)
                 self.assertIsNone(startup._reference_upload_error())
-                with patch("bokeh_server.panels.startup.VisiumHD", return_value=dataset), \
+                with patch("hd_viewer.startup.VisiumHD", return_value=dataset), \
                      patch.object(startup, "generate_tiles"), \
                      patch.object(startup, "generate_pseudospots"), \
                      patch.object(startup, "generate_segmentations"), \
                      patch.object(startup, "build_b2s") as build, \
-                     patch("src.data.singlecell.NamedTemporaryFile", side_effect=AssertionError("Local files must not be copied")):
+                     patch("hd_viewer.startup.data.singlecell.NamedTemporaryFile", side_effect=AssertionError("Local files must not be copied")):
                     startup._prepare_data()
                 self.assertEqual(startup.app.deconvolution_reference.n_obs, 3)
                 self.assertEqual(startup.app.deconvolution_reference_name, "counts.h5")
@@ -66,8 +67,9 @@ class ExampleReferenceTests(unittest.TestCase):
 
     def test_example_without_reference_ignores_stale_uploads_and_loads_normally(self):
         startup = StartupController(ImmediateDoc())
-        startup.reference_input.set_from_json("filename", "pending.h5")
-        startup.reference_annotations_input.set_from_json("value", "stale annotation upload")
+        use_temporary_upload_dir(self, startup)
+        start_upload(startup.reference_input, "pending.h5", 100)
+        upload_file(startup.reference_annotations_input, "labels.csv", b"stale annotation upload")
         startup.app.deconvolution_reference = object()
         startup.app.deconvolution_reference_name = "previous.h5"
         startup.app.deconvolution_label_column = "old_label"
@@ -75,8 +77,8 @@ class ExampleReferenceTests(unittest.TestCase):
         startup.example_select.value = "Mouse brain (8um)"
         self.assertFalse(startup.reference_input_widget.visible)
         self.assertIsNone(startup._reference_upload_error())
-        with patch("src.data.singlecell.read_reference") as read, \
-             patch("bokeh_server.panels.startup.VisiumHD"), \
+        with patch("hd_viewer.startup.data.singlecell.read_reference") as read, \
+             patch("hd_viewer.startup.VisiumHD"), \
              patch.object(startup, "generate_tiles") as tiles, \
              patch.object(startup, "generate_pseudospots"), \
              patch.object(startup, "generate_segmentations"), \
@@ -100,7 +102,7 @@ class ExampleReferenceTests(unittest.TestCase):
             reference.write_bytes(tenx_reference_bytes())
             annotations = Path(folder) / "cells.parquet"
             pd.DataFrame({"barcode": ["c", "b", "a"], "cell_type": ["B", "A", "A"]}).to_parquet(annotations)
-            with patch("src.data.singlecell.NamedTemporaryFile", side_effect=AssertionError("Unexpected file copy")):
+            with patch("hd_viewer.startup.data.singlecell.NamedTemporaryFile", side_effect=AssertionError("Unexpected file copy")):
                 result = read_reference(reference, annotations)
             self.assertEqual(result.obs.cell_type.tolist(), ["A", "A", "B"])
 

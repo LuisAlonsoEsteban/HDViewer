@@ -269,6 +269,9 @@ class DeconvolutionManager:
             reference = self.reference
             work_dir = self.work_dir
             cache_namespace = self.cache_namespace
+            # Closing the session cancels the run unless another session awaits it
+            session = getattr(doc, 'session_context', None)
+            owner = session.id if session is not None else None
             run.disabled = method.disabled = labels.disabled = True
             for widget in parameter_widgets.values():
                 widget.disabled = True
@@ -289,7 +292,7 @@ class DeconvolutionManager:
 
             status.run('Deconvolution (' + plugins[name].title + ')',
                        lambda: self.service.run(name, target, reference, label_column, params,
-                           work_dir=work_dir, cache_namespace=cache_namespace,
+                           work_dir=work_dir, cache_namespace=cache_namespace, owner=owner,
                            on_progress=lambda fraction, message: status.log(message)), done, failed)
 
         labels.on_change('value', lambda attr, old, new: update_availability())

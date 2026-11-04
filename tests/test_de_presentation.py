@@ -9,10 +9,10 @@ from bokeh.models import BoxSelectTool, HoverTool, Legend, PanTool, Plot, ResetT
 import numpy as np
 import pandas as pd
 
-from bokeh_server.components.utils.de import DEResult
-from bokeh_server.components.utils.de.presentation import DEPresenter
-from tests.test_de import make_analysis
-from bokeh_server.components.utils.de.plots import build_de_plots
+from hd_viewer.board.operations.layer.de import DEResult
+from hd_viewer.board.operations.layer.de import DEPresenter
+from tests.test_de import log1p_normalized, make_analysis
+from hd_viewer.board.operations.layer.de import build_de_plots
 
 
 class DEPresentationTests(unittest.TestCase):
@@ -31,7 +31,7 @@ class DEPresentationTests(unittest.TestCase):
                 self.assertEqual(len(view.plot_data), 2)
                 self.assertTrue(all(data.kind == kind for data in view.plot_data))
                 row = next(row for row in view.plot_data[0].rows if row['gene'] == 'g0' and row['group'] == 'A')
-                expected = np.log1p(original.X[masks['A'], 0])
+                expected = log1p_normalized(original.X)[masks['A'], 0]
                 self.assertAlmostEqual(row['mean'], expected.mean())
                 self.assertEqual(row['n'], 12)
                 self.assertAlmostEqual(row['pct'], 100 * (expected > 0).mean())

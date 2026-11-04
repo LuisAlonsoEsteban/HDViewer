@@ -1,6 +1,5 @@
 """Host-side AnnData bridge for the unmodified official CIBERSORTx image."""
 from dataclasses import replace
-import os
 from pathlib import Path
 import shutil
 
@@ -9,6 +8,10 @@ import pandas as pd
 from scipy import sparse
 
 from .api.sdk.vhd_deconv import Job
+
+
+# The runner appends these from the server environment, keeping them out of argv
+CREDENTIALS = {'--username': 'VHD_CIBERSORTX_USERNAME', '--token': 'VHD_CIBERSORTX_TOKEN'}
 
 
 def _write_expression(adata, columns, path):
@@ -36,8 +39,7 @@ def run(plugin, runner, input_dir, output_dir, progress, log_path):
     _write_expression(reference, [encoded[x] for x in reference.obs[job.label_column]], input_dir / 'reference.tsv')
     _write_expression(target, ids, input_dir / 'mixture.tsv')
     p = job.params
-    args = ['--username', os.environ['VHD_CIBERSORTX_USERNAME'], '--token', os.environ['VHD_CIBERSORTX_TOKEN'],
-            '--mixture', 'mixture.tsv', '--perm', str(p['perm']), '--QN', str(p['quantile_normalization']).upper()]
+    args = ['--mixture', 'mixture.tsv', '--perm', str(p['perm']), '--QN', str(p['quantile_normalization']).upper()]
     cached = job.reference_cache / 'signature.tsv'
     if cached.exists():
         args += ['--sigmatrix', 'reference_artifacts/signature.tsv']
@@ -54,7 +56,7 @@ def run(plugin, runner, input_dir, output_dir, progress, log_path):
             if sources:
                 args += ['--sourceGEPs', 'reference_artifacts/' + sources[0].name]
     progress(.1, 'Starting official CIBERSORTx single-cell fractions workflow')
-    runner.run(replace(plugin, command=args), input_dir, output_dir, progress, log_path)
+    runner.run(replace(plugin, command=args, secret_args=CREDENTIALS), input_dir, output_dir, progress, log_path)
     candidates, signatures = [], []
     for path in sorted(output_dir.glob('*.txt')) + sorted(output_dir.glob('*.tsv')):
         try:

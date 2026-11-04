@@ -16,7 +16,7 @@ class DownloadTests(unittest.TestCase):
     def test_widget_builds_do_not_export_and_clicks_capture_current_data(self):
         with tempfile.TemporaryDirectory() as root:
             folder = Path(root)/'exports'
-            with patch('bokeh_server.components.glyphs.DOWNLOADABLE_DATA_PATH', folder):
+            with patch('hd_viewer.board.components.layer._layer.DOWNLOADABLE_DATA_PATH', folder):
                 component = make_layer('spots')
                 self.assertFalse(folder.exists())
                 component.get_widgets(ImmediateDoc())
@@ -29,7 +29,9 @@ class DownloadTests(unittest.TestCase):
                 self.assertEqual(len(list(folder.glob('*.h5ad'))), 1)
                 restored = ad.read_h5ad(first)
                 np.testing.assert_allclose(restored.obs.latest_result, .25)
-                self.assertEqual(button.tags[0]['url'], str(component.static_adata_path))
+                self.assertEqual(button.tags[0]['url'], component.static_adata_url)
+                # Exports live in a public folder: names must be unique and unguessable.
+                self.assertRegex(first.name, r'^spots-[0-9a-f]{32}\.h5ad$')
                 self.assertEqual(button.tags[0]['filename'], 'spots.h5ad')
                 component.get_widgets(ImmediateDoc())
                 self.assertEqual(len(list(folder.glob('*.h5ad'))), 1)
@@ -44,7 +46,7 @@ class DownloadTests(unittest.TestCase):
 
     def test_failed_export_is_removed_and_can_be_retried(self):
         with tempfile.TemporaryDirectory() as root, \
-             patch('bokeh_server.components.glyphs.DOWNLOADABLE_DATA_PATH', Path(root)):
+             patch('hd_viewer.board.components.layer._layer.DOWNLOADABLE_DATA_PATH', Path(root)):
             component = make_layer('spots')
             button = component.download_button
             with patch.object(component.sample.adata, 'write_h5ad', side_effect=OSError('test failure')):

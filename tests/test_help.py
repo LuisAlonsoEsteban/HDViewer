@@ -6,11 +6,11 @@ from pathlib import Path
 from bokeh.document import Document
 from bokeh.models import HelpButton
 
-from bokeh_server.help import HELP, TUTORIAL_ANCHORS, TUTORIAL_URL, help_button
-from bokeh_server.panels.startup import StartupController
+from hd_viewer.help import HELP, TUTORIAL_ANCHORS, TUTORIAL_URL, help_button
+from hd_viewer.startup import StartupController
 from tests.test_param_form import make_layer
 
-TUTORIAL = Path(__file__).resolve().parents[1] / "bokeh_server" / "static" / "tutorial.html"
+TUTORIAL = Path(__file__).resolve().parents[1] / "hd_viewer" / "static" / "tutorial.html"
 
 
 class Ids(HTMLParser):
@@ -38,7 +38,7 @@ class TutorialPageTests(unittest.TestCase):
         self.page.feed(TUTORIAL.read_text())
 
     def test_served_next_to_the_app(self):
-        self.assertTrue(TUTORIAL_URL.startswith("/bokeh_server/static/"))
+        self.assertTrue(TUTORIAL_URL.startswith("/hd_viewer/static/"))
         self.assertEqual(TUTORIAL_URL.rsplit("/", 1)[1], TUTORIAL.name)
 
     def test_two_tabs_and_no_broken_internal_links(self):

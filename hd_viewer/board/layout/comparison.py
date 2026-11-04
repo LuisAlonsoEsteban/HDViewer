@@ -56,6 +56,9 @@ class ComparisonPanel(Panel):
 
         self.components = {}
         self.result = None
+        # Whether the user's Sample 1 is the high-res one (result names are in the user's order,
+        # help texts and the gene table use the canonical low-res = sample1 names)
+        self.swapped = False
         self.sample1_component = None
         self.sample2_component = None
 
@@ -90,7 +93,7 @@ class ComparisonPanel(Panel):
 
         self.sample1_cluster_select = Select(title="Sample 1 clusters", options=[self.NONE], value=self.NONE)
         self.sample2_cluster_select = Select(title="Sample 2 clusters", options=[self.NONE], value=self.NONE)
-        self.sample1_celltype_select = Select(title="Sample 1 cell types (obsm)", options=[self.NONE], value=self.NONE)
+        self.sample1_celltype_select = Select(title="Sample 1 cell types", options=[self.NONE], value=self.NONE)
         self.sample2_celltype_select = Select(title="Sample 2 cell types", options=[self.NONE], value=self.NONE)
 
         self.run_button = Button(label="Compare samples", button_type="success", disabled=True)
@@ -195,17 +198,25 @@ class ComparisonPanel(Panel):
         self._refresh_key_options()
 
     def _refresh_key_options(self):
-        low = self.components.get(self.sample1_select.value)
-        high = self.components.get(self.sample2_select.value)
-        self._set_options(self.sample1_cluster_select, self._label_columns(low))
-        self._set_options(self.sample2_cluster_select, self._label_columns(high))
-        self._set_options(self.sample2_celltype_select, self._label_columns(high))
-        self._set_options(self.sample1_celltype_select, self._proportion_keys(low))
+        # Options follow the user's order: compare_samples moves each key together with its sample
+        sample1 = self.components.get(self.sample1_select.value)
+        sample2 = self.components.get(self.sample2_select.value)
+        self._set_options(self.sample1_cluster_select, self._label_columns(sample1))
+        self._set_options(self.sample2_cluster_select, self._label_columns(sample2))
+        self._set_options(self.sample1_celltype_select, self._celltype_options(sample1))
+        self._set_options(self.sample2_celltype_select, self._celltype_options(sample2))
 
     def _set_options(self, select, options):
         select.options = [self.NONE] + options
-        if select.value not in select.options:
+        values = [o[0] if isinstance(o, tuple) else o for o in select.options]
+        if select.value not in values:
             select.value = self.NONE
+
+    def _celltype_options(self, component):
+        """Deconvolution proportions (obsm DataFrames) first, then label columns of adata.obs."""
+        proportions = self._proportion_keys(component)
+        labels = [c for c in self._label_columns(component) if c not in proportions]
+        return [(k, f"{k} (proportions)") for k in proportions] + [(c, c) for c in labels]
 
     def _label_columns(self, component):
         if component is None:
@@ -264,12 +275,12 @@ class ComparisonPanel(Panel):
         self.status.error(exc)
         self.run_button.disabled = False
 
-    def _on_result(self, low, high, result):
+    def _on_result(self, sample1, sample2, result):
         self.run_button.disabled = False
 
-        # compare_samples puts the sample with the larger geometries first
-        if low.sample.gdf.geometry.area.mean() < high.sample.gdf.geometry.area.mean():
-            low, high = high, low
+        # Local metrics live on the low-res (reference) sample; names stay in the user's order
+        self.swapped = result.get("reference_sample", 1) == 2
+        low, high = (sample2, sample1) if self.swapped else (sample1, sample2)
 
         # Results of a previous run are overwritten (or dropped when nothing matches)
         shown = {}
@@ -313,7 +324,7 @@ class ComparisonPanel(Panel):
         genes = result["genes"].sort_values("spatial_pearson", ascending=False)
         self.gene_source.data = {
             "gene": genes.index.astype(str).tolist(),
-            **{col: genes[col].astype(float).tolist() for col, _ in self.GENE_COLUMNS},
+            **{col: genes[self._name(col)].astype(float).tolist() for col, _ in self.GENE_COLUMNS},
         }
 
         low.refresh_completions()
@@ -322,12 +333,16 @@ class ComparisonPanel(Panel):
             self._show_column(low, shown[low])
         self.status.success(
             f"Compared {len(local)} {low.alias.lower()}s with "
-            f"{int(result['global']['n_sample2_matched'])} {high.alias.lower()}s. Local metrics are available "
+            f"{int(result['global'][self._name('n_sample2_matched')])} {high.alias.lower()}s. Local metrics are available "
             f"as <code>{self.OBS_PREFIX}*</code> columns of the {low.alias.lower()}s."
         )
 
-    @staticmethod
-    def _flatten_global(global_metrics):
+    def _name(self, canonical):
+        """Result name of a canonical (low-res = sample1) metric name, and vice versa."""
+        from ..operations.comparison import oriented_name
+        return oriented_name(canonical, self.swapped)
+
+    def _flatten_global(self, global_metrics):
         metrics, values = [], []
         for key, value in global_metrics.items():
             items = value.items() if isinstance(value, dict) else [(None, value)]
@@ -335,7 +350,7 @@ class ComparisonPanel(Panel):
                 metrics.append(key if sub is None else f"{key} [{sub}]")
                 values.append(float(val) if val is not None else np.nan)
         return {"metric": metrics, "value": values,
-                "help": [html.escape(global_help(m), quote=True) for m in metrics]}
+                "help": [html.escape(global_help(self._name(m)), quote=True) for m in metrics]}
 
     def _write_obs_columns(self, component, local):
         """Store the local metrics in the low-res adata.obs, NaN (not sequenced) where unmatched."""
@@ -344,7 +359,8 @@ class ComparisonPanel(Panel):
 
         metrics = []
         for col in local.columns:
-            if col in ("obs_name", "cluster_sample1"):
+            # The low-res sample's own clusters are already one of its columns
+            if col in ("obs_name", self._name("cluster_sample1")):
                 continue
             values = pd.Series(local[col].to_numpy(), index=local["obs_name"].to_numpy())
             if not pd.api.types.is_numeric_dtype(values) or pd.api.types.is_bool_dtype(values):
@@ -391,7 +407,7 @@ class ComparisonPanel(Panel):
 
     def _update_metric_help(self):
         metric = self.metric_select.value
-        self.metric_help.content = LOCAL_HELP.get(metric, "") if metric else "Choose a metric."
+        self.metric_help.content = LOCAL_HELP.get(self._name(metric), "") if metric else "Choose a metric."
 
     def _update_histogram(self):
         values = self._local_values(self.metric_select.value)
@@ -424,7 +440,7 @@ class ComparisonPanel(Panel):
         if component is None or component.autocomplete_input is None:
             return
 
-        self.component.refresh_completions()
+        component.refresh_completions()
 
         if colname in component.get_colnames():
             component.autocomplete_input.value = colname

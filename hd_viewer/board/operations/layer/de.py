@@ -71,6 +71,10 @@ class DEAnalysis:
             report(f"Preparing expression data ({level.n_obs} {obs_word})")
             _a = level.copy()
             sc.pp.filter_genes(_a, min_cells=settings.MIN_GENE_CELLS)
+            # Library-size normalisation, as for clustering markers: without it,
+            # regions with deeper sequencing appear to upregulate every gene.
+            sc.pp.normalize_total(_a, target_sum=getattr(self.sample, "normalization_target_sum",
+                                                         settings.NORMALIZATION_TARGET_SUM))
             sc.pp.log1p(_a)
             cache[factor] = _a
 
@@ -194,7 +198,7 @@ def build_de_plots(plot_data):
         p.xaxis.ticker = FixedTicker(ticks=list(range(len(data.genes))))
         p.xaxis.major_label_overrides = dict(enumerate(data.genes))
         p.xaxis.major_label_orientation = .4
-        p.yaxis.axis_label = "Log2 fold change" if data.kind == "dot" else "Expression · log1p(counts)"
+        p.yaxis.axis_label = "Log2 fold change" if data.kind == "dot" else "Expression · log1p(normalized counts)"
         p.title.text_color = "#dddddd"
         p.axis.major_label_text_color = "#cccccc"
         p.axis.axis_label_text_color = "#cccccc"

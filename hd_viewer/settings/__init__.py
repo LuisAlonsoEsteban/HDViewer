@@ -7,14 +7,28 @@ from bokeh.palettes import Category20, Category20b, Category20c, Dark2, Muted, S
 # Paths and services
 BASE_DIR = Path(__file__).resolve().parents[1]
 DOWNLOADABLE_DATA_PATH = (BASE_DIR / "static" / "data").resolve()
-SERVER_HOST = "0.0.0.0"
-TILE_SERVER_PORT = 4000
+# Tile server bind address/port. Use VHD_TILE_HOST=127.0.0.1 behind a reverse proxy.
+SERVER_HOST = os.environ.get("VHD_TILE_HOST", "0.0.0.0")
+TILE_SERVER_PORT = int(os.environ.get("VHD_TILE_PORT", 4000))
 DOWNLOAD_SERVER_PORT = 5002
+# URL the *browser* uses for tiles. Locally the tile server is reached directly;
+# on a public HTTPS host set VHD_TILE_URL=/tiles and proxy /tiles/ to the port.
+TILE_URL = os.environ.get("VHD_TILE_URL", f"http://localhost:{TILE_SERVER_PORT}").rstrip("/")
+# Exported .h5ad files are removed from the public static folder after this delay.
+DOWNLOAD_RETENTION_SECONDS = 600
+# Root of the bundled example datasets (see hd_viewer/startup/datasets.py).
+DATA_DIR = Path(os.environ.get("VHD_DATA_DIR", BASE_DIR.parent / "data")).resolve()
 
 # Data loading and startup progress
 UPLOAD_DIR = (BASE_DIR / ".." / "tmp").resolve()
 UPLOAD_BIN_SIZES = (2, 8, 16)
 UPLOAD_DEFAULT_BIN_SIZE = 16
+# Largest single file accepted by the startup uploads (bytes; default 20 GiB).
+# Files are streamed to disk in chunks, so this bounds disk use, not memory.
+UPLOAD_MAX_BYTES = int(os.environ.get("VHD_UPLOAD_MAX_BYTES", 20 * 1024 ** 3))
+# Size of each upload chunk sent over the Bokeh websocket. Base64 adds a third,
+# so keep it well below Bokeh's default 20 MB websocket message limit.
+UPLOAD_CHUNK_BYTES = 4 * 1024 ** 2
 PROGRESS_WIDTH = 560
 STARTUP_PROGRESS_REFRESH_MS = 50
 
@@ -124,6 +138,10 @@ SEGMENTATION_GPU = False
 SEGMENTATION_DOCKER_BINARY = "docker"
 SEGMENTATION_APPTAINER_BINARY = "apptainer"
 SEGMENTATION_IMAGES_DIR = "images"
+# Per run: wall-clock limit (minutes), and container RAM / process caps (Docker)
+SEGMENTATION_TIMEOUT_MINUTES = 120
+SEGMENTATION_MEMORY = "32g"
+SEGMENTATION_PIDS_LIMIT = 4096
 
 # Map appearance and panel layout
 PLOT_MIN_HEIGHT = 180
@@ -176,4 +194,8 @@ DECONVOLUTION_CONFIG_PATH = DECONVOLUTION_ROOT / 'config.yaml'
 DECONVOLUTION_WORK_DIR = UPLOAD_DIR / 'deconvolution'
 DECONVOLUTION_DEFAULT_RUNNER = 'auto'
 DECONVOLUTION_GPU = False
+# RCTD on a full Visium HD slide takes ~8 h
+DECONVOLUTION_TIMEOUT_MINUTES = 720
+DECONVOLUTION_MEMORY = "64g"
+DECONVOLUTION_PIDS_LIMIT = 4096
 DECONVOLUTION_MAX_PARALLEL = 1

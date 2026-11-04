@@ -256,6 +256,9 @@ class ClusteringManager:
 
                 self._mark_computed(key_added, params)
                 adata.uns.pop("rank_genes_groups", None)
+                # The restored parameters must not claim markers for the old labels.
+                if previous_step_params.get("markers") == key_added:
+                    previous_step_params.pop("markers")
 
             sample.adata.uns["clustering"] = {"algorithm": algorithm, "key": key_added}
             if compute_markers:
@@ -390,38 +393,14 @@ class ClusteringManager:
         clusters = result['names'].dtype.names
         markers = {}
 
-        cluster_labels = adata_processed.obs[active_cluster_col]
-
         for cluster in clusters:
             count = min(n_genes, len(result["names"]))
             genes = [result['names'][cluster][i] for i in range(count)]
             scores = [result['scores'][cluster][i] for i in range(count)]
             pvals = [result['pvals_adj'][cluster][i] for i in range(count)]
 
-            cluster_mask = cluster_labels == cluster
-            logfcs = []
-
-            for gene in genes:
-                if gene in adata_processed.var_names:
-                    expr = adata_processed[:, gene].X
-                    if hasattr(expr, 'toarray'):
-                        expr = expr.toarray().flatten()
-                    else:
-                        expr = np.asarray(expr).flatten()
-
-                    mean_in = expr[cluster_mask].mean()
-                    mean_out = expr[~cluster_mask].mean()
-
-                    if mean_in == 0 and mean_out == 0:
-                        l2fc = 0.0
-                    elif mean_out == 0:
-                        l2fc = np.log2((mean_in + 1e-6) / 1e-6)
-                    else:
-                        l2fc = mean_in - mean_out
-
-                    logfcs.append(round(float(l2fc), 2))
-                else:
-                    logfcs.append(0.0)
+            # scanpy's log2 fold change of mean normalized expression (cluster vs rest).
+            logfcs = [round(float(result['logfoldchanges'][cluster][i]), 2) for i in range(count)]
             
             markers[cluster] = list(zip(
                 genes, 
@@ -834,7 +813,7 @@ class ClusteringManager:
         if self.adata_processed is not None:
             return self.adata_processed
 
-        report(f"Preprocessing {self.adata.n_obs} observations (normalize, HVG, scale)...")
+        report(f"Preprocessing {self.adata.n_obs} observations (normalize, log1p, HVG)...")
         adata = self.adata.copy()
         adata.var_names_make_unique()
 

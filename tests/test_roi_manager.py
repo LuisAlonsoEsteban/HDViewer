@@ -324,9 +324,9 @@ class ROIGroupTests(unittest.TestCase):
         roi = saved(manager)
         name = manager.create_group(roi)
         layer.de_manager._run_de_thread([name], 0, manager.doc)
-        wait_for(lambda: not layer.de_manager._de_logger.running)
+        # `running` clears before on_done has attached the figures: wait for those.
+        wait_for(lambda: layer._figure_de_layout.children, layer.de_manager._de_status_div.text)
         self.assertIn(name, layer.de_manager._de_results, layer.de_manager._de_status_div.text)
-        self.assertTrue(layer._figure_de_layout.children)
         manager.remove_roi(roi)
         self.assertEqual(layer._figure_de_layout.children, [])
 

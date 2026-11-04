@@ -6,10 +6,10 @@ import numpy as np
 import pandas as pd
 from shapely.geometry import Point
 
-from src.sample import Cells
+from hd_viewer.startup.sample import Cells
 from tests.test_cell_loading import ImmediateDoc, n_loaded, zoom_to
 from bokeh.plotting import figure
-from bokeh_server.components.glyphs import Patches
+from hd_viewer.board.components.layer import Patches
 
 
 def make_round_cells(n=4, radius=20.0):

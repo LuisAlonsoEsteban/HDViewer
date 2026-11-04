@@ -7,8 +7,8 @@ from unittest.mock import Mock, patch
 import numpy as np
 from PIL import Image
 
-from bokeh_server.components.image import ImageComponent
-from src.data.image.image import ImageProcessor, make_tile_app, register_tiles
+from hd_viewer.board.components.image import ImageComponent
+from hd_viewer.startup.data.image.image import ImageProcessor, make_tile_app, register_tiles
 
 
 def tile_dir(root, name, colour):
@@ -68,7 +68,7 @@ class TileGenerationTests(unittest.TestCase):
 
     def test_cache_hit_never_loads_or_pads_image_pixels(self):
         from tests.test_spatial_alignment import fixture
-        from src.data.image.transform import SpatialTransform
+        from hd_viewer.startup.data.image.transform import SpatialTransform
         _, transform, _, _ = fixture()
         image = np.zeros((140,180,3), np.uint8)
         with tempfile.TemporaryDirectory() as root:
@@ -96,7 +96,7 @@ class TileGenerationTests(unittest.TestCase):
 
     def test_image_dimensions_are_read_without_decoding(self):
         import tifffile
-        from src.data.VisiumHD import VisiumHD
+        from hd_viewer.startup.data.VisiumHD import VisiumHD
         with tempfile.TemporaryDirectory() as root:
             for suffix, channels in (('png',3), ('png',4), ('tif',3), ('btf',3)):
                 with self.subTest(suffix=suffix, channels=channels):

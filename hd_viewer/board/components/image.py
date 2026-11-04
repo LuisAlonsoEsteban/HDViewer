@@ -35,7 +35,7 @@ class ImageComponent:
             raise ValueError("An error has occurred deploying the server providing the tiles")
 
         self.tile_source = WMTSTileSource(
-                                url=f"http://localhost:{self.port}/{self.tile_key}" + "/{Z}/{X}/{Y}",
+                                url=f"{settings.TILE_URL}/{self.tile_key}" + "/{Z}/{X}/{Y}",
                                 tile_size=self.image_processor.tile_size,
                                 max_zoom=self.image_processor.max_zoom,
                                 min_zoom=0,
@@ -115,7 +115,7 @@ class ImageComponent:
     def add_lowres_image(self, p, w=None, h=None):
         if self.server_deployed:
             p.image_url(
-                url=[f"http://localhost:{self.port}/{self.tile_key}/0/0/0"], 
+                url=[f"{settings.TILE_URL}/{self.tile_key}/0/0/0"], 
                 x=0, 
                 y=h or self.image_processor.max_dim, 
                 w=w or self.image_processor.max_dim, 

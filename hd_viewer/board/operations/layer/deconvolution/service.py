@@ -16,6 +16,7 @@ import pandas as pd
 from scipy import sparse
 import yaml
 
+from .....plugins.jobs import JOBS, Cancelled
 from .....plugins.runners import make_runner, RunnerError
 from .plugins import ROOT, SDK_DIR, PLUGINS_DIR, discover
 from .api.sdk.vhd_deconv import read_table, write_table
@@ -159,7 +160,9 @@ class DeconvolutionService:
         return resolved, list(dict.fromkeys(columns))
 
     def run(self, name, target, reference, label_column, params=None, on_progress=None, *, work_dir=None,
-            cache_namespace=None):
+            cache_namespace=None, owner=None):
+        """Concurrent identical requests share one run, cancelled once no `owner`
+        (browser session) awaits it."""
         progress = on_progress or (lambda fraction, message: None)
         # Dataset-specific storage without mutating the shared service/queue.
         work_dir = self.work_dir if work_dir is None else Path(work_dir)
@@ -211,94 +214,107 @@ class DeconvolutionService:
         types = sorted(set(reference.obs[label_column]))
         shared = target.var_names.intersection(reference.var_names, sort=False)
         nonempty = np.asarray(target[:, shared].X.sum(axis=1)).ravel() > 0
-        # Reference lock prevents concurrent fits/publication, including other viewer processes.
-        progress(0, 'Queued: waiting for a free slot')
-        with self._slots, _file_lock(
-                work_dir / '_locks' / f'{reference_key}.lock',
-                on_wait=lambda: progress(0, 'Waiting for another run using the same reference')):
-            progress(0, 'Checking cached results')
-            if namespace is not None and not destination.exists() and (legacy / 'result.json').exists():
-                result = self._read(legacy)
-                validate_result(result, target.obs_names, types)
-                progress(0, 'Organizing cached result by input resolution and layer')
-                destination.parent.mkdir(parents=True, exist_ok=True)
-                staging = Path(tempfile.mkdtemp(prefix=key + '.legacy-', dir=destination.parent))
-                try:
-                    shutil.copytree(legacy, staging, dirs_exist_ok=True)
-                    result.metadata.update(log_path=str(destination / 'run.log'), cache_namespace=str(namespace))
-                    (staging / 'result.json').write_text(json.dumps(dict(genes=result.genes, **result.metadata), allow_nan=False))
-                    os.replace(staging, destination)
-                finally:
-                    if staging.exists():
-                        shutil.rmtree(staging)
-            if (destination / 'result.json').exists():
-                result = self._read(destination)
-                validate_result(result, target.obs_names, types)
-                # Cached folders may have moved with the dataset.
-                result.metadata['log_path'] = str(destination / 'run.log')
-                if namespace is not None:
-                    result.metadata['cache_namespace'] = str(namespace)
-                progress(1, 'Loaded cached result')
-                return result
-            destination.parent.mkdir(parents=True, exist_ok=True)
-            work = Path(tempfile.mkdtemp(prefix=key + '.running-', dir=destination.parent))
-            input_dir, output_dir = work / 'input', work / 'output'
-            input_dir.mkdir()
-            output_dir.mkdir()
-            progress(0, 'Writing target counts for the plugin')
-            target[nonempty].copy().write_h5ad(input_dir / 'target.h5ad')
-            progress(0, 'Writing single-cell reference for the plugin')
-            reference.write_h5ad(input_dir / 'reference.h5ad')
-            (input_dir / 'params.json').write_text(json.dumps(dict(params=resolved, label_column=label_column)))
-            if artifacts.exists():
-                progress(0, 'Preparing cached reference artifacts')
-                shutil.copytree(artifacts, input_dir / 'reference_artifacts')
-            try:
-                if not nonempty.any():
-                    result = DeconvolutionResult(pd.DataFrame(np.nan, index=target.obs_names, columns=types), [])
-                    if name == 'cell2location':
-                        result.abundance = result.fractions.copy()
-                        result.metadata['abundance_units'] = 'expected cells per location (posterior mean)'
-                else:
-                    if name == 'cibersortx':
-                        from .cibersortx import run as run_cibersortx
-                        run_cibersortx(plugin, self.runner, input_dir, output_dir, progress, work / 'run.log')
-                    else:
-                        self.runner.run(plugin, input_dir, output_dir, progress, work / 'run.log')
-                    result = self._read(output_dir)
-                    validate_result(result, target.obs_names[nonempty], types)
-                    result.fractions = result.fractions.reindex(target.obs_names)
-                    if result.abundance is not None:
-                        result.abundance = result.abundance.reindex(target.obs_names)
-                if not isinstance(result.genes, list) or len(set(result.genes)) != len(result.genes) or set(result.genes) - set(target.var_names.intersection(reference.var_names)):
-                    raise ValueError('Result genes must be unique shared gene identifiers.')
-                result.metadata = {key: result.metadata[key] for key in ('fraction_units', 'abundance_units')
-                                   if key in result.metadata}
-                result.metadata.update(method=name, version=plugin.version, params=resolved,
-                                       reference_id=reference_key, run_id=key, runner=self.runner.name,
-                                       log_path=str(destination / 'run.log'))
-                if namespace is not None:
-                    result.metadata['cache_namespace'] = str(namespace)
-                validate_result(result, target.obs_names, types)
-                progress(.99, 'Saving validated deconvolution results')
-                self._write(result, output_dir)
-                if not (work / 'run.log').exists():
-                    (work / 'run.log').write_text('No nonempty target observations.\n')
-                shutil.copy(work / 'run.log', output_dir / 'run.log')
-                produced = output_dir / 'reference_artifacts'
-                if produced.is_dir() and any(produced.iterdir()) and not artifacts.exists():
-                    artifacts.parent.mkdir(parents=True, exist_ok=True)
-                    staging = Path(tempfile.mkdtemp(dir=artifacts.parent))
-                    shutil.copytree(produced, staging, dirs_exist_ok=True)
-                    os.replace(staging, artifacts)
-                if destination.exists():
-                    shutil.rmtree(destination)
-                os.replace(output_dir, destination)
-                shutil.rmtree(work)
-                progress(1, 'Deconvolution finished')
-                return result
-            except Exception as exc:
-                raise RunnerError(f'{plugin.title}: {exc}\nRun files and log: {work}') from exc
+        with JOBS.join(('deconvolution', str(destination.resolve())), owner) as job:
+            if job.lock.locked():
+                progress(0, 'Waiting for the same deconvolution started by another session')
+            with job.lock:
+                # Reference lock prevents concurrent fits/publication, including other viewer processes.
+                progress(0, 'Queued: waiting for a free slot')
+                with job.hold(self._slots), _file_lock(
+                        work_dir / '_locks' / f'{reference_key}.lock',
+                        on_wait=lambda: progress(0, 'Waiting for another run using the same reference')):
+                    job.check()
+                    progress(0, 'Checking cached results')
+                    if namespace is not None and not destination.exists() and (legacy / 'result.json').exists():
+                        result = self._read(legacy)
+                        validate_result(result, target.obs_names, types)
+                        progress(0, 'Organizing cached result by input resolution and layer')
+                        destination.parent.mkdir(parents=True, exist_ok=True)
+                        staging = Path(tempfile.mkdtemp(prefix=key + '.legacy-', dir=destination.parent))
+                        try:
+                            shutil.copytree(legacy, staging, dirs_exist_ok=True)
+                            result.metadata.update(log_path=str(destination / 'run.log'), cache_namespace=str(namespace))
+                            (staging / 'result.json').write_text(json.dumps(dict(genes=result.genes, **result.metadata), allow_nan=False))
+                            os.replace(staging, destination)
+                        finally:
+                            if staging.exists():
+                                shutil.rmtree(staging)
+                    if (destination / 'result.json').exists():
+                        result = self._read(destination)
+                        validate_result(result, target.obs_names, types)
+                        # Cached folders may have moved with the dataset.
+                        result.metadata['log_path'] = str(destination / 'run.log')
+                        if namespace is not None:
+                            result.metadata['cache_namespace'] = str(namespace)
+                        progress(1, 'Loaded cached result')
+                        return result
+                    destination.parent.mkdir(parents=True, exist_ok=True)
+                    work = Path(tempfile.mkdtemp(prefix=key + '.running-', dir=destination.parent))
+                    input_dir, output_dir = work / 'input', work / 'output'
+                    input_dir.mkdir()
+                    output_dir.mkdir()
+                    try:
+                        progress(0, 'Writing target counts for the plugin')
+                        target[nonempty].copy().write_h5ad(input_dir / 'target.h5ad')
+                        progress(0, 'Writing single-cell reference for the plugin')
+                        reference.write_h5ad(input_dir / 'reference.h5ad')
+                        (input_dir / 'params.json').write_text(json.dumps(dict(params=resolved, label_column=label_column)))
+                        if artifacts.exists():
+                            progress(0, 'Preparing cached reference artifacts')
+                            shutil.copytree(artifacts, input_dir / 'reference_artifacts')
+                        if not nonempty.any():
+                            result = DeconvolutionResult(pd.DataFrame(np.nan, index=target.obs_names, columns=types), [])
+                            if name == 'cell2location':
+                                result.abundance = result.fractions.copy()
+                                result.metadata['abundance_units'] = 'expected cells per location (posterior mean)'
+                        else:
+                            if name == 'cibersortx':
+                                from .cibersortx import run as run_cibersortx
+                                run_cibersortx(plugin, self.runner, input_dir, output_dir, progress, work / 'run.log')
+                            else:
+                                self.runner.run(plugin, input_dir, output_dir, progress, work / 'run.log')
+                            result = self._read(output_dir)
+                            validate_result(result, target.obs_names[nonempty], types)
+                            result.fractions = result.fractions.reindex(target.obs_names)
+                            if result.abundance is not None:
+                                result.abundance = result.abundance.reindex(target.obs_names)
+                        if not isinstance(result.genes, list) or len(set(result.genes)) != len(result.genes) or set(result.genes) - set(target.var_names.intersection(reference.var_names)):
+                            raise ValueError('Result genes must be unique shared gene identifiers.')
+                        result.metadata = {key: result.metadata[key] for key in ('fraction_units', 'abundance_units')
+                                           if key in result.metadata}
+                        result.metadata.update(method=name, version=plugin.version, params=resolved,
+                                               reference_id=reference_key, run_id=key, runner=self.runner.name,
+                                               log_path=str(destination / 'run.log'))
+                        if namespace is not None:
+                            result.metadata['cache_namespace'] = str(namespace)
+                        validate_result(result, target.obs_names, types)
+                        progress(.99, 'Saving validated deconvolution results')
+                        self._write(result, output_dir)
+                        if not (work / 'run.log').exists():
+                            (work / 'run.log').write_text('No nonempty target observations.\n')
+                        shutil.copy(work / 'run.log', output_dir / 'run.log')
+                        produced = output_dir / 'reference_artifacts'
+                        if produced.is_dir() and any(produced.iterdir()) and not artifacts.exists():
+                            artifacts.parent.mkdir(parents=True, exist_ok=True)
+                            staging = Path(tempfile.mkdtemp(dir=artifacts.parent))
+                            shutil.copytree(produced, staging, dirs_exist_ok=True)
+                            os.replace(staging, artifacts)
+                        if destination.exists():
+                            shutil.rmtree(destination)
+                        os.replace(output_dir, destination)
+                        shutil.rmtree(work)
+                        progress(1, 'Deconvolution finished')
+                        return result
+                    except BaseException as exc:
+                        # Inputs are full copies of the data (GBs): keep only the log
+                        for folder in (input_dir, output_dir):
+                            shutil.rmtree(folder, ignore_errors=True)
+                        print(f'[deconvolution] {plugin.title} failed, log: {work / "run.log"}')
+                        if not isinstance(exc, Exception) or isinstance(exc, Cancelled):
+                            raise
+                        # The browser gets no server paths: the run id finds the log
+                        message = str(exc).replace(str(work), '<run>').replace(str(work_dir), '<data>')
+                        raise RunnerError(f'{plugin.title}: {message}\nRun id: {work.name}') from exc
 
     @staticmethod
     def _read(directory):

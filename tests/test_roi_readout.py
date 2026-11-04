@@ -3,7 +3,7 @@ import unittest
 from bokeh.models import Range1d
 from bokeh.plotting import figure
 
-from bokeh_server.components.roi import ROIReadout
+from hd_viewer.board.layout.thumbnail import ViewportReadout as ROIReadout
 
 
 class ROIReadoutTests(unittest.TestCase):

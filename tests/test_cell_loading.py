@@ -7,8 +7,8 @@ import pandas as pd
 from bokeh.plotting import figure
 from shapely.geometry import box
 
-from bokeh_server.components.glyphs import Patches
-from src.sample import Cells
+from hd_viewer.board.components.layer import Patches
+from hd_viewer.startup.sample import Cells
 
 
 class ImmediateDoc:

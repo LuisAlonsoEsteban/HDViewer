@@ -11,7 +11,7 @@ from bokeh.layouts import column
 from bokeh.document import Document
 from bokeh.models import HoverTool, Plot
 
-from bokeh_server.components.utils.groups import GROUPS_COL, GroupsManager
+from hd_viewer.board.layout.layer.groups import GROUPS_COL, GroupsManager
 
 
 class ImmediateDoc:

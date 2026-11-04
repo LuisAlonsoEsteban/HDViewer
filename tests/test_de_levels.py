@@ -9,8 +9,8 @@ from bokeh.layouts import column
 from bokeh.plotting import figure
 from shapely.geometry import box
 
-from bokeh_server.components.glyphs import Squares
-from src.sample import Bins
+from hd_viewer.board.components.layer import Squares
+from hd_viewer.startup.sample import Bins
 
 
 class ImmediateDoc:

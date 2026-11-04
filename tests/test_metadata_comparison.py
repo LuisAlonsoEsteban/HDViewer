@@ -63,9 +63,32 @@ class MetadataSummaryTests(unittest.TestCase):
             self.assertEqual(result[name].groups, (name, 'The rest'))
             self.assertEqual(result[name].summary.value.tolist(), [value, 35.])
             self.assertEqual(result[name].summary.total.tolist(), [1, 2])
-        # Clusters are comparison sets, not additional custom groups defining Rest.
+        # Clusters are comparison sets, not additional custom groups defining Rest; like DE vs Rest,
+        # a cluster's own observations are never part of its rest.
         cluster = compare_metadata_to_rest(frame, {'Cluster 0': [False, False, False, True, False]}, defined, ['score'])
-        self.assertEqual(cluster['Cluster 0'].summary.value.tolist(), [30., 35.])
+        self.assertEqual(cluster['Cluster 0'].summary.value.tolist(), [30., 40.])
+        self.assertEqual(cluster['Cluster 0'].summary.total.tolist(), [1, 1])
+
+    def test_rest_excludes_the_compared_cluster_even_when_it_overlaps_groups(self):
+        frame = pd.DataFrame({'score': [0., 10., 20., 30., 40., 50.]})
+        defined = {'A': [True, True, False, False, False, False]}
+        # Cluster 3 straddles group A and the ungrouped observations
+        cluster = [False, True, True, True, False, False]
+        result = compare_metadata_to_rest(frame, {'Cluster 3': cluster, 'A': defined['A']}, defined, ['score'])
+        rest = result['Cluster 3'].summary.set_index('group').loc['The rest']
+        self.assertEqual((rest.value, rest.total), (45., 2))
+        self.assertEqual(result['Cluster 3'].summary.value.iloc[0], 20.)
+        # Each set has its own rest: A's rest still contains the cluster's ungrouped observations
+        rest = result['A'].summary.set_index('group').loc['The rest']
+        self.assertEqual((rest.value, rest.total), (35., 4))
+
+    def test_rest_empty_once_the_compared_cluster_is_removed(self):
+        frame = pd.DataFrame({'score': [1., 2., 3.]})
+        defined = {'A': [True, False, False]}
+        with self.assertRaisesRegex(ValueError, "The rest contains no observations outside the defined groups and 'Cluster 0'"):
+            compare_metadata_to_rest(frame, {'Cluster 0': [False, True, True]}, defined, ['score'])
+        with self.assertRaisesRegex(ValueError, 'align'):
+            compare_metadata_to_rest(frame, {'Cluster 0': [False, True]}, defined, ['score'])
 
     def test_empty_rest_no_custom_groups_and_name_collisions(self):
         frame = pd.DataFrame({'score': [1., 2., 3.]})
@@ -182,7 +205,8 @@ class MetadataTabTests(unittest.TestCase):
         clustering.cluster_col = 'labels'
         clustering._cluster_labels = ['0', '1']
         clustering._color_map = {'0': '#123456', '1': '#654321'}
-        layer.sample.adata.obs['labels'] = ['0'] * 8 + ['1'] * 8
+        # Cluster 1 must not cover every ungrouped observation (12-15), or its rest would be empty
+        layer.sample.adata.obs['labels'] = ['1'] * 8 + ['0'] * 8
         manager.refresh_clusters()
         manager._checkboxes['groups'].active = []
         manager._checkboxes['clusters'].active = [1]
@@ -192,6 +216,32 @@ class MetadataTabTests(unittest.TestCase):
         document = Document()
         document.add_root(layer._figure_de_layout)
         document.to_json()
+
+    def test_cluster_vs_rest_excludes_the_cluster_in_the_ui(self):
+        layer, manager = self.setup_rest_comparison()  # groups cover 0-11; 12-15 are ungrouped
+        clustering = layer.clustering_manager
+        clustering._cluster_columns['leiden'] = 'labels'
+        clustering.cluster_col = 'labels'
+        clustering._cluster_labels = ['0', '1']
+        clustering._color_map = {'0': '#123456', '1': '#654321'}
+        layer.sample.adata.obs['labels'] = ['0'] * 14 + ['1'] * 2
+        manager.refresh_clusters()
+        manager._checkboxes['groups'].active = []
+        manager._checkboxes['clusters'].active = [1]
+        self.run_comparison(manager)
+        summary = manager.result['Cluster 1'].summary
+        rest = summary[(summary.group == 'The rest') & (summary.column == 'deconv_1:T cells')].iloc[0]
+        self.assertEqual(rest.total, 2)
+        self.assertAlmostEqual(rest.value, np.linspace(0, 1, 16)[12:14].mean())
+        # A cluster covering all ungrouped observations leaves an empty rest: clear error, no plot
+        layer.sample.adata.obs['labels'] = ['0'] * 12 + ['1'] * 4
+        manager.refresh_clusters()
+        manager._checkboxes['clusters'].active = [1]
+        manager.run._trigger_event(ButtonClick(manager.run))
+        wait_for(lambda: not manager.logger.running and not manager.run.disabled)
+        self.assertIn('The rest contains no observations', manager.logger.div.text)
+        self.assertIn('Cluster 1', manager.logger.div.text)
+        self.assertIsNone(manager.result)
 
     def test_empty_rest_reports_error_and_releases_run_button(self):
         layer, manager = self.setup_comparison()  # A and B already cover every observation.

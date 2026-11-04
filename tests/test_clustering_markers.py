@@ -11,8 +11,8 @@ from bokeh.events import ButtonClick
 from bokeh.plotting import figure
 from shapely.geometry import box
 
-from bokeh_server.components.glyphs import Squares
-from src.sample import Bins
+from hd_viewer.board.components.layer import Squares
+from hd_viewer.startup.sample import Bins
 
 
 def make_layer(n_per=60, n_types=3, n_genes=400):

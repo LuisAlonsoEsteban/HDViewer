@@ -5,7 +5,13 @@ import anndata as ad
 import numpy as np
 import pandas as pd
 
-from bokeh_server.components.utils.de import DEAnalysis, DEResult
+from hd_viewer.board.operations.layer.de import DEAnalysis, DEResult
+
+
+def log1p_normalized(X, target_sum=1e4):
+    """What DE tests: log1p of counts scaled to `target_sum` per observation."""
+    X = np.asarray(X.toarray() if hasattr(X, "toarray") else X, dtype=float)
+    return np.log1p(X / X.sum(axis=1, keepdims=True) * target_sum)
 
 
 def make_analysis():
@@ -32,7 +38,7 @@ class IndependentDETests(unittest.TestCase):
         self.assertEqual(result.names, ("A", "B"))
         self.assertEqual(result.expression.n_obs, 24)
         self.assertEqual(result.expression.obs_names.tolist(), original.obs_names[:24].tolist())
-        np.testing.assert_allclose(result.expression.X, np.log1p(original.X[:24]))
+        np.testing.assert_allclose(result.expression.X, log1p_normalized(original.X)[:24])
         self.assertEqual(int(result.masks['A'].sum()), 12)
         self.assertEqual(int(result.masks['B'].sum()), 12)
         self.assertFalse((result.masks['A'] & result.masks['B']).any())

@@ -3,18 +3,13 @@
 <head>
   <meta charset="utf-8">
   <meta name="viewport" content="width=device-width, initial-scale=1">
-  <title>Visium HD Viewer · P1CRC tumor periphery</title>
+  <title>VisiumVisualizer · P1CRC tumor periphery</title>
   <link rel="stylesheet" href="tutorial.css">
 </head>
 <body>
-<!-- Content source: full_text.pdf, Figure 4a–b (printed p. 1517), Results
-     “Tumor boundary analysis reveals macrophage subpopulations”, and Methods
-     “Spot deconvolution” / “Characterizing the tumor periphery”. Patient-specific
-     choices and singlet counting were checked against the authors' Figure_4.R.
-     Keep published findings distinct from measurements made in this viewer. -->
 <header>
   <div style="display:flex;justify-content:space-between;gap:20px;margin-bottom:22px;font-size:12px"><a href="/hd_viewer" style="text-decoration:none">← VisiumVisualizer</a><a href="https://github.com/LuisAlonsoEsteban/VisiumVisualizer" target="_blank" rel="noopener noreferrer">Source on GitHub ↗</a></div>
-  <div class="eyebrow">VISIUM HD VIEWER · BIOLOGICAL USE CASE</div>
+  <div class="eyebrow">VISIUMVISUALIZER · BIOLOGICAL USE CASE</div>
   <h1>P1CRC: exploring the tumor periphery</h1>
   <p class="lead">Which cells occupy the boundary of a colorectal tumor, and how does
     that neighborhood differ from the surrounding tissue? Explore this question with
@@ -118,14 +113,15 @@
         <a href="https://github.com/10XGenomics/HumanColonCancer_VisiumHD/tree/main/MetaData">cell-type annotations and deconvolution metadata</a>
         in their repository.</p>
       <div class="tip"><b>We recommend using the preloaded example.</b> On the viewer's loading screen,
-        select the built-in <span class="ui">Human CRC</span> example to load the configured
-        P1CRC data directly. Running <b>spacexr (RCTD)</b> from scratch on this many bins
-        can take approximately <b>7–8 hours</b>, depending on the hardware and settings.
-        The example's deconvolution results are cached: a matching run reuses them instead
-        of repeating the computation. Keep the same input data, reference, and parameters
-        to reuse the cache; changes can trigger a new run. When the example files and cache
-        are installed on the server, no download or upload is needed. Alternatively,
-        download the public files and load them through the own-data upload.</div>
+        select the built-in <span class="ui">Human CRC</span> example to load the
+        P1CRC data directly, with no download or upload needed. Running <b>spacexr (RCTD)</b>
+        from scratch on this many bins is a long-running job: it can take approximately
+        <b>7–8 hours</b>, depending on the server hardware and settings. A run continues only
+        while your browser session stays open, so keep the tab open until it finishes.
+        Where the server provides cached results for the example, a run with the same input
+        data, reference, and parameters reuses them instead of repeating the computation;
+        changing any of these starts a new run. Alternatively, download the public files and
+        load them through the own-data upload.</div>
       <table>
         <caption>Files relative to data/CRC_P1/</caption>
         <thead><tr><th>Input</th><th>File / setting</th></tr></thead>
@@ -140,7 +136,8 @@
       <p>Only the <b>spatial sample</b> is restricted to P1CRC. The reference contains
         multiple patients; selecting Human CRC does not restrict its reference cells to P1CRC.
         Level2 distinguishes CAF and Macrophage, which are merged into broader classes in Level1.</p>
-      <p>Running RCTD requires the configured <b>spacexr</b> plugin runtime. For a comparison
+      <p>Running RCTD requires the <b>spacexr</b> method to be available on the server you
+        are using; if it is not listed in the method selector, it is not installed there. For a comparison
         to the paper, use a reference prepared with the authors' QC and cell-type filtering;
         the built-in CSV also contains <code>QC_Filtered</code> cells, and loading it does
         not automatically remove them. Published spatial labels offer an alternative to rerunning RCTD.</p>
@@ -218,8 +215,13 @@
           saved periphery outline and H&amp;E morphology.</li>
       </ol>
       <p>For the published close-up, the figure script specifies a roughly <b>500 µm square</b>
-        centered on barcode <code>s_008um_00556_00532-1</code>. Its location can be found
-        in the positions table; the viewer does not provide a barcode-search control.</p>
+        centered on barcode <code>s_008um_00556_00532-1</code>. To go there, open
+        <span class="ui">ROIs</span>, choose <span class="ui">Seed + radius</span>, set
+        <span class="ui">Seed source</span> to <span class="ui">Find barcode / bin index</span>,
+        and type or paste the barcode. The viewer previews a radius region around that bin
+        and brings it into view; a radius of <b>250 µm</b> approximates the published close-up.
+        Click <span class="ui">Cancel</span> to discard the draft once the view is positioned,
+        or save it if you want to return to the same area.</p>
       <p>The paper shows normalized log expression. The viewer's ordinary gene display
         reads the loaded count matrix, so use it to compare spatial patterns; its color
         intensity is not the paper's normalized expression scale. Neither marker alone
@@ -231,7 +233,7 @@
         <li>Keep only the two custom groups created above: <b>P1 tumor</b> and
           <b>P1 periphery 50um</b>. Delete unrelated custom groups before this comparison.</li>
         <li>Open <span class="ui">Metadata comparison</span>. Select the periphery group
-          and enable <span class="ui">The rest (outside all defined custom groups)</span>.
+          and enable <span class="ui">The rest (outside all defined custom groups and the compared set)</span>.
           With these two groups defined, the remainder excludes both tumor and periphery.</li>
         <li>Choose the same saved deconvolution run's fractions in
           <span class="ui">Metadata set</span>. Include at least <b>CAF</b> and <b>Macrophage</b>,
@@ -306,8 +308,8 @@
         signals from small immune cells and adjacent populations.</p>
       <p>Primary source: Oliveira et al., <i>High-definition spatial transcriptomic profiling
         of immune cell populations in colorectal cancer</i>, Nature Genetics 57, 1512–1523 (2025).
-        See Figure 4a–b and Methods: “Spot deconvolution” and “Characterizing the tumor periphery”.
-        The local source for this guide is <code>full_text.pdf</code>.</p>
+        See Figure 4a–b and Methods: “Spot deconvolution” and “Characterizing the tumor periphery”
+        (<a href="https://doi.org/10.1038/s41588-025-02193-3">doi:10.1038/s41588-025-02193-3</a>).</p>
       <ul>
         <li><a href="https://doi.org/10.1038/s41588-025-02193-3">Paper and source data</a></li>
         <li><a href="https://github.com/10XGenomics/HumanColonCancer_VisiumHD/blob/main/Figures/Figure_4.R">Figure 4 script</a>

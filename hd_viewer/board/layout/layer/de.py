@@ -187,6 +187,13 @@ class DEManager:
             return result, presenter.prepare(result)
 
         def on_done(output):
+            # Report presentation failures too: otherwise the spinner never clears.
+            try:
+                show(output)
+            except Exception as exc:
+                logger.error(exc)
+
+        def show(output):
             if generation != self._de_generation:
                 logger.set_message("DE results discarded because the comparison groups changed.")
                 return

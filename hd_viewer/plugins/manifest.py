@@ -85,6 +85,9 @@ class Plugin:
     input_mount: str = "/data/input"
     output_mount: str = "/data/output"
     reference_params: list = field(default_factory=list)
+    # flag -> server environment variable whose value the runner appends as
+    # `flag value` without putting it in any command line it launches
+    secret_args: dict = field(default_factory=dict)
 
     def resolve_params(self, overrides=None):
         """Defaults from the manifest, overridden and validated by `overrides`."""

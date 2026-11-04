@@ -6,8 +6,8 @@ import numpy as np
 import pandas as pd
 from shapely.geometry import box
 
-from bokeh_server.manager import DynamicSourceManager
-from src.sample import Bins
+from hd_viewer.board.source.manager import DynamicSourceManager
+from hd_viewer.startup.sample import Bins
 
 
 class BinAggregationGeometryTests(unittest.TestCase):
@@ -51,7 +51,7 @@ class BinAggregationGeometryTests(unittest.TestCase):
         from bokeh.document import Document
         from bokeh.plotting import figure
         from bokeh.models import Rect
-        from bokeh_server.components.glyphs import Squares
+        from hd_viewer.board.components.layer import Squares
 
         sample = self.make_sample()
         plot = figure()
@@ -79,10 +79,10 @@ class BinAggregationGeometryTests(unittest.TestCase):
 
 class NativeBinFootprintTests(unittest.TestCase):
     def test_rotated_reflected_grids_with_unequal_axis_scaling(self):
-        from src.operations.bins2spots import Bins2Spots
+        from hd_viewer.startup.operations.bins2spots import Bins2Spots
         from shapely.geometry import box
         from shapely.affinity import rotate
-        from src.data.image.transform import SpatialTransform
+        from hd_viewer.startup.data.image.transform import SpatialTransform
 
         for angle in (0.0, np.deg2rad(179), np.deg2rad(25)):
             for scale_x, scale_y in ((1, 2), (2, 1), (1, 1)):

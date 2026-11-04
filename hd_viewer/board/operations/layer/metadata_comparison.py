@@ -68,7 +68,12 @@ def rest_mask(defined_masks, n_observations):
 
 
 def compare_metadata_to_rest(frame, masks, defined_masks, columns, statistic='mean'):
-    """One comparison per selected group/cluster against the same global remainder."""
+    """One comparison per selected group/cluster against its own remainder.
+
+    The rest of a selected set is every observation outside all defined custom groups and outside
+    the set itself: as for DE vs Rest, a set never shares observations with its rest (a cluster
+    overlapping no group would otherwise be part of its own comparison baseline).
+    """
     if not masks:
         raise ValueError('Select at least one group or cluster to compare with The rest.')
     remainder = rest_mask(defined_masks, len(frame))
@@ -79,8 +84,16 @@ def compare_metadata_to_rest(frame, masks, defined_masks, columns, statistic='me
         rest_name = 'The rest (outside defined groups)'
         while rest_name in masks or rest_name in defined_masks:
             rest_name += ' (remainder)'
-    return {name: compare_metadata(frame, {name: mask, rest_name: remainder}, columns, statistic)
-            for name, mask in masks.items()}
+    results = {}
+    for name, mask in masks.items():
+        mask = np.asarray(mask, dtype=bool)
+        if mask.shape != remainder.shape:
+            raise ValueError('Group masks must align with metadata observations.')
+        rest = remainder & ~mask
+        if not rest.any():
+            raise ValueError(f'The rest contains no observations outside the defined groups and {name!r}.')
+        results[name] = compare_metadata(frame, {name: mask, rest_name: rest}, columns, statistic)
+    return results
 
 
 def build_metadata_plot(result, labels=None, colors=None, unit='value', fractions=False):

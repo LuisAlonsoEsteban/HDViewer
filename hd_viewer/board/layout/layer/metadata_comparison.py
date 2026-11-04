@@ -79,7 +79,8 @@ class MetadataComparisonManager:
         self.hint.text = ('Uses all native observations, independently of the viewport or displayed bin aggregation. '
                           'Overlapping observations contribute to each group. Missing and infinite values are omitted per column; '
                           'bars show descriptive summaries, without significance tests. '
-                          'Select The rest for one plot per selected group/cluster against observations outside all defined custom groups.')
+                          'Select The rest for one plot per selected group/cluster against the observations outside all defined custom groups '
+                          'and outside that group/cluster.')
 
     def _refresh_sets(self):
         if not self._layout_built:
@@ -142,7 +143,7 @@ class MetadataComparisonManager:
         self.preset = Select(title='Metadata set', value='numeric', options=[('numeric', 'Numeric metadata')])
         self.columns = MultiChoice(title='Metadata columns', value=[], options=[])
         self.statistic = Select(title='Summary', options=[('mean', 'Mean'), ('median', 'Median')], value='mean')
-        self.include_rest = Checkbox(label='The rest (outside all defined custom groups)', active=False)
+        self.include_rest = Checkbox(label='The rest (outside all defined custom groups and the compared set)', active=False)
         self.hint = Div()
         self._checkboxes = {source: CheckboxGroup(labels=[], active=[]) for source in ('groups', 'clusters')}
         self.run = Button(label='Compare metadata', button_type='primary')
