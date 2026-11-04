@@ -12,10 +12,10 @@ from bokeh.models import ColumnDataSource
 from bokeh.plotting import figure
 from shapely.geometry import Polygon
 
-from bokeh_server.components.bin_info import BinInfoOverlay
-from bokeh_server.loader import LazyLoader
-from bokeh_server.manager import DynamicSourceManager
-from src.sample import Bins
+from hd_viewer.startup.sample import Bins
+from hd_viewer.board.components.layer.utils.bin_info import BinInfoOverlay
+from hd_viewer.board.source.lazyloader import LazyLoader
+from hd_viewer.board.source.manager import DynamicSourceManager
 
 
 class BinInfoOverlayTests(unittest.TestCase):
@@ -63,17 +63,21 @@ class BinInfoOverlayTests(unittest.TestCase):
         loader.force_reload()
         self.assertIn('1 × 1 · native', self.overlay.header.text)
 
-    def test_cluster_locked_factor_overrides_zoom(self):
+    def test_cluster_minimum_allows_coarser_zoom(self):
         self.sample.adata.obs['leiden_4'] = ['0']
         self.manager.get_colnames = lambda: ['leiden_4']
         self.manager.set_fetch_context(resolution_level='agg:12')
         self.manager.clear_sources()
+        self.assertEqual(self.overlay.metadata()['factor'], 12)
+        self.assertIn('12 × 12', self.overlay.header.text)
+        self.assertIn('Cluster minimum 4 × 4', self.overlay.label.text)
+        self.assertEqual(self.overlay.mode_select.value, 'dynamic')
+        self.assertFalse(self.overlay.mode_select.disabled)
+        self.manager.set_fetch_context(resolution_level='agg:2')
         self.assertEqual(self.overlay.metadata()['factor'], 4)
-        self.assertIn('4 × 4', self.overlay.header.text)
-        self.assertIn('Cluster-locked', self.overlay.label.text)
         self.manager.get_colnames = lambda: []
         self.manager.clear_sources()
-        self.assertIn('12 × 12', self.overlay.header.text)
+        self.assertIn('2 × 2', self.overlay.header.text)
         self.assertIn('Zoom-driven', self.overlay.label.text)
 
     def test_screen_anchor_visibility_and_renderer_replacement(self):
@@ -127,16 +131,18 @@ class BinInfoOverlayTests(unittest.TestCase):
                                    np.linalg.norm(self.corners[1] - self.corners[0]))
         self.assertIn('1 × 1 · native', self.overlay.header.text)
 
-    def test_cluster_lock_restores_saved_mode(self):
+    def test_cluster_minimum_restores_saved_mode(self):
         self.overlay.mode_select.value = '2'
         self.sample.adata.obs['leiden_4'] = ['0']
         self.manager.get_colnames = lambda: ['leiden_4']
         self.manager.clear_sources()
-        self.assertTrue(self.overlay.mode_select.disabled)
+        self.assertFalse(self.overlay.mode_select.disabled)
         self.assertTrue(self.overlay.lock_notice.visible)
         self.assertEqual(self.overlay.mode_select.value, '4')
         self.assertEqual(self.manager.fixed_aggregation_factor, 2)
-        # Even programmatic changes while disabled cannot silently change mode.
+        self.assertEqual([value for value, _ in self.overlay.mode_select.options],
+                         ['dynamic', '4', '8', '12'])
+        # Programmatic selection of a hidden finer level is rejected too.
         self.overlay.mode_select.value = '1'
         self.assertEqual(self.overlay.mode_select.value, '4')
         self.assertEqual(self.manager.fixed_aggregation_factor, 2)
@@ -146,6 +152,33 @@ class BinInfoOverlayTests(unittest.TestCase):
         self.assertFalse(self.overlay.lock_notice.visible)
         self.assertEqual(self.overlay.mode_select.value, '2')
         self.assertEqual(self.overlay.metadata()['factor'], 2)
+
+    def test_coarser_fixed_levels_and_dynamic_mode_remain_available(self):
+        self.sample.adata.obs['kmeans_2'] = ['0']
+        self.manager.get_colnames = lambda: ['kmeans_2']
+        self.manager.clear_sources()
+        self.assertEqual([value for value, _ in self.overlay.mode_select.options],
+                         ['dynamic', '2', '4', '8', '12'])
+        for factor in (2, 4, 8, 12):
+            self.overlay.mode_select.value = str(factor)
+            self.assertEqual(self.overlay.metadata()['factor'], factor)
+        self.overlay.mode_select.value = 'dynamic'
+        self.assertIsNone(self.manager.fixed_aggregation_factor)
+        self.assertEqual(self.overlay.metadata()['factor'], 2)
+        self.plot.x_range.end = self.plot.y_range.end = 10000
+        LazyLoader(self.manager, self.plot).force_reload()
+        self.assertEqual(self.overlay.metadata()['factor'], 12)
+        self.assertEqual(self.overlay.mode_select.value, 'dynamic')
+        with self.assertRaisesRegex(ValueError, 'at least 2'):
+            self.manager.set_aggregation_factor(1)
+
+    def test_strictest_cluster_column_sets_minimum(self):
+        for columns in (['leiden_2', 'kmeans_8'], ['kmeans_8', 'leiden_2']):
+            self.manager.get_colnames = lambda columns=columns: columns
+            self.manager.set_fetch_context(resolution_level='agg:4')
+            self.assertEqual(self.overlay.metadata()['factor'], 8)
+            self.assertEqual([value for value, _ in self.overlay.mode_select.options],
+                             ['dynamic', '8', '12'])
 
     def test_supported_fixed_levels_and_invalid_factor(self):
         self.assertEqual([value for value, _ in self.overlay.mode_select.options],

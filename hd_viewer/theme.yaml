@@ -1,13 +1,26 @@
 attrs:
-    Plot:
-        background_fill_color: '#2F2F2F'
-        border_fill_color: '#2F2F2F'
-        outline_line_color: '#444444'
-    Axis:
-        axis_line_color: "white"
-        axis_label_text_color: "white"
-        major_label_text_color: "white"
-        major_tick_line_color: "white"
-        minor_tick_line_color: "white"
-    Title:
-        text_color: "white"
+  Plot:
+    background_fill_color: '#14251f'
+    border_fill_color: '#14251f'
+    outline_line_color: '#344d45'
+  Axis:
+    axis_line_color: '#688c7b'
+    axis_label_text_color: '#bdd0c6'
+    major_label_text_color: '#bdd0c6'
+    major_tick_line_color: '#688c7b'
+    minor_tick_line_color: '#344d45'
+  Grid:
+    grid_line_color: '#2a4238'
+    grid_line_alpha: 0.45
+  Title:
+    text_color: '#eaf2ec'
+    text_font: 'sans-serif'
+    text_font_size: '15px'
+  Legend:
+    background_fill_color: '#192c28'
+    border_line_color: '#344d45'
+    label_text_color: '#dbe8df'
+  ColorBar:
+    background_fill_color: '#192c28'
+    major_label_text_color: '#dbe8df'
+    title_text_color: '#dbe8df'

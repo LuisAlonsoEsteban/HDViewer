@@ -15,7 +15,7 @@ from shapely.affinity import scale
 
 from bokeh.events import SelectionGeometry, Tap
 from bokeh.layouts import column, row
-from bokeh.models import BoxSelectTool, Button, Checkbox, ColumnDataSource, Div, LassoSelectTool, NumericInput, Select, TapTool, TextInput
+from bokeh.models import AutocompleteInput, BoxSelectTool, Button, Checkbox, ColumnDataSource, CustomJS, Div, LassoSelectTool, NumericInput, Select, TapTool, TextInput
 
 from .... import settings
 from ...utils.loading import LoadingLogger
@@ -36,6 +36,7 @@ class ROI:
     seed_group: str | None = None
     seed_count: int | None = None
     excluded_seed_mask: np.ndarray | None = None
+    seed_barcode: str | None = None
 
     @property
     def count(self):
@@ -148,6 +149,8 @@ class ROIManager:
         self._draft_seed_info = None
         self._draft_excluded_seed_mask = None
         self._requested_seed_mask = None
+        self._draft_seed_barcode = None
+        self._barcode_cache = None
         self._overlay_cache = {}
         self._group_union_cache = None
         self._group_union_lock = threading.Lock()
@@ -325,6 +328,89 @@ class ROIManager:
         return (self._layout is not None and self.method.value == 'radius'
                 and self.seed_source.value == 'group' and hasattr(self.sample, 'AGGREGATION_FACTORS'))
 
+    def _barcode_mode(self):
+        return (self._layout is not None and self.method.value == 'radius'
+                and self.seed_source.value == 'barcode' and hasattr(self.sample, 'AGGREGATION_FACTORS'))
+
+    def _barcode_index(self):
+        """Sorted identifiers and native positions, built only when first used."""
+        gdf = self.sample.gdf
+        identifiers = gdf[self.sample.on]
+        cached = self._barcode_cache
+        if cached is None or cached[0] is not gdf or cached[1] is not identifiers._values:
+            valid = identifiers.notna().to_numpy()
+            names = identifiers.astype(str).to_numpy()[valid]
+            order = np.argsort(names, kind='stable')
+            cached = self._barcode_cache = (gdf, identifiers._values, names[order], np.flatnonzero(valid)[order])
+        return cached[2], cached[3]
+
+    def _barcode_suggestions(self, prefix):
+        prefix = prefix.strip()
+        if not prefix:
+            return []
+        with self.sample.fetch_lock:
+            names, _ = self._barcode_index()
+            start = names.searchsorted(prefix, side='left')
+            candidates = names[start:start + settings.ROI_BARCODE_MAX_COMPLETIONS]
+            return list(dict.fromkeys(name for name in candidates if name.startswith(prefix)))
+
+    def barcode_seed_center(self, barcode):
+        """Resolve an exact native identifier independently of displayed rows."""
+        barcode = barcode.strip()
+        if not barcode:
+            raise ValueError('Enter a native barcode or bin index.')
+        with self.sample.fetch_lock:
+            names, rows = self._barcode_index()
+            start, end = names.searchsorted(barcode, side='left'), names.searchsorted(barcode, side='right')
+            if start == end:
+                raise ValueError(f"Barcode '{barcode}' was not found in this layer. Choose an exact barcode from the suggestions.")
+            if end - start != 1:
+                raise ValueError(f"Barcode '{barcode}' identifies more than one native bin.")
+            centre = shapely.centroid(self.sample.gdf.geometry.iloc[rows[start]])
+            x, y = float(shapely.get_x(centre)), float(shapely.get_y(centre))
+            if not np.isfinite([x, y]).all():
+                raise ValueError(f"Barcode '{barcode}' has no valid seed centre.")
+            return x, y
+
+    def _barcode_input_changed(self, attr, old, new):
+        if not self._barcode_mode() or self.disposed:
+            return
+        if self._draft_seed_barcode is not None and new.strip() != self._draft_seed_barcode:
+            self.cancel()
+            self.seed_hint.text = 'Choose an exact barcode to preview the radius ROI.'
+        self.seed_barcode.completions = self._barcode_suggestions(new)
+
+    def preview_barcode_radius(self, focus=False):
+        if not self._barcode_mode() or self.disposed or not self.visible or self.logger.running:
+            return
+        self.cancel()
+        barcode = self.seed_barcode.value.strip()
+        if not barcode:
+            self.seed_hint.text = 'Type a native barcode or bin index and choose a suggestion.'
+            self.logger.set_message('Choose a barcode to preview its radius ROI.')
+            return
+        try:
+            x, y = self.barcode_seed_center(barcode)
+            factors, unit = self.radius_scale()
+            geometry = self.seed_radius_geometry(x, y, self.radius.value, *factors)
+            self.radius.title = f'Radius ({unit})'
+            self.set_draft(geometry, 'radius')
+        except (ValueError, TypeError, AttributeError) as exc:
+            self.seed_hint.text = ''
+            self._error(exc)
+            return
+        self._draft_seed_barcode = barcode
+        self.seed_hint.text = f'Seed: {escape(barcode)} · native bin centre ({x:.2f}, {y:.2f}).'
+        self.logger.set_message('Barcode preview ready. Save ROI to keep it.')
+        if focus:
+            self._focus_geometry(geometry)
+
+    def _preview_radius(self):
+        if self._barcode_mode():
+            self.preview_barcode_radius()
+        else:
+            self.preview_group_radius()
+
     def _groups_changed(self):
         self._refresh_list()
         if self._layout is not None:
@@ -432,12 +518,16 @@ class ROIManager:
         self.draft_kind = kind
         self._draft_seed_info = None
         self._draft_excluded_seed_mask = None
+        self._draft_seed_barcode = None
         self._refresh_overlay()
         if self._layout is not None:
             self.save_button.disabled = self.logger.running
             self.logger.set_message("Draft ready. Save ROI or cancel.")
 
     def begin(self):
+        if self._barcode_mode():
+            self.preview_barcode_radius(focus=True)
+            return
         if self._group_mode():
             self.preview_group_radius(immediate=True)
             return
@@ -468,6 +558,7 @@ class ROIManager:
         self.draft_kind = None
         self._draft_seed_info = None
         self._draft_excluded_seed_mask = None
+        self._draft_seed_barcode = None
         self._refresh_overlay()
         if self._layout is not None:
             self.save_button.disabled = True
@@ -502,6 +593,7 @@ class ROIManager:
             name = f"ROI {self._counter}"
         
         roi = ROI(name, self.draft, self.draft_kind, palette_color(GROUP_PALETTE, self._counter - 1))
+        roi.seed_barcode = self._draft_seed_barcode
         if self._draft_seed_info:
             roi.seed_group, roi.seed_count = self._draft_seed_info
             if self._draft_excluded_seed_mask is not None:
@@ -556,7 +648,10 @@ class ROIManager:
         return list(self.rois)
 
     def focus(self, roi):
-        x0, y0, x1, y1 = roi.geometry.bounds
+        self._focus_geometry(roi.geometry)
+
+    def _focus_geometry(self, geometry):
+        x0, y0, x1, y1 = geometry.bounds
         px, py = settings.ROI_FOCUS_PADDING * (x1 - x0), settings.ROI_FOCUS_PADDING * (y1 - y0)
         self.component.figure.x_range.update(start=x0 - px, end=x1 + px)
         self.component.figure.y_range.update(start=y0 - py, end=y1 + py)
@@ -609,6 +704,7 @@ class ROIManager:
                 self.component.figure.renderers.remove(renderer)
         self._overlay_cache.clear()
         self._group_union_cache = None
+        self._barcode_cache = None
 
     def _error(self, exc):
         if self.logger is not None:
@@ -703,6 +799,8 @@ class ROIManager:
                 title.text += f"<br>{roi.seed_count:,} seeds from {escape(roi.seed_group)}"
                 if roi.excluded_seed_mask is not None:
                     title.text += " · source group excluded"
+            if roi.seed_barcode is not None:
+                title.text += f'<br>Seed: {escape(roi.seed_barcode)}'
             
             focus = Button(label='Focus', width=65)
             select = Button(label='Select', width=65, disabled=not roi.count)
@@ -774,7 +872,21 @@ class ROIManager:
             self.method = Select(title='Geometry', value='box', options=[('box', 'Bounding box'), ('lasso', 'Lasso'), ('radius', 'Seed + radius')])
             self.radius = NumericInput(title=f'Radius ({self.radius_scale()[1]})', value=settings.ROI_DEFAULT_RADIUS, low=0, visible=False)
             self.seed_source = Select(title='Seed source', value='map',
-                                      options=[('map', 'Click on map'), ('group', 'All bins in a group')], visible=False)
+                                      options=[('map', 'Click on map'), ('barcode', 'Find barcode / bin index'),
+                                               ('group', 'All bins in a group')], visible=False)
+            self.seed_barcode = AutocompleteInput(title='Barcode / bin index', placeholder='Type a native barcode…',
+                                                   completions=[], min_characters=1,
+                                                   max_completions=settings.ROI_BARCODE_MAX_COMPLETIONS,
+                                                   case_sensitive=True, search_strategy='starts_with',
+                                                   restrict=False, visible=False)
+            # Suggestions arrive from the server after the original keyup.
+            # Refresh the focused dropdown without committing the typed value.
+            self.seed_barcode.js_on_change('completions', CustomJS(args=dict(barcode=self.seed_barcode), code="""
+                const view = Bokeh.index.find_one(barcode)
+                if (view?.input_el?.matches(':focus')) {
+                    view.input_el.dispatchEvent(new KeyboardEvent('keyup', {key: 'Unidentified', bubbles: true}))
+                }
+            """))
             self.seed_group = Select(title='Seed group', options=[('', 'Choose a group')], value='', visible=False)
             self.group_region = Select(title='ROI region', value='full',
                                        options=[('full', 'Full ROI'), ('minus_group', 'ROI minus group')], visible=False)
@@ -782,11 +894,13 @@ class ROIManager:
             def method_changed(attr, old, new):
                 self.cancel()
                 self._update_seed_controls()
-                self.preview_group_radius()
+                self._preview_radius()
             self.method.on_change('value', method_changed)
             self.seed_source.on_change('value', method_changed)
             self.seed_group.on_change('value', lambda attr, old, new: self.preview_group_radius())
-            self.radius.on_change('value', lambda attr, old, new: self.preview_group_radius())
+            self.seed_barcode.on_change('value_input', self._barcode_input_changed)
+            self.seed_barcode.on_change('value', lambda attr, old, new: self.preview_barcode_radius(focus=True))
+            self.radius.on_change('value', lambda attr, old, new: self._preview_radius())
             self.group_region.on_change('value', lambda attr, old, new: self.preview_group_radius())
             self.draw_button = Button(label='Draw', button_type='primary', width=100)
             self.save_button = Button(label='Save ROI', button_type='success', width=90, disabled=True)
@@ -795,7 +909,7 @@ class ROIManager:
             self.save_button.on_click(self.save_roi)
             cancel.on_click(self.cancel)
             self.roi_list = column(sizing_mode='stretch_width')
-            self._layout = column(self.name_input, self.method, self.radius, self.seed_source, self.seed_group, self.group_region,
+            self._layout = column(self.name_input, self.method, self.radius, self.seed_source, self.seed_barcode, self.seed_group, self.group_region,
                                   self.seed_hint, row(self.draw_button, self.save_button, cancel),
                                   self.logger.div, self.roi_list, sizing_mode='stretch_width')
             self._refresh_list()
@@ -808,5 +922,7 @@ class ROIManager:
         self.seed_source.visible = self.radius.visible and hasattr(self.sample, 'AGGREGATION_FACTORS')
         self.seed_group.visible = self._group_mode()
         self.group_region.visible = self._group_mode()
-        self.seed_hint.visible = self._group_mode()
-        self.draw_button.label = 'Preview group' if self._group_mode() else 'Draw'
+        self.seed_barcode.visible = self._barcode_mode()
+        self.seed_hint.visible = self._group_mode() or self._barcode_mode()
+        self.draw_button.label = ('Preview barcode' if self._barcode_mode() else
+                                 'Preview group' if self._group_mode() else 'Draw')

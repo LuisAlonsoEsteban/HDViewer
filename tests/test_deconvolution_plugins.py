@@ -134,6 +134,49 @@ class PluginServiceTests(unittest.TestCase):
         dense.obs_names = ['003', '002', '001']
         self.assertNotEqual(matrix_fingerprint(data), matrix_fingerprint(dense))
 
+    def test_resolution_namespaces_separate_runs_but_share_reference_cache(self):
+        first = self.service.run('nnls', target(), reference(), 'cell_type', cache_namespace='square_002um/bins')
+        second = self.service.run('nnls', target(), reference(), 'cell_type', cache_namespace='square_008um/bins')
+        self.assertEqual(first.metadata['run_id'], second.metadata['run_id'])
+        self.assertEqual(first.metadata['reference_id'], second.metadata['reference_id'])
+        for scope, result in (('square_002um/bins', first), ('square_008um/bins', second)):
+            self.assertEqual(result.metadata['cache_namespace'], scope)
+            self.assertTrue(Path(result.metadata['log_path']).is_relative_to(self.work / scope))
+            self.assertTrue(Path(result.metadata['log_path']).exists())
+        self.assertEqual(len(list((self.work / '_locks').glob('*.lock'))), 1)
+        with patch.object(self.service.runner, 'run', side_effect=AssertionError('scoped cache missed')):
+            cached = self.service.run('nnls', target(), reference(), 'cell_type', cache_namespace='square_002um/bins')
+        pd.testing.assert_frame_equal(cached.fractions, first.fractions)
+
+    def test_flat_cache_is_copied_into_namespace_without_recomputing_or_removing_original(self):
+        first = self.service.run('nnls', target(), reference(), 'cell_type')
+        original_log = Path(first.metadata['log_path'])
+        scope = 'square_008um/cells/cells_stardist'
+        with patch.object(self.service.runner, 'run', side_effect=AssertionError('legacy cache was not reused')):
+            cached = self.service.run('nnls', target(), reference(), 'cell_type', cache_namespace=scope)
+        pd.testing.assert_frame_equal(cached.fractions, first.fractions)
+        scoped_log = Path(cached.metadata['log_path'])
+        self.assertTrue(scoped_log.is_relative_to(self.work / scope))
+        self.assertTrue(scoped_log.exists())
+        self.assertTrue(original_log.exists())
+        metadata = json.loads((scoped_log.parent / 'result.json').read_text())
+        self.assertEqual(metadata['cache_namespace'], scope)
+        self.assertEqual(metadata['log_path'], str(scoped_log))
+
+    def test_namespace_legacy_lookup_still_requires_matching_target_counts(self):
+        first = self.service.run('nnls', target(), reference(), 'cell_type')
+        changed = target()
+        changed.X[0, 0] += 1
+        with patch.object(self.service.runner, 'run', wraps=self.service.runner.run) as runner:
+            result = self.service.run('nnls', changed, reference(), 'cell_type', cache_namespace='square_016um/bins')
+        self.assertEqual(runner.call_count, 1)
+        self.assertNotEqual(result.metadata['run_id'], first.metadata['run_id'])
+
+    def test_cache_namespace_cannot_escape_dataset_root(self):
+        for namespace in ('../outside', '/tmp/outside', 'bins/../../outside'):
+            with self.subTest(namespace=namespace), self.assertRaisesRegex(ValueError, 'relative path'):
+                self.service.run('nnls', target(), reference(), 'cell_type', cache_namespace=namespace)
+
     def test_cache_invalidates_counts_labels_params_and_version(self):
         data, ref = target(), reference()
         first = self.service.run('nnls', data, ref, 'cell_type')
@@ -198,9 +241,11 @@ class PluginServiceTests(unittest.TestCase):
         data = target()
         directory = self.work / 'dataset' / 'deconvolution'
         with patch.object(self.service.runner, 'run', side_effect=fit):
-            self.service.run('nnls', data, reference(), 'cell_type', work_dir=directory)
+            self.service.run('nnls', data, reference(), 'cell_type', work_dir=directory,
+                             cache_namespace='square_002um/bins')
             data.X[0, 0] += 1
-            self.service.run('nnls', data, reference(), 'cell_type', work_dir=directory)
+            self.service.run('nnls', data, reference(), 'cell_type', work_dir=directory,
+                             cache_namespace='square_008um/cells/cells_stardist')
         self.assertEqual(calls, [False, True])
         self.assertTrue((directory / '_references' / 'nnls').exists())
         self.assertFalse((self.work / '_references').exists())

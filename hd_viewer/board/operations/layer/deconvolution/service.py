@@ -158,10 +158,14 @@ class DeconvolutionService:
                 raise ValueError('n_max_cells must be at least CELL_MIN_INSTANCE.')
         return resolved, list(dict.fromkeys(columns))
 
-    def run(self, name, target, reference, label_column, params=None, on_progress=None, *, work_dir=None):
+    def run(self, name, target, reference, label_column, params=None, on_progress=None, *, work_dir=None,
+            cache_namespace=None):
         progress = on_progress or (lambda fraction, message: None)
         # Dataset-specific storage without mutating the shared service/queue.
         work_dir = self.work_dir if work_dir is None else Path(work_dir)
+        namespace = Path(cache_namespace) if cache_namespace else None
+        if namespace is not None and (namespace.is_absolute() or '..' in namespace.parts):
+            raise ValueError('Cache namespace must be a relative path within the dataset cache.')
         reason = self.unavailable_reason(name)
         if reason:
             raise RunnerError(reason)
@@ -200,7 +204,9 @@ class DeconvolutionService:
         if coordinates is not None:
             spec['spatial'] = hashlib.sha256(coordinates.astype('<f8').tobytes()).hexdigest()
         key = _key(spec)
-        destination = work_dir / name / key
+        results_dir = work_dir if namespace is None else work_dir / namespace
+        destination = results_dir / name / key
+        legacy = work_dir / name / key
         artifacts = work_dir / '_references' / name / reference_key
         types = sorted(set(reference.obs[label_column]))
         shared = target.var_names.intersection(reference.var_names, sort=False)
@@ -211,11 +217,27 @@ class DeconvolutionService:
                 work_dir / '_locks' / f'{reference_key}.lock',
                 on_wait=lambda: progress(0, 'Waiting for another run using the same reference')):
             progress(0, 'Checking cached results')
+            if namespace is not None and not destination.exists() and (legacy / 'result.json').exists():
+                result = self._read(legacy)
+                validate_result(result, target.obs_names, types)
+                progress(0, 'Organizing cached result by input resolution and layer')
+                destination.parent.mkdir(parents=True, exist_ok=True)
+                staging = Path(tempfile.mkdtemp(prefix=key + '.legacy-', dir=destination.parent))
+                try:
+                    shutil.copytree(legacy, staging, dirs_exist_ok=True)
+                    result.metadata.update(log_path=str(destination / 'run.log'), cache_namespace=str(namespace))
+                    (staging / 'result.json').write_text(json.dumps(dict(genes=result.genes, **result.metadata), allow_nan=False))
+                    os.replace(staging, destination)
+                finally:
+                    if staging.exists():
+                        shutil.rmtree(staging)
             if (destination / 'result.json').exists():
                 result = self._read(destination)
                 validate_result(result, target.obs_names, types)
                 # Cached folders may have moved with the dataset.
                 result.metadata['log_path'] = str(destination / 'run.log')
+                if namespace is not None:
+                    result.metadata['cache_namespace'] = str(namespace)
                 progress(1, 'Loaded cached result')
                 return result
             destination.parent.mkdir(parents=True, exist_ok=True)
@@ -255,6 +277,8 @@ class DeconvolutionService:
                 result.metadata.update(method=name, version=plugin.version, params=resolved,
                                        reference_id=reference_key, run_id=key, runner=self.runner.name,
                                        log_path=str(destination / 'run.log'))
+                if namespace is not None:
+                    result.metadata['cache_namespace'] = str(namespace)
                 validate_result(result, target.obs_names, types)
                 progress(.99, 'Saving validated deconvolution results')
                 self._write(result, output_dir)

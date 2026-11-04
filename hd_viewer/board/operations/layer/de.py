@@ -189,8 +189,8 @@ def build_de_plots(plot_data):
         p = figure(title=f"{data.name} vs {data.rest_label} · top genes", height=340,
                    sizing_mode="stretch_width", min_width=320,
                    tools="pan,wheel_zoom,box_zoom,box_select,tap,reset,save",
-                   active_scroll="wheel_zoom", background_fill_color="#0a0a0a",
-                   border_fill_color="#0a0a0a", outline_line_color="#444444")
+                   active_scroll="wheel_zoom", background_fill_color="#14251f",
+                   border_fill_color="#14251f", outline_line_color="#344d45")
         p.xaxis.ticker = FixedTicker(ticks=list(range(len(data.genes))))
         p.xaxis.major_label_overrides = dict(enumerate(data.genes))
         p.xaxis.major_label_orientation = .4
@@ -229,7 +229,7 @@ def build_de_plots(plot_data):
                          ("Median", "@median{0.000}"), ("Q3", "@q3{0.000}")]
         p.add_tools(HoverTool(renderers=hover_renderers, tooltips=tooltips))
         p.add_layout(Legend(items=legend_items, click_policy="hide", label_text_color="#cccccc",
-                            background_fill_color="#111111", border_line_color="#444444"), "below")
+                            background_fill_color="#192c28", border_line_color="#344d45"), "below")
         plots.append(p)
     return column(*plots, sizing_mode="stretch_width", spacing=16) if plots else column(
         Div(text="No positive marker genes to plot."), sizing_mode="stretch_width")

@@ -2,6 +2,7 @@
 from ..settings.config import grid_fit_kwargs, image_kwargs, bins_to_spots_kwargs, segmentation_kwargs
 
 from .. import settings
+from ..presentation import configure_document
 from bokeh.models import (
     FileInput, Button, Div, Select,
     Checkbox, CustomJS, RadioButtonGroup, TextInput, NumericInput,
@@ -35,6 +36,7 @@ class StartupController:
 
     def __init__(self, doc):
         self.doc = doc
+        configure_document(doc)
         session = doc.session_context
         session_id = session.id if session is not None else uuid.uuid4().hex
         self.SESSION_UPLOAD_DIR = settings.UPLOAD_DIR / session_id
@@ -244,25 +246,10 @@ class StartupController:
         return ("upload", "example", "url")[self.data_source.active]
 
     def _build_layout(self):
-        widget_css = """
-            :host { color: #e5edf0; font-family: Arial, sans-serif; }
-            .bk-input, .bk-btn { border-radius: 10px; }
-            .bk-input { background: #182327; color: #e5edf0;
-                border: 1px solid #53666c; padding: 10px; }
-            label { color: #c4d3d7; }
-            .bk-btn { background: #243338; color: #e5edf0;
-                border: 1px solid #53666c; padding: 13px 8px; }
-            .bk-btn:hover { background: #30464b; }
-            .bk-btn.bk-active, .bk-btn-success { background: #5ee0c2;
-                color: #102a24; border-color: #5ee0c2; font-weight: 600; }
-            .bk-btn:disabled { opacity: .45; cursor: not-allowed; }
-            .bk-btn:focus-visible, .bk-input:focus-visible,
-            input:focus-visible { outline: 3px solid #88f5dc; outline-offset: 3px; }
-            input[type=checkbox] { accent-color: #5ee0c2; }
-        """
+        widget_css = self.doc._visium_stylesheet
         card_style = dict(
-            background="#202c31", border="1px solid #3b5057",
-            border_radius="18px", padding="20px", box_sizing="border-box",
+            background="#192c28", border="1px solid #344d45",
+            border_radius="14px", padding="24px", box_sizing="border-box",
         )
 
         def card(*children):
@@ -305,11 +292,11 @@ class StartupController:
             *self._progress_divs,
         )
         self.layout = column(
-            Div(text='<div style="color:#88f5dc;letter-spacing:2px;font-size:12px;'
-                'font-weight:700">SPATIAL TRANSCRIPTOMICS</div>'
-                '<h1 style="font-size:32px;margin:10px 0">Visium HD Viewer</h1>'
-                '<p style="color:#b7cbd1;font-size:15px">Start with your data. '
-                'Bring spatial expression into focus.</p>'),
+            Div(text='<div style="color:#a5dbc3;letter-spacing:2px;font-size:11px;'
+                'font-weight:700">YOUR SPATIAL WORKSPACE</div>'
+                '<h1 style="font-size:32px;letter-spacing:-1px;margin:10px 0">Start with a tissue.</h1>'
+                '<p style="color:#b7cbd1;font-size:15px">Choose your data, configure the layers, '
+                'and open the interactive workspace.</p>'),
             card(Div(text=TUTORIAL_CARD_HTML)),
             card(
                 heading('<h2 style="margin:0;font-size:19px">Choose your data source</h2>', "data_source"),
@@ -1004,6 +991,7 @@ class StartupController:
         # Use the same dataset base directory as segmentation, before generators
         # add bins/spots/cell layers (including layers arriving asynchronously).
         self.app.deconvolution_work_dir = Path(base_dir) / 'deconvolution'
+        self.app.deconvolution_bin_size_um = bins_size
         self.generate_tiles(base_dir)
         
         if self.pseudospots_checkbox.active:

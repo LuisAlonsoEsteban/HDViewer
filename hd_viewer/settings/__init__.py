@@ -108,6 +108,7 @@ ROI_FOCUS_PADDING = 0.05
 ROI_BUFFER_QUAD_SEGS = 64
 ROI_SEED_BATCH_SIZE = 256
 ROI_PREVIEW_DEBOUNCE_MS = 200
+ROI_BARCODE_MAX_COMPLETIONS = 50
 ROI_OVERLAY_MAX_VERTICES = 20000
 ROI_OVERLAY_MAX_SIZE = 768
 
@@ -126,7 +127,7 @@ SEGMENTATION_IMAGES_DIR = "images"
 
 # Map appearance and panel layout
 PLOT_MIN_HEIGHT = 180
-PLOT_BACKGROUND_COLOR = "#7e7e7e"
+PLOT_BACKGROUND_COLOR = "#14251f"
 PANEL_SPLITS = {
     "columns": {"sizes": [30, 45, 25], "minSize": 100, "gutterSize": 5},
     "metadata": {"sizes": [50, 50], "minSize": 100, "gutterSize": 5},

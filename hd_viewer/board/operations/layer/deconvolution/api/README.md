@@ -169,16 +169,45 @@ restored as NaN rows. The original `deconvolve(target, reference, label_column,
 batch_size=256)` entry point remains available from
 `hd_viewer.board.operations.layer.deconvolution`.
 
-In the viewer, runs live in `<dataset base directory>/deconvolution/<method>/<hash>/`,
-next to the dataset's `segmentation/` folder. The base directory follows segmentation:
+In the viewer, results are grouped by **native input bin size and layer**, next to
+the dataset's `segmentation/` folder:
+
+```text
+<dataset base directory>/deconvolution/
+  square_002um/bins/<method>/<hash>/
+  square_008um/bins/<method>/<hash>/
+  square_008um/spots/<method>/<hash>/
+  square_008um/cells/cells_stardist/<method>/<hash>/
+  square_008um/cells/cells_cellpose/<method>/<hash>/
+  _references/<method>/<reference-hash>/
+  _locks/<reference-hash>.lock
+```
+
+The source bin size is retained for pseudospots and segmented cells. Standalone
+viewer layers without bin-size provenance use `native/<layer>/...`. Layer keys
+are encoded as individual directory names. Zoom/display aggregation does not
+create another cache level: deconvolution fits the layer's native observations.
+Different counts and ordered barcode/gene identifiers already produce different
+content hashes; these folders make that separation visible. Reference artifacts
+remain shared across resolutions and layers when their reference keys match.
+
+The base directory follows segmentation:
 for configured datasets it is the tissue image's parent directory; for uploads it
 is the session's uploaded-files directory (`tmp/<session_id>/`). All bins, spots, and segmentation-derived cells
 for that dataset use this directory, including layers added later. Reference
 artifacts and locks also live under its `deconvolution/` folder. Results remain
-stored in the layer's AnnData as well.
+stored in the layer's AnnData as well, including their `cache_namespace`.
+
+When a matching old flat `<method>/<hash>/` cache exists in the same dataset root,
+it is validated and copied atomically into the scoped folder on first reuse,
+without running the plugin again. Its log path is updated. Originals are retained
+so existing saved log links continue to work; no existing cache directories are
+deleted or reorganized in bulk.
 
 Standalone service callers can set constructor `config['work_dir']` or supply
-`run(..., work_dir=path)` for a particular dataset. A per-run path does not change
+`run(..., work_dir=path)` for a particular dataset. They can opt into the hierarchy
+with `cache_namespace='square_008um/bins'`; without it the flat layout is preserved.
+A per-run path does not change
 the service's shared queue or another dataset's destination. Standalone/unbound
 viewer layers retain the configured fallback directory (`tmp/deconvolution`).
 Previously cached runs under the old fallback are not moved automatically. To migrate,
@@ -188,6 +217,24 @@ folders. Cache loading resolves logs relative to the copied run directory. Verif
 that rerunning the same method and parameters reports `Loaded cached result` before
 removing the original copy. If the old cache contains multiple datasets, migrate
 each dataset's run folders to its own destination.
+
+### Cached image locations
+
+Rendered tissue images are cached separately under
+`<dataset base directory>/tiles/padded-v2-<image-key>-<transform-key>/`.
+The folder contains PNG tiles and `manifest.json`; small images use one PNG in
+the same layout. The image key uses the resolved image path, file size, and
+modification time. The transform key includes image scale, padding, output size,
+and image shape. Matching image/transform caches are reused with overwrite off;
+different padding or transforms can produce multiple folders for the same image.
+Bin size is not part of the tile path itself, so input resolutions can share
+tiles when the resulting transform matches.
+
+For uploaded datasets, the base is `tmp/<session_id>/`. For configured examples,
+it is the tissue image's parent directory, for example
+`data/Visium_HD_Mouse_Brain/tiles/` or `data/CRC_P1/VisiumHD/tiles/`.
+Segmentation's prepared RGB input is another cache at
+`<base>/segmentation/_inputs/<image-key>/image.tif`; it is separate from the map tiles.
 
 The content key includes expression, ordered identifiers,
 required annotations, selected label column, method version/image, parameters,

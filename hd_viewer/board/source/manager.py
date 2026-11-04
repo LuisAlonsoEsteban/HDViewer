@@ -427,21 +427,28 @@ class DynamicSourceManager(SourceManager):
         return ~sequenced.to_numpy(dtype=bool)
 
     @property
-    def effective_resolution_level(self):
-        """Cluster locking takes precedence over a fixed level, then zoom."""
+    def minimum_aggregation_factor(self):
+        """Cluster columns set a floor; larger display bins remain available."""
         get_forced_factor = getattr(self.sample, "get_forced_aggregation_factor", None)
-        if get_forced_factor is not None:
-            factor = get_forced_factor(self.get_colnames())
-            if factor is not None:
-                return self.sample.get_resolution_level_for_factor(factor)
-        if self.fixed_aggregation_factor is not None:
-            return self.sample.get_resolution_level_for_factor(self.fixed_aggregation_factor)
-        return self.resolution_level
+        return get_forced_factor(self.get_colnames()) if get_forced_factor is not None else None
+
+    @property
+    def effective_resolution_level(self):
+        requested = (self.sample.get_resolution_level_for_factor(self.fixed_aggregation_factor)
+                     if self.fixed_aggregation_factor is not None else self.resolution_level)
+        minimum = self.minimum_aggregation_factor
+        if minimum is None:
+            return requested
+        get_factor = getattr(self.sample, 'get_aggregation_factor', lambda level: 1)
+        return self.sample.get_resolution_level_for_factor(max(minimum, get_factor(requested)))
 
     def set_aggregation_factor(self, factor):
         """None follows zoom; 1 means native; other supported factors are fixed."""
         if factor is not None and factor not in self.sample.AGGREGATION_FACTORS:
             raise ValueError(f"Unsupported bin aggregation factor: {factor}")
+        minimum = self.minimum_aggregation_factor
+        if factor is not None and minimum is not None and factor < minimum:
+            raise ValueError(f"Displayed cluster columns require an aggregation factor of at least {minimum}.")
         previous_level = self.effective_resolution_level
         self.fixed_aggregation_factor = factor
         if self.effective_resolution_level != previous_level:

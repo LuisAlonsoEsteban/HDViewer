@@ -31,6 +31,7 @@ class App:
 
         self.geometries = []
         self.deconvolution_work_dir = None
+        self.deconvolution_bin_size_um = None
         self.deconvolution_reference = None
         self.deconvolution_reference_name = None
         self.deconvolution_label_column = ""
@@ -196,12 +197,16 @@ class App:
                 not_sequenced_val=self.NOT_SEQUENCED_ATTRS["color"]
             )
             geom.attach_loader(self.doc)
+        geom.deconvolution_manager.source_bin_size_um = b2s.bins_size
         self.add_geometry(geom)
 
     def add_geometry(self, geom):
         if self.figure_panel.roi_readout is not None:
             geom.roi_manager.coordinate_scale = self.figure_panel.roi_readout.scale
         geom.deconvolution_manager.work_dir = self.deconvolution_work_dir
+        if geom.deconvolution_manager.source_bin_size_um is None:
+            geom.deconvolution_manager.source_bin_size_um = (getattr(geom.sample, 'bin_size', None)
+                                                           or self.deconvolution_bin_size_um)
         geom.deconvolution_manager.reference = self.deconvolution_reference
         geom.deconvolution_manager.reference_name = self.deconvolution_reference_name
         geom.deconvolution_manager.label_column = self.deconvolution_label_column

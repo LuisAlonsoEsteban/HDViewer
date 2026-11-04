@@ -54,8 +54,8 @@ HELP = {
     "color": ("Color", """
         Choose a <b>gene or metadata column</b> to display:
         <ul>
-          <li>Genes and numeric columns: one colour (the colour picker) whose opacity follows the value.</li>
-          <li>Categorical columns (clusters, groups, ...): one colour per category, the same colours used
+          <li>Genes and numeric columns: choose one colour with the colour picker; opacity follows the value.</li>
+          <li>Categorical columns (clusters, groups, ...): the single-colour picker is disabled. Each category has its own colour, the same colours used
               in the cluster/group lists and the DE results.</li>
         </ul>"""),
     "clustering": ("Clustering", """
@@ -67,8 +67,9 @@ HELP = {
         appear as <b>Noise</b>. Mixtures offer covariance types and agglomerative clustering offers linkage choices.
         Clusters appear first; marker genes are ranked afterwards. Noise and groups with fewer than
         two observations have no marker ranking. A single resulting group also has no marker ranking.
-        For bins, clustering runs at the <b>displayed aggregation level</b> and keeps the view at that
-        level while the clusters are shown. Tick or untick clusters to show or hide them."""),
+        For bins, clustering runs at the <b>displayed aggregation level</b>. While its clusters are shown,
+        that level is the minimum: dynamic zoom and coarser fixed levels remain available.
+        Coarser bins show their most common cluster label. Tick or untick clusters to show or hide them."""),
     "deconvolution": ("Deconvolution", """
         The single-cell <b>.h5ad or .h5 reference</b> uploaded on the loading screen is reused
         for every layer. Its .obs columns (including an optional annotation CSV or Parquet file) appear here. Select its
@@ -88,6 +89,10 @@ HELP = {
         <b>Lasso</b>, or <b>Seed + radius</b>, then click <b>Draw</b> and draw on the map.
         A seed radius uses µm when calibrated, otherwise full-resolution pixels. Radii and ruler
         measurements account for image scale and padding.
+        On bins layers, <b>Find barcode / bin index</b> searches native barcodes with autocomplete.
+        Select an exact barcode to preview and focus its radius ROI. The seed is the native bin's
+        centre, even outside the viewport or at a coarser display level. Changing the radius updates
+        the draft; click <b>Preview barcode</b> to rebuild and focus it, then <b>Save ROI</b>.
         On bins layers, choose <b>All bins in a group</b> as the seed source and select a group.
         Every native bin in that group supplies a seed; all radius neighbourhoods are combined
         into <b>one ROI</b>. Choose <b>Full ROI</b> to keep the complete neighbourhood, or
@@ -146,8 +151,8 @@ HELP = {
     "bin_resolution": ("Bin resolution", """
         <b>Dynamic</b>: zoomed out, bins are summed into larger cells (2 × 2 up to 12 × 12) to keep the
         map fast; zooming in shows native bins again.<br>
-        <b>Fixed</b>: always show one level. While bin clusters are shown, the level they were computed
-        at is used."""),
+        <b>Fixed</b>: always show one level. While bin clusters are shown, their computed level is the
+        minimum. Dynamic mode follows zoom above that minimum; finer levels are hidden from the selector."""),
     "embedding": ("Embeddings", """
         PCA, UMAP or t-SNE of a layer, computed on the same preprocessing as clustering (so a UMAP after
         clustering only computes the UMAP itself). For bins it uses the displayed aggregation level.

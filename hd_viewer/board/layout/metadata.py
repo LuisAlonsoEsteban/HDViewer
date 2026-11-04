@@ -68,7 +68,7 @@ class MetadataPanel(Panel):
             <h3 style="color: #dddddd; margin: 0 0 10px 0;">Dataset Summary</h3>
             <table style="width: 100%; border-collapse: collapse; font-size: 12px; text-align: left;">
                 <thead>
-                    <tr style="background: #2a2a3e; border-bottom: 1px solid #444;">
+                    <tr style="background: #213c2a; border-bottom: 1px solid #344d40;">
                         <th style="padding: 6px 10px; color: #5cb85c;">Sample</th>
                         <th style="padding: 6px 10px; color: #5cb85c;">Total</th>
                         <th style="padding: 6px 10px; color: #5cb85c;">Sequenced</th>
@@ -257,10 +257,10 @@ class MetadataPanel(Panel):
                 </tr>"""
         html = f"""
         <div style='padding:10px;overflow-y:auto;max-height:350px'>
-        <h4 style='color:#dddddd;margin:0 0 8px 0;position:sticky;top:0;background:#1e1e2e'>
+        <h4 style='color:#e8f0e9;margin:0 0 8px 0;position:sticky;top:0;background:#192d24'>
             Top Marker Genes</h4>
         <table style='border-collapse:collapse;font-size:12px;width:100%'>
-            <thead style='position:sticky;top:28px;background:#1e1e2e'>
+            <thead style='position:sticky;top:28px;background:#192d24'>
                 <tr style='border-bottom:1px solid #444'>
                     <th style='padding:3px 8px;color:#888;text-align:left'>Cluster</th>
                     <th style='padding:3px 8px;color:#888;text-align:left'>Gene</th>

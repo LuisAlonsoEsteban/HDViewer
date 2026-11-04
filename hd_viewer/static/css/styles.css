@@ -1,8 +1,2 @@
-body {
-    font-family: 'Noto Sans', sans-serif;
-    -webkit-font-smoothing: antialiased;
-    text-rendering: optimizeLegibility;
-    color: #fff;
-    background: #2F2F2F;
-  }
-
+/* Compatibility for bookmarks/templates using the former stylesheet URL. */
+@import url("app.css");

@@ -9,6 +9,7 @@
 <body>
 
 <header>
+  <div style="display:flex;justify-content:space-between;gap:20px;margin-bottom:22px;font-size:12px"><a href="/hd_viewer" style="text-decoration:none">← VisiumVisualizer</a><a href="https://github.com/LuisAlonsoEsteban/VisiumVisualizer" target="_blank" rel="noopener noreferrer">Source on GitHub ↗</a></div>
   <div class="eyebrow">VISIUM HD VIEWER</div>
   <h1>Tutorial</h1>
   <p class="lead">Everything the platform does, step by step. Start with <b>Loading data</b> to bring a sample
@@ -249,7 +250,8 @@
       <p>Aggregates are blocks of neighbouring array rows and columns, anchored at array index zero.
         Their membership stays the same as you pan and zoom; incomplete edge blocks use the bins present.</p>
       <p>The panel also shows the size of the drawn cells, their rotation and the native bin size. While bin
-        clusters are shown, the level they were computed at is used and the selector is locked. Click
+        clusters are shown, their computed level is the minimum. Dynamic zoom can choose coarser levels,
+        and fixed choices below that minimum are hidden. Coarser bins show their most common cluster label. Click
         <span class="ui">−</span> to fold the panel into a single line and <span class="ui">+</span> to unfold it.</p>
     </section>
 
@@ -281,9 +283,9 @@
       <h3 id="app-color">Color tab</h3>
       <ul>
         <li><b>Gene / Metadata</b>: type at least two letters and pick a gene or a metadata column.</li>
-        <li>For <b>genes and numeric columns</b>, observations get one colour (the colour picker) and their
+        <li>For <b>genes and numeric columns</b>, observations use one colour chosen with the colour picker;
             opacity follows the value.</li>
-        <li>For <b>categorical columns</b> (clusters, groups, …), each category gets its own colour. Clusters
+        <li>For <b>categorical columns</b> (clusters, groups, …), the single-colour picker is disabled and each category gets its own colour. Clusters
             and groups keep the same colours everywhere: map, lists and DE results. Groups and clusters never
             share a colour.</li>
       </ul>
@@ -309,7 +311,7 @@
       </ol>
       <p>Tick or untick clusters (or use <span class="ui">Select all / Deselect all</span>) to show or hide them
         on the map. For bins, clustering runs at the <a href="#app-bin-resolution">displayed level</a> and the
-        map stays at that level while the clusters are shown.</p>
+        map can show that level or coarser bins while the clusters are shown.</p>
 
       <h3 id="app-deconvolution">Deconvolution tab</h3>
       <p>Optionally upload a single-cell <code>.h5ad</code> or <code>.h5</code> reference on the initial loading screen,
@@ -344,6 +346,12 @@
       name. Choose Bounding box, Lasso, or Seed + radius and click Draw. Drag a box or lasso on the map;
       for a radius ROI, set the radius and click the seed. The radius is in µm when physical calibration
       is available and full-resolution pixels otherwise. Uniform image scaling preserves circular radii in original-image physical units.</p>
+      <p>On a bins layer, choose <b>Find barcode / bin index</b> as the seed source to search native
+      barcodes with autocomplete. Start typing the barcode and choose an exact suggestion, or paste
+      the complete barcode. Its native bin centre becomes the seed, independently of the current
+      viewport or displayed aggregation. Selecting a barcode previews the region and brings it into
+      view; changing the radius updates the draft. <b>Preview barcode</b> rebuilds and focuses it.
+      Click <b>Save ROI</b> to keep the region; its saved entry records the seed barcode.</p>
       <p>For a bins layer, Seed + radius also offers <b>All bins in a group</b>. Select an existing group
       to use every native member bin's center as a seed, regardless of displayed bin aggregation or
       viewport. Their radius neighbourhoods are united into one ROI, retaining disconnected pieces

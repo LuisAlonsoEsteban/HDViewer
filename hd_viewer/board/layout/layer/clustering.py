@@ -448,7 +448,7 @@ class ClusteringManager:
     def get_widgets(self, doc, on_run=None, on_markers=None) -> list:
         """
         Return the full list of widgets for the clustering section:
-        resolution slider, run button, status div, reset button, and —
+        algorithm selector, resolution slider, run button, status div, and —
         after clustering — the cluster checkbox/color widgets.
 
         Safe to call multiple times; widget state is preserved.
@@ -575,8 +575,9 @@ class ClusteringManager:
         run_button.on_click(_on_run)
 
         return [
+            algorithm_select,
             resolution_slider,
-            *controls.values(),
+            *(widget for key, widget in controls.items() if key != "algorithm"),
             Div(text="Clustering uses expression PCA coordinates. Density methods label outliers as Noise."),
             run_button,
             status.div,

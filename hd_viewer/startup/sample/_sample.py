@@ -90,7 +90,21 @@ class Sample:
         return 0.0, 1.0
     
     def crop_geom(self, left, right, top, bottom):
-        return self.gdf.cx[left:right, bottom:top].copy()
+        if self.gdf.empty:
+            return self.gdf.copy()
+
+        if any(value is None for value in (left, right, top, bottom)):
+            xmin, ymin, xmax, ymax = self.gdf.total_bounds
+            left = xmin if left is None else left
+            right = xmax if right is None else right
+            bottom = ymin if bottom is None else bottom
+            top = ymax if top is None else top
+
+        # GeoPandas invalidates its cached index when geometry changes. Use the
+        # same exact intersection predicate as .cx, but visit nearby candidates.
+        region = shapely.box(left, bottom, right, top)
+        rows = self.gdf.sindex.query(region, predicate='intersects')
+        return self.gdf.iloc[np.sort(rows)].copy()
 
     def crop(self, left, right, top, bottom, crop_adata=False):
         cropped_gdf =  self.crop_geom(left, right, top, bottom)

@@ -2,6 +2,7 @@
 from functools import lru_cache
 from html import escape
 import json
+from urllib.parse import quote
 
 import numpy as np
 import pandas as pd
@@ -32,6 +33,7 @@ class DeconvolutionManager:
         self.columns = []
         self.service = None
         self.work_dir = None
+        self.source_bin_size_um = None
         self.method = 'nnls'
         self.parameter_values = {}
         self.current_run = ''
@@ -39,6 +41,25 @@ class DeconvolutionManager:
     @property
     def history(self):
         return self.component.sample.adata.uns.get('deconvolution_runs', {})
+
+    @property
+    def cache_namespace(self):
+        """Native input resolution and layer, independent of display aggregation."""
+        sample = self.component.sample
+        size = self.source_bin_size_um or getattr(sample, 'bin_size', None)
+        resolution = 'native'
+        if size is not None:
+            size = float(size)
+            if np.isfinite(size) and size > 0:
+                label = f'{int(size):03d}' if size.is_integer() else f'{size:g}'.replace('.', 'p')
+                resolution = f'square_{label}um'
+        kind = getattr(self.component, 'sample_type', type(sample).__name__.lower())
+        key = getattr(self.component, 'key', kind)
+        # Encode identifiers as individual directory names, including dots/slashes.
+        parts = [resolution, quote(str(kind), safe='').replace('.', '%2E')]
+        if key != kind:
+            parts.append(quote(str(key), safe='').replace('.', '%2E'))
+        return '/'.join(parts)
 
     def apply_result(self, result, label_column):
         if not isinstance(result, DeconvolutionResult):
@@ -85,6 +106,7 @@ class DeconvolutionManager:
                 abundance_units=result.metadata.get('abundance_units', ''),
                 fraction_units=result.metadata.get('fraction_units', 'relative fraction'),
                 log_path=result.metadata.get('log_path', ''), run_id=result.metadata.get('run_id', ''),
+                cache_namespace=result.metadata.get('cache_namespace', ''),
             )
             sample.adata.obsm['deconvolution'] = fractions
             sample.adata.obsm[f'deconvolution_{run}'] = fractions.copy()
@@ -246,6 +268,7 @@ class DeconvolutionManager:
                     target.obsm['spatial'] = sample.adata.obsm['spatial'].copy()
             reference = self.reference
             work_dir = self.work_dir
+            cache_namespace = self.cache_namespace
             run.disabled = method.disabled = labels.disabled = True
             for widget in parameter_widgets.values():
                 widget.disabled = True
@@ -266,7 +289,8 @@ class DeconvolutionManager:
 
             status.run('Deconvolution (' + plugins[name].title + ')',
                        lambda: self.service.run(name, target, reference, label_column, params,
-                           work_dir=work_dir, on_progress=lambda fraction, message: status.log(message)), done, failed)
+                           work_dir=work_dir, cache_namespace=cache_namespace,
+                           on_progress=lambda fraction, message: status.log(message)), done, failed)
 
         labels.on_change('value', lambda attr, old, new: update_availability())
         method.on_change('value', lambda attr, old, new: build_parameters())

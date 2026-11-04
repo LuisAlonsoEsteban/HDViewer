@@ -151,6 +151,11 @@ class LazyLoader:
             self.window_size[1] / bin_h,
         )
         factors = tuple(getattr(sample, "AGGREGATION_FACTORS", (1,)))
+        minimum = getattr(self.manager, 'minimum_aggregation_factor', None)
+        if minimum is not None:
+            factors = tuple(value for value in factors if value >= minimum) or (minimum,)
+            if self._last_factor < factors[0]:
+                self._last_factor = factors[0]
         factor = factors[0]
 
         for candidate in factors:

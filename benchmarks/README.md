@@ -1,5 +1,7 @@
 # Source update performance
 
+For the subsequent spatial-index work, see [viewport query benchmarks](viewport_queries.md).
+
 The changes retain numeric source columns as NumPy arrays, preserve loaded
 geometry during compatible parameter changes, and keep non-hovered parameter
 values on the server for slider updates. Pruning preserves numeric arrays and

@@ -44,7 +44,7 @@ class BinInfoOverlay:
         self.toggle_button.on_click(lambda: self.set_minimized(not self.minimized))
         self.label = Div(name="bin_resolution_details", sizing_mode="stretch_width")
         self.lock_notice = Div(
-            text="Clustering fixes the resolution. Display another column to change it.",
+            text="",
             visible=False, sizing_mode="stretch_width",
             styles=dict(color="#a9c7c9", font_size="11px"),
         )
@@ -102,7 +102,7 @@ class BinInfoOverlay:
             "factor": factor,
             "geometry": geometry,
             "bin_size_um": sample.bin_size,
-            "locked": sample.get_forced_aggregation_factor(manager.get_colnames()) is not None,
+            "minimum_factor": manager.minimum_aggregation_factor,
         }
 
     def update(self):
@@ -124,14 +124,23 @@ class BinInfoOverlay:
         if info["bin_size_um"] is not None:
             lines.append(f"Native bin {info['bin_size_um']:g} µm")
         fixed = self.component.manager.fixed_aggregation_factor
-        lines.append("Resolution Cluster-locked" if info["locked"] else
-                     "Resolution Fixed" if fixed is not None else "Resolution Zoom-driven")
+        minimum = info['minimum_factor']
+        lines.append("Resolution Fixed" if fixed is not None else "Resolution Zoom-driven")
+        if minimum is not None:
+            lines.append(f"Cluster minimum {minimum} × {minimum}")
         self._syncing = True
         try:
-            self.mode_select.value = (str(factor) if info["locked"] else
-                                      "dynamic" if fixed is None else str(fixed))
-            self.mode_select.disabled = info["locked"]
-            self.lock_notice.visible = info["locked"]
+            options = [("dynamic", "Dynamic · follow zoom")]
+            options.extend((str(value), "Fixed · raw/native" if value == 1 else f"Fixed · {value} × {value}")
+                           for value in self.component.sample.AGGREGATION_FACTORS
+                           if minimum is None or value >= minimum)
+            self.mode_select.options = options
+            self.mode_select.value = "dynamic" if fixed is None else str(factor)
+            self.mode_select.disabled = False
+            self.lock_notice.visible = minimum is not None
+            if minimum is not None:
+                self.lock_notice.text = (f"Cluster columns require at least {minimum} × {minimum}. "
+                                         "Dynamic zoom and coarser fixed levels remain available.")
         finally:
             self._syncing = False
         text = ('<div style="white-space:pre-wrap;font:11px/1.5 monospace;color:#e5edf0">'
@@ -148,7 +157,7 @@ class BinInfoOverlay:
     def _mode_changed(self, attr, old, new):
         if self._syncing:
             return
-        if self.metadata()["locked"]:
+        if new not in {value for value, _ in self.mode_select.options}:
             self.update()
             return
         factor = None if new == "dynamic" else int(new)

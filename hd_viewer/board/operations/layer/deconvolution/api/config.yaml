@@ -3,7 +3,7 @@ runner: auto
 max_parallel: 1
 threads_per_run: 8
 gpu: false
-# Loaded datasets save under <dataset base directory>/deconvolution, beside segmentation.
+# Loaded datasets save under <base>/deconvolution/<input resolution>/<layer>/<method>/<hash>.
 # work_dir configures the fallback for standalone/unbound layers only.
 docker:
   binary: docker

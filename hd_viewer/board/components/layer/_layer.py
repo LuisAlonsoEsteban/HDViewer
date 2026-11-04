@@ -200,6 +200,14 @@ class Layer:
     def refresh_figure(self):
         self.refresh_glyph()
         self.refresh_hover()
+        self._sync_color_picker()
+
+    def _sync_color_picker(self):
+        if self.colorpicker is None:
+            return
+        color = self.manager.get_param('color')
+        hidden = self.glyph_renderer is not None and not self.glyph_renderer.visible
+        self.colorpicker.disabled = hidden or color is None or not color.is_static
 
     @property
     def obs_name_values(self):
@@ -358,11 +366,12 @@ class Layer:
             self.hover.tooltips = self.get_hover_tooltips()
 
     def set_visibility(self, visible:bool, apply_checkbox=False):
-       self.glyph_renderer.visible = visible
-       self.roi_manager.set_visible(visible)
-       for widget in self._all_widgets:
-           if widget is not self.checkbox or apply_checkbox:
-               widget.disabled = not visible
+        self.glyph_renderer.visible = visible
+        self.roi_manager.set_visible(visible)
+        for widget in self._all_widgets:
+            if widget is not self.checkbox or apply_checkbox:
+                widget.disabled = not visible
+        self._sync_color_picker()
 
     def get_visible_checkbox(self):
         self.checkbox = CheckboxGroup(labels=[f"Show {self.alias}s"], active=[0])
@@ -524,6 +533,8 @@ class Layer:
 
         self.update_hover_tooltips()
 
+        self._sync_color_picker()
+
     def get_available_attrs(self):
         avail_attrs = []
         for param in self.AVAILABLE_ATTRS:
@@ -576,18 +587,24 @@ class Layer:
                 self._all_widgets.append(autocomplete)
 
             for param in self.manager.parameters:
-                if 'color' in param.attr:
-                    self.colorpicker = ColorPicker(title=f"Select {self.alias}s Color", color=settings.INITIAL_ATTRS["color"])
+                if param.attr == 'color':
+                    color = (param.value if param.is_static else self.colorpicker.color
+                             if self.colorpicker is not None else settings.INITIAL_ATTRS["color"])
+                    self.colorpicker = ColorPicker(title=f"Select {self.alias}s Color", color=color)
 
-                    def update_color(attr, old, new, _param=param):
+                    def update_color(attr, old, new):
                         def set_new_color():
-                            self.manager.update_param('color', new_val=new)
+                            current = self.manager.get_param('color')
+                            if not self.colorpicker.disabled and current is not None and current.is_static:
+                                self.manager.update_param('color', new_val=new)
 
                         doc.add_next_tick_callback(set_new_color)
 
                     self.colorpicker.on_change('color', update_color)
                     color_widgets.append(self.colorpicker)
                     self._all_widgets.append(self.colorpicker)
+
+            self._sync_color_picker()
 
             # --- Clustering Tab ---
             def on_run_clustering(doc):

@@ -1,5 +1,6 @@
 
 from ._sample import Sample
+from .utils.viewport import BlockViewportIndex
 from ..utils.progress import report
 
 import pandas as pd
@@ -37,6 +38,7 @@ class Bins(Sample):
         self.aggregate_obs_prefix = aggregate_obs_prefix
         self.spatial_transform = spatial_transform
         self._grid_cache = {}
+        self._viewport_indexes = {}
         self._grid_source = self.gdf
         self._aggregation_labels = None
         self.pixels_per_bin = pixels_per_bin
@@ -64,10 +66,8 @@ class Bins(Sample):
         if left >= right or top >= bottom:
             return self.gdf.iloc[0:0]  # empty GeoDataFrame with same schema
 
-        result = self.gdf.cx[left - half_bin_size : right + half_bin_size,
-                              top - half_bin_size : bottom + half_bin_size]
-
-        return result.copy()
+        return super().crop_geom(left - half_bin_size, right + half_bin_size,
+                                 top - half_bin_size, bottom + half_bin_size)
 
     def get_unit_area_um2(self):
         return self.bin_size ** 2
@@ -102,6 +102,8 @@ class Bins(Sample):
             self._current_factor = factor
 
     def get_forced_aggregation_factor(self, colnames):
+        """Minimum display factor required by the requested cluster columns."""
+        factors = []
         for colname in colnames or ():
             if not isinstance(colname, str):
                 continue
@@ -110,13 +112,14 @@ class Bins(Sample):
                     continue
                 suffix = colname[len(prefix):]
                 if suffix.isdigit():
-                    return int(suffix)
-        return None
+                    factors.append(int(suffix))
+        return max(factors) if factors else None
 
     def aggregation_grid(self, factor):
         """One array-block definition for display, expression and selections."""
         if self._grid_source is not self.gdf:
             self._grid_cache.clear()
+            self._viewport_indexes.clear()
             self._grid_source = self.gdf
         if factor not in self._grid_cache:
             if self.spatial_transform is not None:
@@ -194,6 +197,30 @@ class Bins(Sample):
             values = pd.Series(values, index=gdf.index)
         return pd.to_numeric(values, errors="coerce")
 
+    def _crop_aggregation_grid(self, factor, bbox):
+        grid = self.aggregation_grid(factor)
+        if bbox is None:
+            return self.gdf, grid.copy()
+        left, right, bottom, top = bbox
+        angle = self.spatial_transform.angle if self.spatial_transform else 0.
+        cell_width, cell_height = self.native_width * factor, self.native_height * factor
+        half_x = (abs(np.cos(angle))*cell_width + abs(np.sin(angle))*cell_height) / 2
+        half_y = (abs(np.sin(angle))*cell_width + abs(np.cos(angle))*cell_height) / 2
+        index = self._viewport_indexes.get(factor)
+        if index is None or index.grid is not grid:
+            index = self._viewport_indexes[factor] = BlockViewportIndex(grid)
+        # Expand conservatively to include floating-point boundary contacts,
+        # then apply the original inequalities to the small candidate set.
+        scale = max(1., abs(left), abs(right), abs(bottom), abs(top), half_x, half_y)
+        margin = np.finfo(float).eps * scale * 4
+        rows = index.query(left - half_x - margin, right + half_x + margin,
+                           bottom - half_y - margin, top + half_y + margin)
+        candidates = grid.iloc[rows]
+        intersects = ((candidates.x + half_x >= left) & (candidates.x - half_x <= right)
+                      & (candidates.y + half_y >= bottom) & (candidates.y - half_y <= top))
+        rows = rows[intersects.to_numpy()]
+        return self.gdf.iloc[rows], grid.iloc[rows].copy()
+
     def _fetch_aggregated_data(self, bbox=None, colnames=None, factor=1):
         cell_width = self.native_width * factor
         cell_height = self.native_height * factor
@@ -204,21 +231,11 @@ class Bins(Sample):
             self._multiscale_cache.move_to_end(cache_key)
             return self._multiscale_cache[cache_key].copy()
 
-        grid = self.aggregation_grid(factor)
-        if bbox is None:
-            mask = np.ones(len(grid), dtype=bool)
-        else:
-            left, right, bottom, top = bbox
-            angle = self.spatial_transform.angle if self.spatial_transform else 0.
-            half_x = (abs(np.cos(angle))*cell_width + abs(np.sin(angle))*cell_height) / 2
-            half_y = (abs(np.sin(angle))*cell_width + abs(np.cos(angle))*cell_height) / 2
-            mask = ((grid.x + half_x >= left) & (grid.x - half_x <= right)
-                    & (grid.y + half_y >= bottom) & (grid.y - half_y <= top))
-        cropped_gdf, cropped_adata = self.gdf.loc[mask], self.adata
+        cropped_gdf, data = self._crop_aggregation_grid(factor, bbox)
+        cropped_adata = self.adata
         if cropped_gdf.empty:
             cols = ["x", "y", "width", "height", "angle", "obs_name"] + (list(colnames) if colnames else [])
             return pd.DataFrame(columns=cols)
-        data = grid.loc[mask].copy()
         grid_x, grid_y = data.grid_x.to_numpy(), data.grid_y.to_numpy()
         
         data["width"] = cell_width

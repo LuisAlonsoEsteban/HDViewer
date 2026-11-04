@@ -1,18 +1,18 @@
 :root {
-    --bg: #151f23; --panel: #202c31; --panel-2: #182327; --line: #3b5057;
-    --text: #e5edf0; --muted: #b7cbd1; --faint: #8aa1a8; --accent: #5ee0c2; --accent-2: #88f5dc;
-    --warn: #f0c36b; --code: #0f181b;
+    --bg: #102018; --panel: #192d24; --panel-2: #14251f; --line: #344d40;
+    --text: #e8f0e9; --muted: #adc5b7; --faint: #83a18c; --accent: #a5dbc3; --accent-2: #c1e8cf;
+    --warn: #d8b67b; --code: #102018;
   }
   * { box-sizing: border-box; }
   html { scroll-behavior: smooth; }
   body { margin: 0; background: var(--bg); color: var(--text);
-         font: 15px/1.6 Arial, Helvetica, sans-serif; }
+         font: 15px/1.75 "Aptos", "Segoe UI", system-ui, sans-serif; }
   a { color: var(--accent-2); }
   a:focus-visible, button:focus-visible { outline: 3px solid var(--accent-2); outline-offset: 2px; }
 
   header { padding: 28px 32px 0; max-width: 1240px; margin: 0 auto; }
   .eyebrow { color: var(--accent-2); letter-spacing: 2px; font-size: 12px; font-weight: 700; }
-  h1 { font-size: 30px; margin: 8px 0 6px; }
+  h1 { font: 500 40px/1.2 Georgia, serif; letter-spacing: -.04em; margin: 12px 0 10px; }
   .lead { color: var(--muted); margin: 0 0 20px; max-width: 760px; }
 
   .tabs { display: flex; gap: 6px; border-bottom: 1px solid var(--line); }
