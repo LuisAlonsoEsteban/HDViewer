@@ -1,7 +1,6 @@
 
 from ._layer import Layer
 
-from bokeh.models import CDSView, BooleanFilter
 
 class Circles(Layer):
 
@@ -15,9 +14,9 @@ class Circles(Layer):
                                     y='y', 
                                     radius=self.radius, 
                                     hover_color=self.hover_color,
-                                    **{param.attr: param.attr for param in self.manager.parameters},
+                                    **self.glyph_specs(),
                                     source=self.manager.source,
-                                    view=CDSView(filter=BooleanFilter(booleans=self.view)),
+                                    view=self.make_view(),
                                 )
         self.attach_selection_callbacks()
         self.apply_selected_obs_names()

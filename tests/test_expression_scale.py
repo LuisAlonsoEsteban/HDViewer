@@ -78,7 +78,7 @@ class LayerScaleTests(unittest.TestCase):
                 for scale in ("log1p", "normalized", "counts"):
                     select.value = scale
                     source = layer.manager.source.data
-                    names = list(source["obs_name"])
+                    names = list(layer.manager.loaded_obs_names)
                     shown = np.asarray(source["g0"], dtype=float)
                     sequenced = [name in g0 for name in names]
                     want = expected(np.array([g0[n] for n in names if n in g0]),

@@ -2,15 +2,11 @@
 
 An interactive web platform for exploring **10x Genomics Visium HD** spatial
 transcriptomics data on top of the original tissue image: bins, pseudospots and
-segmented cells, gene expression, clustering, differential expression, regions of
-interest, cell-type deconvolution and sample comparison.
+segmented cells; gene expression, clustering, differential expression, regions of interest, cell-type deconvolution and sample comparison.
 
 **Use it online, no installation or login required:** <https://hdviewer.unav.edu>
 
-The public server is free and open to all users. Uploaded data is private to your
-browser session and is deleted from the server when the session ends. For large
-datasets, private data you prefer not to upload, or offline work, you can run the
-same application on your own computer; the rest of this document explains how.
+The public server is free and open to all users. Uploaded data is private to your browser session and is deleted from the server when the session ends. For large datasets, private data you prefer not to upload, or offline work, you can run the same application on your own computer; the rest of this document explains how.
 
 - [Features](#features)
 - [Run it locally](#run-it-locally)
@@ -184,6 +180,7 @@ The following environment variables override them without editing code:
 | `VHD_TILE_PORT` | `4000` | Port of the image tile server |
 | `VHD_TILE_HOST` | `0.0.0.0` | Address the tile server binds to |
 | `VHD_TILE_URL` | `http://localhost:<port>` | Tile URL as seen by the browser (see below) |
+| `VHD_TILE_FORMAT`, `VHD_TILE_QUALITY` | `webp`, `80` | Tile encoding (`webp` or lossless `png`); changing it re-tiles |
 | `VHD_UPLOAD_MAX_BYTES` | 20 GiB | Largest file accepted per upload field |
 | `VHD_SEG_RUNNER`, `VHD_DECONV_RUNNER` | `auto` | Force `docker`, `apptainer` or `local` plugins |
 | `VHD_SEG_THREADS`, `VHD_DECONV_THREADS` | `8` | CPU threads per segmentation/deconvolution run |

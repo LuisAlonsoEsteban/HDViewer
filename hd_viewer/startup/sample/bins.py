@@ -7,6 +7,40 @@ import pandas as pd
 import numpy as np
 from collections import OrderedDict
 
+
+def block_mode(grid_x, grid_y, values):
+    """Most frequent non-missing value of each (grid_x, grid_y) block, vectorised
+    with a sparse block × label count matrix. Ties go to the lowest label, so a
+    block's label does not depend on which of its bins were fetched first."""
+    import scipy.sparse as sp
+
+    # One integer key per block (factorising a MultiIndex builds Python tuples)
+    grid_x, grid_y = np.asarray(grid_x, dtype=np.int64), np.asarray(grid_y, dtype=np.int64)
+    x0, y0 = (grid_x.min(), grid_y.min()) if len(grid_x) else (0, 0)
+    stride = int(grid_y.max() - y0 + 1) if len(grid_y) else 1
+    block_codes, keys = pd.factorize((grid_x - x0) * stride + (grid_y - y0))
+    block_index = pd.MultiIndex.from_arrays([keys // stride + x0, keys % stride + y0],
+                                            names=["grid_x", "grid_y"])
+    values = pd.Series(values, dtype=object)
+    present = values.notna().to_numpy()
+    try:
+        label_codes, labels = pd.factorize(values[present], sort=True)
+    except TypeError:                                   # unorderable mixed labels
+        label_codes, labels = pd.factorize(values[present])
+    result = np.full(len(block_index), np.nan, dtype=object)
+    if len(labels):
+        rows, shape = block_codes[present], (len(block_index), len(labels))
+        if shape[0] * shape[1] <= 50_000_000:          # few labels: a dense table is fastest
+            counts = np.bincount(rows * shape[1] + label_codes,
+                                 minlength=shape[0] * shape[1]).reshape(shape)
+            has, best = counts.any(axis=1), counts.argmax(axis=1)
+        else:
+            counts = sp.csr_matrix((np.ones(len(label_codes)), (rows, label_codes)), shape=shape)
+            has = np.diff(counts.indptr) > 0
+            best = np.asarray(counts.argmax(axis=1)).ravel()
+        result[has] = np.asarray(labels, dtype=object)[best[has]]
+    return pd.Series(result, index=block_index)
+
 class Bins(Sample):
 
     AGGREGATED_PREFIX = 'agg:'
@@ -290,9 +324,7 @@ class Bins(Sample):
 
                 _grp = value_frame.groupby(["grid_x", "grid_y"], sort=False)[colname]
                 if is_categorical:
-                    grouped[colname] = _grp.agg(
-                        lambda s: s.value_counts().idxmax() if len(s.value_counts()) else np.nan
-                    )
+                    grouped[colname] = block_mode(grid_x, grid_y, values.to_numpy())
                 elif colname in self.adata.uns.get("mean_obs_columns", []):
                     grouped[colname] = _grp.mean()
                 else:

@@ -1,5 +1,3 @@
-
-
 import numpy as np
 from PIL import Image
 
@@ -7,41 +5,108 @@ from flask import Flask, send_file, abort
 import os
 import math
 
+import hashlib
 import threading
 import json
 import shutil
 import tempfile
+import uuid
 from pathlib import Path
+
+from .... import settings
 
 _CACHE_LOCK = threading.Lock()
 
-_TILE_SETS = {}                 # key -> tiles directory
+_TILE_SETS = {}                 # key -> (tiles directory, file extension)
 _TILE_SERVERS = set()           # ports with a running tile server
 _TILE_LOCK = threading.Lock()
 
+TILE_MIMETYPES = {'webp': 'image/webp', 'png': 'image/png'}
+TILE_NAME = 'z{zoom}_x{x}_y{y}.{ext}'
+WEBP_MAX_DIM = 16383            # libwebp's limit; larger single images fall back to PNG
+TILE_CACHE_CONTROL = 'public, max-age=31536000, immutable'
+
+
+def _read_manifest(path):
+    try:
+        return (Path(path) / 'manifest.json').read_bytes()
+    except OSError:
+        return None
+
 
 def register_tiles(tiles_path):
-    """Make a tiles directory servable; its key changes with the directory."""
-    import hashlib
+    """Make a tiles directory servable under a key that changes with its content.
+
+    The key hashes the directory *and* its manifest (format, quality, tile size,
+    shape, transform and a per-generation nonce), so every re-tiling gets a new URL
+    and tiles can be cached by browsers forever. Older keys of the same directory are
+    dropped: their URLs now 404 instead of serving different pixels.
+    """
     path = os.path.abspath(str(tiles_path))
-    key = hashlib.sha1(path.encode()).hexdigest()[:12]
+    manifest = _read_manifest(path)
+    if manifest is None:
+        # Unmanaged directory (no manifest): version it by its files' sizes and mtimes.
+        entries = sorted((e.name, e.stat().st_size, e.stat().st_mtime_ns) for e in os.scandir(path))
+        version, ext = repr(entries).encode(), 'png'
+        for name, *_ in entries:
+            if name.startswith('z0_x0_y0.'):
+                ext = name.rsplit('.', 1)[1]
+    else:
+        version = manifest
+        try:
+            ext = json.loads(manifest).get('format', 'png')
+        except ValueError:
+            ext = 'png'
+    key = hashlib.sha1(path.encode() + b'\0' + version).hexdigest()[:16]
     with _TILE_LOCK:
-        _TILE_SETS[key] = path
+        for old in [k for k, (p, _) in _TILE_SETS.items() if p == path and k != key]:
+            del _TILE_SETS[old]
+        _TILE_SETS[key] = (path, ext)
     return key
+
+
+def forget_tiles(tiles_path):
+    """Stop serving every key of a directory whose tiles are being replaced."""
+    path = os.path.abspath(str(tiles_path))
+    with _TILE_LOCK:
+        for old in [k for k, (p, _) in _TILE_SETS.items() if p == path]:
+            del _TILE_SETS[old]
+
+
+def tile_extension(key):
+    """File extension (and URL suffix) of the tiles registered under `key`."""
+    with _TILE_LOCK:
+        return _TILE_SETS[key][1]
 
 
 def make_tile_app():
     app = Flask("TileSource")
+    cors = {'Access-Control-Allow-Origin': '*'}
+
+    @app.errorhandler(404)
+    def not_found(error):
+        # Never cache misses: the same URL may become valid (or the key re-registered).
+        return 'Tile not found', 404, {**cors, 'Cache-Control': 'no-store'}
 
     @app.route("/<key>/<int:zoom>/<int:x>/<int:y>")
-    def get_tile(key, zoom, x, y):
-        tiles_path = _TILE_SETS.get(key)
-        if tiles_path is None:
+    @app.route("/<key>/<int:zoom>/<int:x>/<int:y>.<ext>")
+    def get_tile(key, zoom, x, y, ext=None):
+        with _TILE_LOCK:
+            tile_set = _TILE_SETS.get(key)
+        if tile_set is None:
             abort(404)
-        filepath = os.path.join(tiles_path, ImageProcessor.filename_pattern.format(zoom=zoom, x=x, y=y))
+        tiles_path, tile_ext = tile_set
+        if ext is not None and ext != tile_ext:
+            abort(404)
+        filepath = os.path.join(tiles_path, TILE_NAME.format(zoom=zoom, x=x, y=y, ext=tile_ext))
         if not os.path.exists(filepath):
             abort(404)
-        return send_file(filepath, mimetype='image/png'), {'Access-Control-Allow-Origin': '*'}
+        # The key is content-versioned, so the response for this URL never changes.
+        response = send_file(filepath, mimetype=TILE_MIMETYPES.get(tile_ext, 'application/octet-stream'),
+                             etag=f"{key}-{zoom}-{x}-{y}", conditional=True, max_age=31536000)
+        response.headers['Cache-Control'] = TILE_CACHE_CONTROL
+        response.headers.update(cors)
+        return response
 
     return app
 
@@ -63,9 +128,9 @@ class ImageProcessor:
     """
 
     tiles_path = './tiles'
-    filename_pattern = 'z{zoom}_x{x}_y{y}.png'
 
-    def __init__(self, image, tiles_path, tile_size=256, spatial_transform=None, image_loader=None):
+    def __init__(self, image, tiles_path, tile_size=256, spatial_transform=None, image_loader=None,
+                 tile_format=None, tile_quality=None):
         self.spatial_transform = spatial_transform
         self._source_image = image
         self._image_loader = image_loader
@@ -73,6 +138,32 @@ class ImageProcessor:
         self._single_image = False
         self.tiles_path = Path(tiles_path)
         self.tile_size = tile_size
+        self.tile_format = (tile_format or settings.TILE_FORMAT).lower()
+        if self.tile_format not in TILE_MIMETYPES:
+            raise ValueError(f"Unsupported tile format {self.tile_format!r}; use one of {sorted(TILE_MIMETYPES)}")
+        self.tile_quality = int(settings.TILE_QUALITY if tile_quality is None else tile_quality)
+
+    @property
+    def tile_extension(self):
+        """Format actually written: WebP cannot hold a single image above 16383 px."""
+        if self.tile_format == 'webp' and self._single_image and self.max_dim > WEBP_MAX_DIM:
+            return 'png'
+        return self.tile_format
+
+    @property
+    def filename_pattern(self):
+        return TILE_NAME.replace('{ext}', self.tile_extension)
+
+    def _save_tile(self, tile, path):
+        """Encode one tile; alpha is kept only where the padding makes it transparent."""
+        if tile.mode not in ('RGB', 'RGBA'):
+            tile = tile.convert('RGBA' if tile.has_transparency_data else 'RGB')
+        if tile.mode == 'RGBA' and tile.getchannel('A').getextrema() == (255, 255):
+            tile = tile.convert('RGB')
+        if self.tile_extension == 'webp':
+            tile.save(path, 'WEBP', quality=self.tile_quality, method=4)
+        else:
+            tile.save(path, 'PNG')
 
     @property
     def image(self):
@@ -136,15 +227,24 @@ class ImageProcessor:
 
     def create_tiles(self, overwrite=True, progress_callback=None, single_image=False):
         self._single_image = single_image
-        spec = dict(version=2, shape=list(self.shape), tile_size=self.tile_size,
-                    transform=getattr(self.spatial_transform, "fingerprint", None), single_image=single_image)
+        ext = self.tile_extension
+        # Format and quality are part of the cache identity: PNG caches built by older
+        # versions (version 2, no format) are regenerated rather than served as WebP.
+        spec = dict(version=3, shape=list(self.shape), tile_size=self.tile_size,
+                    transform=getattr(self.spatial_transform, "fingerprint", None), single_image=single_image,
+                    format=ext, quality=self.tile_quality if ext == 'webp' else None)
         self.tiles_path.parent.mkdir(parents=True, exist_ok=True)
 
         with _CACHE_LOCK:
             marker = self.tiles_path / "manifest.json"
             if not overwrite and marker.exists():
                 try:
-                    if json.loads(marker.read_text()) == spec:
+                    cached = json.loads(marker.read_text())
+                    # Reuse any cache with the same pixels, whatever its format or
+                    # quality (e.g. PNG caches from older versions): re-tiling a large
+                    # slide costs far more than serving its existing tiles.
+                    geometry = ("shape", "tile_size", "transform", "single_image")
+                    if all(cached.get(name) == spec[name] for name in geometry):
                         return False
                 except (ValueError, OSError):
                     pass
@@ -155,13 +255,17 @@ class ImageProcessor:
             try:
                 self.tiles_path = temporary
                 if single_image:
-                    Image.fromarray(self.image).save(temporary / self.filename_pattern.format(zoom=0, x=0, y=0))
+                    self._save_tile(Image.fromarray(self.image),
+                                    temporary / self.filename_pattern.format(zoom=0, x=0, y=0))
                     if progress_callback:
                         progress_callback(1, 1)
                 else:
                     self._write_tiles(progress_callback)
 
-                (temporary / "manifest.json").write_text(json.dumps(spec, sort_keys=True))
+                # A fresh nonce per generation gives re-tiled content a new URL key.
+                (temporary / "manifest.json").write_text(
+                    json.dumps(dict(spec, generation=uuid.uuid4().hex), sort_keys=True))
+                forget_tiles(original)
                 
                 backup = None
                 if original.exists():
@@ -223,7 +327,7 @@ class ImageProcessor:
                             self.tiles_path,
                             self.filename_pattern.format(zoom=zoom, x=x, y=y)
                         )
-                        tile.save(tile_path)
+                        self._save_tile(tile, tile_path)
 
                         done += 1
                         if progress_callback is not None:
@@ -235,7 +339,7 @@ class ImageProcessor:
 
 
     def deploy_server(self, host='0.0.0.0', port=4000, overwrite=False):
-        """Serve these tiles; returns the key of their URL path (/<key>/<z>/<x>/<y>).
+        """Serve these tiles; returns the key of their URL path (/<key>/<z>/<x>/<y>.<ext>).
 
         One tile server per process and port serves every image: starting one per
         dataset failed silently once the port was taken, and the browser was then

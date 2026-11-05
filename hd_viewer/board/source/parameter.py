@@ -1,8 +1,10 @@
-
 import numpy as np
 import pandas as pd
 
+from bokeh.models import LinearColorMapper
+
 from ... import settings
+
 
 class Parameter:
 
@@ -10,7 +12,28 @@ class Parameter:
         self.is_static = is_static
 
 
-class StaticParameter(Parameter):
+class ColorCodes:
+    """Colours travel to the browser as small integer codes plus a palette held by
+    `mapper` (a glyph colour spec transform): changing a colour then sends the
+    palette, not one hex string per row. Code 0 is the not-sequenced colour."""
+
+    mapper = None
+
+    def _sync_palette(self, palette):
+        palette = list(palette)
+        if self.mapper is None:
+            self.mapper = LinearColorMapper(palette=palette, low=-0.5, high=len(palette) - 0.5)
+        elif list(self.mapper.palette) != palette:
+            # Half-integer bounds: code k falls in the middle of palette bin k
+            self.mapper.update(palette=palette, low=-0.5, high=len(palette) - 0.5)
+
+    def decode(self, codes):
+        """Hex colours of `codes` (for the server side and tests)."""
+        palette = np.asarray(self.mapper.palette, dtype=object)
+        return palette[np.asarray(codes, dtype=int)].tolist()
+
+
+class StaticParameter(Parameter, ColorCodes):
 
     is_sequenced = None
 
@@ -20,7 +43,15 @@ class StaticParameter(Parameter):
         self.attr = attr
 
         self.value = value
+        if self.is_color and not isinstance(not_sequenced_val, str):
+            not_sequenced_val = value          # e.g. a numeric default for line_color
         self.not_sequenced_val = not_sequenced_val
+        if self.is_color:
+            self._sync_palette([not_sequenced_val, value])
+
+    @property
+    def is_color(self):
+        return "color" in self.attr
 
     def set_is_sequenced(self, is_sequenced):
         self.is_sequenced = is_sequenced
@@ -29,28 +60,28 @@ class StaticParameter(Parameter):
         sequenced_array = np.asarray(is_sequenced_values, dtype=bool)
         if sequenced_array.size == 0:
             return []
-        return np.where(
-            sequenced_array,
-            self.value,
-            self.not_sequenced_val,
-        ).tolist()
+        if self.is_color:
+            return sequenced_array.astype(np.uint8)
+        return np.where(sequenced_array, self.value, self.not_sequenced_val)
 
     def get_values(self, is_sequenced_values:list=None):
         if is_sequenced_values is not None and len(is_sequenced_values) > 0:
             return self._build_values(is_sequenced_values)
-        
+
         elif self.is_sequenced is not None and len(self.is_sequenced) > 0:
             return self._build_values(self.is_sequenced)
-        
+
         else:
-            return self.value
-    
+            return 1 if self.is_color else self.value
+
     def update(self, new_val=None, new_not_sequenced_val=None):
         if new_val is not None:
             self.value = new_val
         if new_not_sequenced_val is not None:
             self.not_sequenced_val = new_not_sequenced_val
-            
+        if self.is_color:
+            self._sync_palette([self.not_sequenced_val, self.value])
+
         return self.get_values()
 
 
@@ -80,19 +111,9 @@ class DynamicParameter(Parameter):
 
         self.colname_hovered = colname_hovered
 
-    def handle_nans(self, series):
-        series = series.copy().astype(object)
-        not_sequenced = series.isna()
-        series.loc[not_sequenced] = self.not_sequenced_val
-        return series, ~not_sequenced
-    
-    def apply_filter(self, series, sequenced):
-        pass
-
     def get_values(self, series):
-        result = self.apply_filter(*self.handle_nans(series))
-        return result
-    
+        raise NotImplementedError
+
 
 class Scaler(DynamicParameter):
 
@@ -102,36 +123,25 @@ class Scaler(DynamicParameter):
         self.maxv = maxv
         self.avoid_scaling = False
 
-    def scale_values(self, values):
-        # Uniform mode (categorical colouring): every value takes the slider max
+    def get_values(self, series):
+        """Vectorised: values scaled to [minv, maxv] as float32; missing values
+        (not sequenced) take `not_sequenced_val`."""
+        series = pd.Series(series, copy=False)
+        sequenced = series.notna().to_numpy()
         if self.avoid_scaling:
-            return [self.maxv] * len(values)
-
-        try:
-            values_array = pd.to_numeric(values, errors="raise").to_numpy(dtype=float, copy=False)
-        except (ValueError, TypeError):
-            values_array = np.arange(len(values), dtype=float)
-        
-        range_val = self.max_counts - self.min_counts if self.max_counts != self.min_counts else 1
-        scaled_values = self.minv + (values_array - self.min_counts) * (self.maxv - self.minv) / range_val
-        return scaled_values.tolist()
-
-    def apply_filter(self, series, sequenced):
-        if self.static_not_sequenced:
-            sequenced_values = series[sequenced]
-
-            if len(sequenced_values) > 0:
-                scaled_values = self.scale_values(sequenced_values)
-            else:
-                scaled_values = []
-
-            result_series = series.copy()
-            result_series[sequenced] = scaled_values
-            
-            return result_series.tolist()
+            # Uniform mode (categorical colouring): every value takes the slider max
+            scaled = np.full(len(series), self.maxv, dtype=float)
         else:
-            return self.scale_values(series)
-    
+            try:
+                values = pd.to_numeric(series, errors="raise").to_numpy(dtype=float)
+            except (ValueError, TypeError):
+                values = np.arange(len(series), dtype=float)
+            range_val = self.max_counts - self.min_counts if self.max_counts != self.min_counts else 1
+            scaled = self.minv + (values - self.min_counts) * (self.maxv - self.minv) / range_val
+        if self.static_not_sequenced:
+            scaled = np.where(sequenced, scaled, self.not_sequenced_val)
+        return scaled.astype(np.float32)
+
     def update(self, series, new_minv=None, new_maxv=None, avoid_scaling=None):
         # avoid_scaling=None keeps the current mode, so moving the alpha slider
         # while clusters are shown does not bring back the old gene scaling
@@ -148,24 +158,47 @@ class Scaler(DynamicParameter):
         return self.get_values(series)
 
 
-class CategoricalColor(DynamicParameter):
+class CategoricalColor(DynamicParameter, ColorCodes):
 
     PALETTE = settings.CATEGORICAL_PALETTE
 
     def __init__(self, *args, **kwargs):
         super().__init__(*args, **kwargs)
-        self.category_colors = {}
+        # Codes index this order (+1, after the not-sequenced colour). It only
+        # grows, so codes already sent to the browser stay valid.
+        self._order = []
+        self._colors = {}
+        self._sync()
+
+    @property
+    def category_colors(self):
+        return dict(self._colors)
+
+    @category_colors.setter
+    def category_colors(self, colors):
+        for category, color in dict(colors).items():
+            if category not in self._colors:
+                self._order.append(category)
+            self._colors[category] = color
+        self._sync()
+
+    def _sync(self):
+        self._sync_palette([self.not_sequenced_val, *(self._colors[c] for c in self._order)])
 
     def ensure_colors(self, categories):
-        missing_categories = pd.Index(categories).difference(self.category_colors.keys())
-        for category in missing_categories:
-            idx = len(self.category_colors) % len(self.PALETTE)
-            self.category_colors[category] = self.PALETTE[idx]
+        missing = pd.Index(categories).difference(self._colors.keys())
+        for category in missing:
+            self._order.append(category)
+            self._colors[category] = self.PALETTE[(len(self._order) - 1) % len(self.PALETTE)]
+        if len(missing):
+            self._sync()
 
-    def apply_filter(self, series, sequenced):
-        result_series = series.copy()
-        sequenced_series = series[sequenced].astype(str)
-        unique_categories = pd.unique(sequenced_series)
-        self.ensure_colors(unique_categories)
-        result_series.loc[sequenced] = sequenced_series.map(self.category_colors)
-        return result_series.tolist()
+    def get_values(self, series):
+        """Vectorised: one uint16 code per row (0 = not sequenced)."""
+        series = pd.Series(series, copy=False)
+        sequenced = series.notna().to_numpy()
+        labels = series[sequenced].astype(str)
+        self.ensure_colors(pd.unique(labels))
+        codes = np.zeros(len(series), dtype=np.uint16)
+        codes[sequenced] = pd.Index(self._order).get_indexer(labels) + 1
+        return codes

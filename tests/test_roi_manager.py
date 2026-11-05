@@ -340,7 +340,7 @@ class ROISelectionTests(unittest.TestCase):
         view = panel._component_views[layer.key]
         layer.manager.set_fetch_context(bbox=(-1, 5, -1, 5), resolution_level='agg:2')
         layer.manager.fetch_data()
-        names = list(layer.manager.source.data['obs_name'])
+        names = list(layer.manager.loaded_obs_names)
         view['source'].data = dict(obs_name=names, x=list(range(len(names))), y=list(range(len(names))), color=['red'] * len(names))
         layer.roi_manager.select(roi)
         self.assertEqual(layer.get_selected_obs_names(), {'b0_0'})

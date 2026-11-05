@@ -82,8 +82,9 @@ class ClusteringManager:
         self._cluster_labels: list[str] = []   # ordered unique cluster ids for the active result
         self._color_map: dict[str, str] = {}  # cluster_id → hex color
         self._active_clusters: set[str] = set()
-        self._step_params: dict[str, object] = {}
         self._bound_sample = None
+        # Cluster column whose marker genes are ranked (None: none are current)
+        self._markers_col: str | None = None
 
         # Bokeh widget references (populated after clustering)
         self._checkbox_group: CheckboxGroup | None = None
@@ -101,6 +102,18 @@ class ClusteringManager:
     @adata.setter
     def adata(self, value):
         self.sample.adata = value
+
+    @property
+    def _step_params(self) -> dict:
+        """Computed steps (PCA, neighbors, embeddings, clusterings) with their
+        parameters. Kept on the sample, next to the data they describe, so
+        clustering and embeddings of the same sample reuse each other's PCA and
+        neighbor graph, and re-clustering only recomputes the clustering."""
+        return self.sample._step_params
+
+    @_step_params.setter
+    def _step_params(self, value):
+        self.sample._step_params = value
 
     @property
     def adata_processed(self):
@@ -192,9 +205,7 @@ class ClusteringManager:
                           key_added=None, compute_markers=False, **algorithm_options):
         """Run a single clustering algorithm on either a base sample or an aggregated one."""
         previous_sample = self._bound_sample
-        previous_step_params = self._step_params.copy()
         self._bound_sample = sample
-        self._step_params = {}
         try:
             key_added = algorithm if key_added is None else key_added
 
@@ -265,9 +276,9 @@ class ClusteringManager:
 
                 self._mark_computed(key_added, params)
                 adata.uns.pop("rank_genes_groups", None)
-                # The restored parameters must not claim markers for the old labels.
-                if previous_step_params.get("markers") == key_added:
-                    previous_step_params.pop("markers")
+                # Markers ranked for the previous labels of this column are stale
+                if self._markers_col == key_added:
+                    self._markers_col = None
 
             sample.adata.uns["clustering"] = {"algorithm": algorithm, "key": key_added}
             if compute_markers:
@@ -281,7 +292,6 @@ class ClusteringManager:
             return key_added
         finally:
             self._bound_sample = previous_sample
-            self._step_params = previous_step_params
 
     def run_clustering(self, resolution=0.9, n_pcs=30, n_neighbors=15, key_added=None,
                        compute_markers=False, resolution_level=None, *, algorithm="leiden",
@@ -309,6 +319,8 @@ class ClusteringManager:
                     aggregated_sample.adata.obs[aggregated_key].astype(str)
                 )
                 sample.adata.obs[key_added] = mapped.where(mapped.notna(), None).astype(object)
+                if self._markers_col == key_added:
+                    self._markers_col = None
                 sample._clustering_factor = factor
                 sample.adata.uns["clustering"] = {"algorithm": algorithm, "key": key_added, "factor": factor}
                 self._cluster_columns[algorithm] = key_added
@@ -372,8 +384,7 @@ class ClusteringManager:
         if adata is None or cluster_col not in adata.obs:
             return
 
-        marker_params = self._step_params.get("markers")
-        if marker_params == cluster_col:
+        if self._markers_col == cluster_col:
             return
 
         report("Ranking marker genes...")
@@ -387,7 +398,7 @@ class ClusteringManager:
             sc.tl.rank_genes_groups(adata, groupby=cluster_col, method=analysis_sample.marker_method,
                                    groups=groups)
 
-        self._step_params["markers"] = cluster_col
+        self._markers_col = cluster_col
 
     def get_marker_genes(self, n_genes=5):
         active_cluster_col = self._active_cluster_col
@@ -395,7 +406,7 @@ class ClusteringManager:
         adata_processed = analysis_sample.adata_processed
         if adata_processed is None or 'rank_genes_groups' not in adata_processed.uns or active_cluster_col is None:
             return {}
-        if self._step_params.get("markers") != active_cluster_col:
+        if self._markers_col != active_cluster_col:
             return {}
 
         result = adata_processed.uns['rank_genes_groups']
@@ -636,7 +647,7 @@ class ClusteringManager:
             # el color param ya está puesto y leiden está en adata.obs;
             # solo forzamos el re-render de los tiles vía change_glyph_view.
             gdf = self.component.manager.sample.gdf
-            self.component._view = [True] * len(gdf)
+            self.component._view = np.ones(len(gdf), dtype=bool)
             self.component.change_glyph_view()
             self.component.update_hover_tooltips()
             return
@@ -644,13 +655,13 @@ class ClusteringManager:
         color_param = self.component.manager.get_param('color')
         if color_param is not None:
             obs_series = self.component.manager.sample.adata.obs[active_cluster_col]
-            obs_names = pd.Series(self.component.manager.source.data['obs_name'])
+            obs_names = pd.Series(self.component.manager.loaded_obs_names)
             aligned = obs_names.map(obs_series)
             new_colors = color_param.get_values(aligned.copy())
             data = dict(self.component.manager.source.data)
             data['color'] = new_colors
             # Columna del algoritmo actual en el source para el hover.
-            data[active_cluster_col] = ['—' if pd.isna(c) else str(c) for c in aligned]
+            data[active_cluster_col] = aligned.astype(str).where(aligned.notna(), '—').tolist()
             self.component.manager.source.data = data
 
         self.component.update_hover_tooltips()
@@ -666,7 +677,7 @@ class ClusteringManager:
             # Bins (lazy): si el color ya no es leiden (p.ej. clusters personalizados),
             # la columna no está en el source. Alinear por obs_name con lo cargado;
             # get_value devolvería el gdf entero y desincroniza view_filter.
-            obs_names = pd.Series(mgr.source.data.get('obs_name', []), dtype=object)
+            obs_names = pd.Series(mgr.loaded_obs_names, dtype=object)
             cluster_ids = obs_names.map(mgr.sample.adata.obs[active_cluster_col].astype(str))
         else:
             cluster_ids = mgr.sample.get_value(colname=active_cluster_col)
@@ -675,12 +686,12 @@ class ClusteringManager:
 
         if self.component.show_not_sequenced:
             visible = visible | cluster_ids.isna()
-        visible = np.asarray(visible.tolist(), dtype=bool)
-        
+        visible = np.asarray(visible, dtype=bool)
+
         if hasattr(mgr, "view_filter"):
             mgr.view_filter = visible.copy()
 
-        self.component._view = visible.tolist()
+        self.component._view = visible
         self.component.change_glyph_view()
 
     # ------------------------------------------------------------------
@@ -795,7 +806,6 @@ class ClusteringManager:
     _STEP_DEPENDENTS = {
         "pca": ("neighbors", "tsne", "pca_embedding"),
         "neighbors": ("umap", "leiden"),
-        "leiden": ("markers",),
     }
     _STEP_OBSM_KEYS = {
         "pca_embedding": "X_pca_2d",

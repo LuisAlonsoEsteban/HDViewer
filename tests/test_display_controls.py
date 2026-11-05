@@ -62,8 +62,11 @@ class NumericPickerTests(unittest.TestCase):
     def test_numeric_picker_changes_color_without_changing_alpha(self):
         layer = make_layer()
         alpha = np.array(layer.manager.source.data['alpha'])
+        codes = np.array(layer.manager.source.data['color'])
         layer.colorpicker.color = '#abcdef'
-        self.assertEqual(set(layer.manager.source.data['color']), {'#abcdef'})
+        self.assertEqual(set(layer.manager.colors('color')), {'#abcdef'})
+        # Only the palette changes: the per-row colour codes are not resent
+        np.testing.assert_array_equal(layer.manager.source.data['color'], codes)
         np.testing.assert_array_equal(layer.manager.source.data['alpha'], alpha)
         layer.get_widgets(ImmediateDoc())
         self.assertEqual(layer.colorpicker.color, '#abcdef')
@@ -111,7 +114,7 @@ class ClusterDisplayTests(unittest.TestCase):
             self.assertGreaterEqual(layer.sample.get_aggregation_factor(loader.get_resolution_level()), 2)
             self.assertEqual(layer.bin_info.metadata()['factor'], expected)
             self.assertEqual(layer.bin_info.mode_select.value, 'dynamic')
-            self.assertTrue(all(name.endswith(f':{expected}') for name in layer.manager.source.data['obs_name']))
+            self.assertTrue(all(name.endswith(f':{expected}') for name in layer.manager.loaded_obs_names))
             pd.testing.assert_series_equal(layer.sample.adata.obs[column], labels)
             self.assertIs(layer.clustering_manager._get_active_analysis_sample(), analysis)
 
@@ -119,13 +122,13 @@ class ClusterDisplayTests(unittest.TestCase):
         layer, column = self.clustered_layer()
         layer.manager.set_aggregation_factor(4)
         LazyLoader(layer.manager, layer.figure).force_reload()
-        names = layer.manager.source.data['obs_name']
+        names = layer.manager.loaded_obs_names
         mapping = layer.sample.aggregation_names(4)
         for i, name in enumerate(names):
             members = mapping.index[mapping == name]
             expected = layer.sample.adata.obs.loc[members, column].value_counts().idxmax()
             self.assertEqual(layer.manager.source.data[column][i], expected)
-            self.assertEqual(layer.manager.source.data['color'][i], layer.clustering_manager._color_map[expected])
+            self.assertEqual(layer.manager.colors('color')[i], layer.clustering_manager._color_map[expected])
         layer.set_selected_obs_names([layer.sample.adata.obs_names[0]])
         selected_name = mapping.iloc[0]
         self.assertEqual(layer.manager.source.selected.indices, [list(names).index(selected_name)])

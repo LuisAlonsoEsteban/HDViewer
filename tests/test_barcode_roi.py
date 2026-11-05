@@ -58,7 +58,7 @@ class BarcodeROITests(unittest.TestCase):
         layer = make_layer()
         layer.manager.set_fetch_context(bbox=[0, 1, 0, 1], resolution_level='agg:4')
         layer.manager.fetch_data()
-        self.assertNotIn('b3_3', layer.manager.source.data['obs_name'])
+        self.assertNotIn('b3_3', list(layer.manager.loaded_obs_names))
         manager = barcode_mode(layer)
         manager.seed_barcode.value = 'b3_3'
         np.testing.assert_allclose(manager.draft.bounds, [3.3, 3.3, 3.7, 3.7])

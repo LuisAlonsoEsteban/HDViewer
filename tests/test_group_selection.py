@@ -24,7 +24,7 @@ class GroupSelectionTests(unittest.TestCase):
                                              layer.roi_manager.doc)
 
                 def assert_visible(show_unsequenced, show_group=True):
-                    names = list(layer.manager.source.data['obs_name'])
+                    names = list(layer.manager.loaded_obs_names)
                     visible = list(layer.view)
                     self.assertEqual(visible[names.index('b0_0')], show_group)
                     self.assertFalse(visible[names.index('b3_3')])
@@ -79,7 +79,7 @@ class GroupSelectionTests(unittest.TestCase):
                 else:
                     getattr(manager, action)(roi)
                 self.assertEqual(layer.get_selected_obs_names(), {'b3_3'})
-                displayed = layer.manager.source.data['obs_name']
+                displayed = layer.manager.loaded_obs_names
                 self.assertEqual({displayed[i] for i in layer.manager.source.selected.indices}, {'b3_3'})
 
     def test_roi_group_creation_and_removal_log_progress(self):

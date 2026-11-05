@@ -191,7 +191,8 @@ class LazyLoader:
 
             def update_bbox():
                 self._update_pending = False
-                if not self._check_ranges():
+                # Hidden layer: nothing to load; showing it reloads the viewport
+                if not self.manager.active or not self._check_ranges():
                     return
                 resolution_level = self.get_resolution_level()
                 current_fetch_bbox = self.compute_bbox
@@ -215,7 +216,7 @@ class LazyLoader:
                         self.fixed_static_bbox = self.static_bbox
                         self._load()
 
-                    if not inside:
+                    if not inside and self.manager.needs_pruning():
                         # El radio debe cubrir TODA la región fetcheada (compute_bbox),
                         # cuyas esquinas están a ~1.2*window del centro. Usamos
                         # (1+OFFSET)*window para no recortar nunca bins visibles
@@ -232,7 +233,7 @@ class LazyLoader:
 
     def force_reload(self):
         """Reload current viewport data after source has been cleared."""
-        if not self._check_ranges():
+        if not self.manager.active or not self._check_ranges():
             return
         resolution_level = self.get_resolution_level()
         self.manager.set_fetch_context(

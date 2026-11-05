@@ -44,8 +44,11 @@ class BinAggregationGeometryTests(unittest.TestCase):
             manager.set_fetch_context(resolution_level=level)
             manager.clear_sources()
             manager.add_data()
-            self.assertTrue(manager.source.data['angle'])
-            self.assertTrue(all(a == expected_angle for a in manager.source.data['angle']))
+            # Constant per level: a glyph value, not a per-bin column
+            self.assertNotIn('angle', manager.source.data)
+            self.assertEqual(manager.glyph_constants['angle'], expected_angle)
+            factor = sample.get_aggregation_factor(level)
+            self.assertEqual(manager.glyph_constants['width'], sample.native_width * factor)
 
     def test_renderer_uses_rectangles_without_polygon_sources(self):
         from bokeh.document import Document
@@ -61,12 +64,15 @@ class BinAggregationGeometryTests(unittest.TestCase):
         component.manager.add_data()
         glyph = component.glyph_renderer.glyph
         self.assertIsInstance(glyph, Rect)
-        self.assertEqual(glyph.width, 'width')
-        self.assertEqual(glyph.height, 'height')
+        self.assertEqual(glyph.width, sample.native_width)
+        self.assertEqual(glyph.height, sample.native_height)
+        self.assertNotIn('width', component.manager.source.data)
         self.assertNotIn('xs', component.manager.source.data)
         self.assertNotIn('ys', component.manager.source.data)
         component.manager.set_fetch_context(resolution_level='agg:2')
         component.manager.add_data()
+        self.assertEqual(glyph.width, sample.native_width * 2)
+        self.assertEqual(component.glyph_renderer.hover_glyph.width, sample.native_width * 2)
         doc = Document()
         doc.add_root(plot)
         doc.to_json()

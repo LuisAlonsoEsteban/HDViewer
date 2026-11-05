@@ -7,6 +7,11 @@ from bokeh.models import ColumnDataSource
 from ... import settings
 
 
+def _compact(array):
+    # Screen coordinates and styles need no double precision: half the bytes
+    return array.astype(np.float32) if array.dtype == np.float64 else array
+
+
 def source_columns(frame):
     """Keep numeric columns binary-serializable; polygon/string columns stay lists.
 
@@ -14,7 +19,7 @@ def source_columns(frame):
     Object columns deliberately stay one-dimensional lists, including equal-size
     polygon rings, which NumPy would otherwise expand into a rectangular array.
     """
-    return {name: column.to_numpy(copy=True) if column.dtype.kind in 'biuf'
+    return {name: _compact(column.to_numpy(copy=True)) if column.dtype.kind in 'biuf'
             else column.tolist() for name, column in frame.items()}
 
 
@@ -22,7 +27,7 @@ def parameter_column(values, size):
     if np.isscalar(values):
         values = [values] * size
     array = np.asarray(values)
-    return array if array.dtype.kind in 'biuf' else list(values)
+    return _compact(array) if array.dtype.kind in 'biuf' else list(values)
 
 
 class SourceManager:
@@ -63,6 +68,13 @@ class SourceManager:
 
     def get_nan_vector(self):
         return self.sample.get_obs_names().isna().to_numpy()
+
+    @property
+    def loaded_obs_names(self):
+        """Observation names of the source rows, in row order."""
+        return np.asarray(self.source.data.get('obs_name', []), dtype=object)
+
+    row_version = 0
     
     def add_parameter(self, param):
         existing_param = self.get_param(param.attr)
@@ -95,8 +107,8 @@ class SourceManager:
                     if param.colname in self.sample.adata.obs.columns:
                         # Leer de adata.obs y alinear con obs_names del source
                         obs_series = self.sample.adata.obs[param.colname]
-                        obs_names = pd.Series(self.source.data['obs_name'])
-                        
+                        obs_names = pd.Series(self.loaded_obs_names)
+
                         aligned = obs_names.map(obs_series)
                         
                         self.cache[param.colname] = aligned.values
@@ -199,11 +211,28 @@ class SourceManager:
             self.component.apply_selected_obs_names()
         self.is_empty = False
 
+    def _set_column(self, name, values):
+        """Assign a column unless it is unchanged (e.g. a colour picker edit only
+        changes the palette of a colour-coded column)."""
+        current = self.source.data.get(name)
+        if (isinstance(current, np.ndarray) and isinstance(values, np.ndarray)
+                and current.shape == values.shape and np.array_equal(current, values)):
+            return
+        self.source.data[name] = values
+
+    def colors(self, attr='color'):
+        """Displayed hex colours of a colour-coded attribute, row by row."""
+        param = self.get_param(attr)
+        values = self.source.data.get(attr, [])
+        if getattr(param, 'mapper', None) is None:
+            return list(values)
+        return param.decode(values)
+
     def update_param(self, attr, *args, **kwargs):
         param = self.get_param(attr)
         if param.is_static:
-            self.source.data[param.attr] = parameter_column(
-                param.update(*args, **kwargs), len(self.source.data['x']))
+            self._set_column(param.attr, parameter_column(
+                param.update(*args, **kwargs), len(self.source.data['x'])))
         else:
             if param.colname not in self.cache.columns:
                 if self.is_empty:
@@ -243,7 +272,42 @@ class DynamicSourceManager(SourceManager):
         self.resolution_level = None
         self.fixed_aggregation_factor = None
         self._context_callbacks = []
+        # Constant per display level (bins): sent once as glyph values, not per row
+        self.glyph_constants = {}
+        self._last_fetch_rows = 0
+        # A hidden layer keeps nothing loaded and fetches nothing until shown
+        self.active = True
+        # Row names stay on the server (hover asks for them): positions of
+        # `_obs_names` match the source rows; `row_version` changes with them
+        self._obs_names = np.empty(0, dtype=object)
+        self.row_version = 0
         self.clear_sources()
+
+    @property
+    def loaded_obs_names(self):
+        return self._obs_names
+
+    def _rows_changed(self):
+        self.row_version += 1
+        sync = getattr(self.component, 'sync_hover_names', None)
+        if sync is not None:
+            sync()
+
+    GLYPH_CONSTANTS = ('width', 'height', 'angle')
+
+    def set_active(self, active):
+        """Hidden layers drop their rows (freeing the browser) and skip loads;
+        the caller reloads the viewport when the layer is shown again."""
+        if active == self.active:
+            return
+        self.active = active
+        if not active:
+            self.clear_sources()
+
+    def needs_pruning(self):
+        """Drop far rows only once the loaded rows exceed a budget: every prune
+        resends all retained rows to the browser."""
+        return len(self.indexes) > settings.PRUNE_ROW_BUDGET * max(self._last_fetch_rows, 1)
 
     def on_context_change(self, callback):
         self._context_callbacks.append(callback)
@@ -275,13 +339,11 @@ class DynamicSourceManager(SourceManager):
         self.source.data = {
             'x': [], 
             'y': [], 
-            'width': [],
-            'height': [],
-            **({'angle': []} if hasattr(self.sample, 'native_angle') else {}),
-            'obs_name': [],
             **attr_dict, 
             **hovered_dict
         }
+        self._obs_names = np.empty(0, dtype=object)
+        self._rows_changed()
         self.view_filter = np.empty(0, dtype=bool)
         self._notify_context_change()
 
@@ -359,8 +421,7 @@ class DynamicSourceManager(SourceManager):
     def update_param(self, attr, *args, **kwargs):
         param = self.get_param(attr)
         if param.is_static:
-            self.source.data[param.attr] = parameter_column(
-                param.update(*args, **kwargs), len(self.indexes))
+            self._set_column(param.attr, parameter_column(param.update(*args, **kwargs), len(self.indexes)))
         elif param.colname in self.source.data or param.colname in self._value_cache:
             values = self.source.data.get(param.colname, self._value_cache.get(param.colname))
             series = pd.Series(values)
@@ -382,6 +443,8 @@ class DynamicSourceManager(SourceManager):
         column cannot cover every loaded row, use the ordinary reload path.
         In-flight requests and resolution changes also use that path.
         """
+        if not self.active:
+            return True                 # nothing loaded; shown again → full reload
         if (not self.indexes or self._in_flight
                 or previous_level != self.effective_resolution_level):
             return False
@@ -423,13 +486,14 @@ class DynamicSourceManager(SourceManager):
         hovered = {param.colname for param in self.parameters
                    if not param.is_static and param.colname_hovered}
         self._value_cache = {name: np.asarray(value) for name, value in values.items() if name not in hovered}
-        keep = {'x', 'y', 'width', 'height', 'angle', 'obs_name', *updates,
+        keep = {'x', 'y', 'obs_name', *updates,
                 *(param.attr for param in self.parameters), *hovered}
         removed = set(self.source.data) - keep
         if removed:
             self.source.data = {**{key: value for key, value in self.source.data.items() if key in keep}, **updates}
         else:
-            self.source.data.update(updates)
+            for name, value in updates.items():
+                self._set_column(name, value)
         self.view_filter = np.ones(len(self.indexes), dtype=bool)
         if (self.component is not None and not self.component.show_not_sequenced
                 and len(self.is_sequenced) == len(self.indexes)):
@@ -440,14 +504,15 @@ class DynamicSourceManager(SourceManager):
         return True
 
     def get_nan_vector(self):
-        names = pd.Series(self.source.data.get('obs_name', []), dtype=object)
+        names = pd.Series(self.loaded_obs_names, dtype=object)
         sequenced = names.isin(self.sample.adata.obs_names)
         # Aggregated bins use display names rather than native observation names.
         prefix = getattr(self.sample, 'aggregate_obs_prefix', None)
         if prefix is not None:
             summaries = names.dropna().astype(str)
-            factors = {int(name.rsplit(':', 1)[-1]) for name in summaries
-                       if name.startswith(prefix) and name.rsplit(':', 1)[-1].isdigit()}
+            summaries = summaries[summaries.str.startswith(prefix)]
+            suffixes = summaries.str.rsplit(':', n=1).str[-1]
+            factors = pd.to_numeric(suffixes[suffixes.str.isdigit()].unique()).astype(int)
             for factor in factors:
                 if factor in self.sample.AGGREGATION_FACTORS:
                     sequenced |= names.isin(self.sample.aggregation_names(factor).dropna())
@@ -519,7 +584,7 @@ class DynamicSourceManager(SourceManager):
         rows are added on a later tick of `doc`, so the map stays responsive. A
         result is dropped if the rows were cleared meanwhile (new level, colours...);
         calls made while a load runs are merged into one load that follows it."""
-        if self.bbox is None:
+        if self.bbox is None or not self.active:
             return
         self._queued_doc = doc
         if not self._in_flight:
@@ -560,12 +625,19 @@ class DynamicSourceManager(SourceManager):
 
     def _add_fetched(self, fetched_data, request, wait_ms=None, fetch_ms=None):
         """Add the rows of `fetched_data` that are not loaded yet."""
-        start = perf_counter()
+        if not self.active:
+            return
         colnames = request["colnames"]
+        self._last_fetch_rows = fetched_data.shape[0]
         new_data = fetched_data[~fetched_data.index.isin(self.indexes)].copy()
 
         if new_data.shape[0] == 0:
             return
+
+        constants = [name for name in self.GLYPH_CONSTANTS if name in new_data.columns]
+        for name in constants:
+            self.glyph_constants[name] = float(new_data[name].iloc[0])
+        new_data = new_data.drop(columns=constants)
 
         new_is_sequenced = []
         if len(colnames) > 0:
@@ -591,6 +663,8 @@ class DynamicSourceManager(SourceManager):
             self._value_cache[name] = values if previous is None else np.concatenate((previous, values))
         new_data = new_data.drop(cols_to_drop, axis=1, inplace=False)
         
+        names = new_data['obs_name'].to_numpy(dtype=object)
+        new_data = new_data.drop(columns=['obs_name'])
         existing_cols = set(self.source.data.keys())
         present_cols  = set(new_data.columns)
 
@@ -601,9 +675,8 @@ class DynamicSourceManager(SourceManager):
         if extra:
             new_data = new_data.drop(columns=list(extra), inplace=False)
 
-        prepared = perf_counter()
         self.source.stream(source_columns(new_data))
-        streamed = perf_counter()
+        self._obs_names = np.concatenate((self._obs_names, names))
 
         self.indexes.extend(new_data.index.tolist())
         new_visible = np.ones(new_data.shape[0], dtype=bool)
@@ -617,6 +690,9 @@ class DynamicSourceManager(SourceManager):
 
     def _update_component(self):
         if self.component is not None:
+            apply_constants = getattr(self.component, "apply_glyph_constants", None)
+            if apply_constants is not None:
+                apply_constants(self.glyph_constants)
             self.component.apply_selected_obs_names()
 
             self.component.update_hover_tooltips()
@@ -631,12 +707,12 @@ class DynamicSourceManager(SourceManager):
                     and len(cm._active_clusters) < len(cm._cluster_labels)):
                 cm._apply_visibility_mask()
             else:
-                self.component._view = self.view_filter.tolist()
+                self.component._view = self.view_filter.copy()
                 self.component.change_glyph_view()
 
 
     def fetch_data(self):
-        if self.bbox is None:
+        if self.bbox is None or not self.active:
             return
         self.add_data(bbox=self.bbox)
 
@@ -660,8 +736,10 @@ class DynamicSourceManager(SourceManager):
             self.is_sequenced[:] = np.asarray(self.is_sequenced, dtype=bool)[keep_mask].tolist()
 
         self.view_filter = self.view_filter[keep_mask]
+        self._obs_names = self._obs_names[keep_mask]
+        self._rows_changed()
         if self.component is not None:
-            self.component._view = self.view_filter.tolist()
+            self.component._view = self.view_filter.copy()
 
         indexes_array = np.asarray(self.indexes, dtype=object)
         self.indexes = indexes_array[keep_mask].tolist()

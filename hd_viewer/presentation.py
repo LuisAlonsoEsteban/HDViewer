@@ -46,7 +46,12 @@ def configure_document(doc):
             style_models(event.model)
         elif isinstance(event, ModelChangedEvent) and event.attr in ('children', 'tabs'):
             # Only structural UI changes. Streaming data never walks the UI tree.
-            style_models(event.new)
+            # Styled on the next tick: this callback runs before the server session
+            # has sent `event`, so changing the new models now would send updates
+            # that reference models the browser does not know yet ("reference ...
+            # isn't known"), and the browser would drop them.
+            new = event.new
+            doc.add_next_tick_callback(lambda: style_models(new))
 
     doc.on_change(changed)
     for root in doc.roots:

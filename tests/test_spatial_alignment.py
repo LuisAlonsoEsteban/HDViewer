@@ -123,7 +123,8 @@ class SpatialTransformTests(unittest.TestCase):
         image = np.random.default_rng(5).integers(0, 256, (140, 180, 3), dtype=np.uint8)
         aligned = transform.warp_image(image)
         with tempfile.TemporaryDirectory() as root:
-            processor = ImageProcessor(image, Path(root)/'aligned', tile_size=32, spatial_transform=transform)
+            processor = ImageProcessor(image, Path(root)/'aligned', tile_size=32, spatial_transform=transform,
+                                       tile_format='png')   # lossless: pixels are compared exactly
             np.testing.assert_array_equal(processor.image, aligned)
             processor.create_tiles(single_image=True)
             with Image.open(processor.tiles_path/'z0_x0_y0.png') as im:

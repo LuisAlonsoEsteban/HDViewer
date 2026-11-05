@@ -44,7 +44,7 @@ class PaletteTests(unittest.TestCase):
 
         self.assertEqual(param.category_colors, clustering._color_map)
         # Category values come in any order (here 7, 0, 24): colours follow the label
-        colours = param.get_values(pd.Series(["7", "0", "24"]))
+        colours = param.decode(param.get_values(pd.Series(["7", "0", "24"])))
         self.assertEqual(colours, [clustering._color_map[c] for c in ("7", "0", "24")])
         self.assertEqual(len(set(clustering._color_map.values())), 25)
 

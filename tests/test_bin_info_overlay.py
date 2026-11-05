@@ -108,7 +108,7 @@ class BinInfoOverlayTests(unittest.TestCase):
         self.assertEqual(self.manager.fixed_aggregation_factor, 4)
         self.assertEqual(self.overlay.metadata()['factor'], 4)
         self.assertIn('Resolution Fixed', self.overlay.label.text)
-        self.assertTrue(all(str(name).endswith(':4') for name in self.manager.source.data['obs_name']))
+        self.assertTrue(all(str(name).endswith(':4') for name in self.manager.loaded_obs_names))
         loader = LazyLoader(self.manager, self.plot)
         self.plot.x_range.end = 10000
         self.plot.y_range.end = 10000
@@ -126,7 +126,7 @@ class BinInfoOverlayTests(unittest.TestCase):
         self.overlay.mode_select.value = '1'
         self.assertEqual(self.manager.fixed_aggregation_factor, 1)
         self.assertIsNone(self.manager.effective_resolution_level)
-        self.assertEqual(self.manager.source.data['obs_name'], ['bin'])
+        self.assertEqual(list(self.manager.loaded_obs_names), ['bin'])
         np.testing.assert_allclose(self.overlay.metadata()['geometry'][0],
                                    np.linalg.norm(self.corners[1] - self.corners[0]))
         self.assertIn('1 × 1 · native', self.overlay.header.text)

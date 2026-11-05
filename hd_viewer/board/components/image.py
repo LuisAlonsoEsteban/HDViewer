@@ -9,6 +9,7 @@ from bokeh.models import (
 from bokeh.plotting import figure
 
 from ... import settings
+from ...startup.data.image.image import tile_extension
 
 class ImageComponent:
 
@@ -28,6 +29,10 @@ class ImageComponent:
         self.tile_key = self.image_processor.deploy_server(host=settings.SERVER_HOST, port=self.port)
         self.server_deployed = True
 
+    def tile_url(self, z="{Z}", x="{X}", y="{Y}"):
+        """Content-versioned tile URL (the key changes whenever the tiles do)."""
+        return f"{settings.TILE_URL}/{self.tile_key}/{z}/{x}/{y}.{tile_extension(self.tile_key)}"
+
     def generate_tile_source(self):
         try:
             self.deploy_server()
@@ -35,7 +40,7 @@ class ImageComponent:
             raise ValueError("An error has occurred deploying the server providing the tiles")
 
         self.tile_source = WMTSTileSource(
-                                url=f"{settings.TILE_URL}/{self.tile_key}" + "/{Z}/{X}/{Y}",
+                                url=self.tile_url(),
                                 tile_size=self.image_processor.tile_size,
                                 max_zoom=self.image_processor.max_zoom,
                                 min_zoom=0,
@@ -115,7 +120,7 @@ class ImageComponent:
     def add_lowres_image(self, p, w=None, h=None):
         if self.server_deployed:
             p.image_url(
-                url=[f"{settings.TILE_URL}/{self.tile_key}/0/0/0"], 
+                url=[self.tile_url(0, 0, 0)],
                 x=0, 
                 y=h or self.image_processor.max_dim, 
                 w=w or self.image_processor.max_dim, 

@@ -34,7 +34,7 @@ def make_cells(n=20):
 
 
 def n_loaded(layer):
-    return len(layer.manager.source.data["obs_name"])
+    return len(layer.manager.loaded_obs_names)
 
 
 def zoom_to(plot, x0, width):

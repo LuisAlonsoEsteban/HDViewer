@@ -74,17 +74,22 @@ class PresentationTests(unittest.TestCase):
         self.assertEqual(first.roots[0].children[0].stylesheets, [first._visium_stylesheet])
 
     def test_dynamic_widgets_keep_custom_styles_and_receive_shared_styles_once(self):
-        doc = Document()
+        from tests.test_patch_ordering import ServerLikeDoc
+        doc = ServerLikeDoc()
         configure_document(doc)
         layout = column()
         doc.add_root(layout)
         original = InlineStyleSheet(css=':host { margin: 1px; }')
         button = Button(stylesheets=[original])
         layout.children = [button]
+        # Styled on the next tick, once the new widgets have reached the browser
+        self.assertEqual(button.stylesheets, [original])
+        doc.pump(.1)
         configure_document(doc)
         self.assertIs(button.stylesheets[0], original)
         self.assertEqual(sum(isinstance(sheet, ImportedStyleSheet) for sheet in button.stylesheets), 1)
         layout.children = [button, Button()]
+        doc.pump(.1)
         self.assertEqual(len(button.stylesheets), 2)
         self.assertEqual(layout.children[1].stylesheets, [doc._visium_stylesheet])
 

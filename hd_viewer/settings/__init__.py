@@ -35,6 +35,10 @@ STARTUP_PROGRESS_REFRESH_MS = 50
 # Image tiles and grid fitting
 TILE_SIZE = 256
 TILE_MEM_THRESHOLD = 0.5 # GB
+# Tile encoding: "webp" (lossy, ~15x smaller than PNG) or "png" (lossless).
+# Changing either value regenerates the tile caches (they are part of the manifest).
+TILE_FORMAT = os.environ.get("VHD_TILE_FORMAT", "webp").lower()
+TILE_QUALITY = int(os.environ.get("VHD_TILE_QUALITY", 80))  # WebP quality 0-100; ignored for PNG
 GRID_FIT_MAX_POINTS = 4096
 GRID_MAX_CONDITION_NUMBER = 1e10
 
@@ -63,6 +67,9 @@ TARGET_BINS_PER_AXIS = 180
 DEFAULT_CANVAS_PX = 800
 VIEWPORT_FETCH_WORKERS = 4
 GENE_CACHE_SIZE = 8
+# Far rows are dropped only once the loaded rows exceed this multiple of the
+# last viewport fetch (each prune resends every retained row)
+PRUNE_ROW_BUDGET = 3
 assert STATIC_RANGE <= OFFSET, "Offset must be larger than the static range for efficient loading"
 
 # Clustering, embeddings and expression preprocessing

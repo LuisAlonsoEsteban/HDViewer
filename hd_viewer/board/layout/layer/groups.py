@@ -41,6 +41,10 @@ class GroupsManager:
         self._group_layout = None
 
         self._color_map: dict = {}
+        # Bumped whenever group masks are (re)written: the active-groups label
+        # column only needs rebuilding when masks or the active set change
+        self._mask_version = 0
+        self._groups_col_signature = None
 
         self._conditions_div = None
         self._status_div = None
@@ -116,6 +120,7 @@ class GroupsManager:
             members = set(self.sample.adata.obs_names[self.sample.adata.obs[mask_key].astype(bool)])
             self.component.set_selected_obs_names(self.component.get_selected_obs_names() - members)
         del self._groups[name]
+        self._mask_version += 1
         self._fixed_masks.pop(name, None)
         self._group_origins.pop(name, None)
         self._active_groups.discard(name)
@@ -129,12 +134,12 @@ class GroupsManager:
                 self.component.show_colname(self.sample.adata.var_names[0])
                 self.sample.adata.obs.drop(columns=[GROUPS_COL], inplace=True)
             manager = self.component.manager
-            visible = np.ones(len(manager.source.data.get('obs_name', [])), dtype=bool)
+            visible = np.ones(len(manager.loaded_obs_names), dtype=bool)
             if not self.component.show_not_sequenced:
                 visible &= ~manager.get_nan_vector()
             if self.component.lazy_loading:
                 manager.view_filter = visible
-            self.component._view = visible.tolist()
+            self.component._view = visible
             self.component.change_glyph_view()
             if hasattr(self.component, 'loader'):
                 self.component.loader.force_reload()
@@ -403,7 +408,7 @@ class GroupsManager:
                     if self.component.lazy_loading and GROUPS_COL in data:
                         labels = pd.Series(data[GROUPS_COL])
                     else:
-                        labels = pd.Series(data.get('obs_name', []), dtype=object).map(
+                        labels = pd.Series(manager.loaded_obs_names, dtype=object).map(
                             self.sample.adata.obs[GROUPS_COL]
                         )
                     data['color'] = param.get_values(labels)
@@ -443,7 +448,7 @@ class GroupsManager:
             if labels is not None and len(labels) == n_source:
                 visible = pd.Series(labels, dtype=object).isin(self._active_groups)
             else:
-                obs_names = pd.Series(mgr.source.data.get('obs_name', []), dtype=object)
+                obs_names = pd.Series(mgr.loaded_obs_names, dtype=object)
                 visible = pd.Series(False, index=obs_names.index)
                 for gname in self._active_groups:
                     col_key = f"{settings.GROUP_MASK_PREFIX}{gname}"
@@ -469,15 +474,19 @@ class GroupsManager:
         if self.component.lazy_loading:
             mgr.view_filter = visible
 
-        col = pd.Series([None] * len(adata.obs), index=adata.obs.index, dtype=object)
-        for gname in self._groups:
-            if gname in self._active_groups:
-                col_key = f"{settings.GROUP_MASK_PREFIX}{gname}"
-                if col_key in adata.obs.columns:
-                    col[adata.obs[col_key].astype(bool)] = gname
-        adata.obs[GROUPS_COL] = col
+        signature = (id(adata), self._mask_version, tuple(self._groups), tuple(sorted(self._active_groups)))
+        if signature != self._groups_col_signature:
+            # Over every native observation: not on every stream or pan
+            col = pd.Series(None, index=adata.obs.index, dtype=object)
+            for gname in self._groups:
+                if gname in self._active_groups:
+                    col_key = f"{settings.GROUP_MASK_PREFIX}{gname}"
+                    if col_key in adata.obs.columns:
+                        col[adata.obs[col_key].astype(bool).to_numpy()] = gname
+            adata.obs[GROUPS_COL] = col
+            self._groups_col_signature = signature
 
-        self.component._view = visible.tolist()
+        self.component._view = visible
         self.component.change_glyph_view()
 
     # ------------------------------------------------------------------
@@ -536,6 +545,7 @@ class GroupsManager:
         adata = self.sample.adata
         masks, labels = prepared if prepared is not None else self._prepare_groups(self._groups)
 
+        self._mask_version += 1
         for gname, mask in masks.items():
             adata.obs[f"{settings.GROUP_MASK_PREFIX}{gname}"] = mask.values
             if gname not in self._color_map:
@@ -561,7 +571,7 @@ class GroupsManager:
                 self.component.loader.force_reload()
                 return
             obs_series = self.sample.adata.obs[GROUPS_COL]
-            obs_names  = pd.Series(self.component.manager.source.data['obs_name'])
+            obs_names  = pd.Series(self.component.manager.loaded_obs_names)
             aligned    = obs_names.map(obs_series)
             self.component.manager.cache[GROUPS_COL] = aligned.values
             new_colors = color_param.get_values(
@@ -569,13 +579,14 @@ class GroupsManager:
             )
             data = dict(self.component.manager.source.data)
             data['color']           = new_colors
-            data['custom_groups'] = ['—' if pd.isna(c) else c for c in aligned]
+            data['custom_groups'] = aligned.astype(object).where(aligned.notna(), '—').tolist()
             self.component.manager.source.data = data
             self.component.manager.fetch_data()
 
     def _rebuild_custom_groups_col(self):
         adata = self.sample.adata
-        col   = pd.Series([None] * len(adata.obs), index=adata.obs.index, dtype=object)
+        self._mask_version += 1
+        col   = pd.Series(None, index=adata.obs.index, dtype=object)
         for gname in self._groups:
             col_key = f"{settings.GROUP_MASK_PREFIX}{gname}"
             if col_key in adata.obs.columns:

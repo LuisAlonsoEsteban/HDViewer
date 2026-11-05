@@ -19,10 +19,12 @@ from bokeh.models import (
     ColumnDataSource, 
     DataTable, 
     TableColumn,
+    AllIndices,
     BooleanFilter,
     CDSView
 )
 from bokeh.layouts import column
+from bokeh.transform import transform
 
 from .... import settings
 
@@ -43,6 +45,7 @@ from ...layout.layer import (
 )
 
 from .utils.selection import native_selection, selection_indices
+from .utils.hover_names import HoverNames
 
 NOT_SEQUENCED_VAL = settings.NOT_SEQUENCED_VAL
 
@@ -82,6 +85,9 @@ class Layer:
         else:
             self.manager = SourceManager(sample)
         self.manager.component = self
+        # Lazy layers keep row names on the server; hover fetches them on demand
+        self.hover_names = (HoverNames(lambda: self.manager.loaded_obs_names, lambda: self.manager.row_version)
+                            if lazy_loading else None)
 
         self.hover_color = hover_color
         self.alias = alias
@@ -140,9 +146,23 @@ class Layer:
     
     @property
     def view(self):
-        if not self._view:
-            self._view = [True] * self.manager.n_geometries
+        if self._view is None or len(self._view) == 0:
+            self._view = np.ones(self.manager.n_geometries, dtype=bool)
         return self._view
+
+    def make_view(self):
+        """CDSView for a new glyph: no filter at all while every row is shown."""
+        booleans = np.asarray(self.view, dtype=bool)
+        return CDSView(filter=AllIndices() if booleans.all() else BooleanFilter(booleans=booleans))
+
+    def glyph_specs(self):
+        """Glyph property → source column; colour-coded columns go through their
+        parameter's palette."""
+        return {param.attr: transform(param.attr, param.mapper) if getattr(param, 'mapper', None) is not None
+                else param.attr for param in self.manager.parameters}
+
+    def apply_glyph_constants(self, constants):
+        """Per-level constants (bin width/height/angle) for glyphs that use them."""
     
     @staticmethod
     def _remove_export(path):
@@ -224,7 +244,7 @@ class Layer:
 
     @property
     def obs_name_values(self):
-        return np.asarray(self.manager.source.data.get("obs_name", []), dtype=str)
+        return np.asarray(self.manager.loaded_obs_names, dtype=str)
 
     def get_selected_obs_names(self):
         return set(self.selected_obs_names)
@@ -374,8 +394,7 @@ class Layer:
 
         if len(items) > 0:
             return ", ".join(items)
-        else:
-            return "@obs_name"
+        return HoverNames.TEMPLATE if self.hover_names is not None else "@obs_name"
 
     def add_hover(self):
         if not self.glyph_renderer:
@@ -383,18 +402,35 @@ class Layer:
         if self.hover is None:
             self.hover = HoverTool(
                 tooltips=self.get_hover_tooltips(),
-                renderers=[self.glyph_renderer]
+                renderers=[self.glyph_renderer],
+                formatters=self.hover_names.formatters if self.hover_names is not None else {},
             )
+            if self.hover_names is not None:
+                self.hover_names.bind(self.hover)
             self.figure.add_tools(self.hover)
         else:
             self.hover.update(renderers=[self.glyph_renderer], tooltips=self.get_hover_tooltips())
         
+    def sync_hover_names(self):
+        """Row positions changed (rows dropped or reloaded): cached names are stale."""
+        if self.hover_names is not None:
+            self.hover_names.sync_version()
+
     def update_hover_tooltips(self):
         if self.hover:
             self.hover.tooltips = self.get_hover_tooltips()
 
     def set_visibility(self, visible:bool, apply_checkbox=False):
         self.glyph_renderer.visible = visible
+        if self.lazy_loading and hasattr(self.manager, 'set_active'):
+            # Hidden: drop the rows and stop loading; shown: load the viewport
+            was_active = self.manager.active
+            self.manager.set_active(visible)
+            if not visible:
+                self._view = self.manager.view_filter.copy()
+                self.change_glyph_view()
+            elif not was_active and getattr(self, 'loader', None) is not None:
+                self.loader.force_reload()
         self.roi_manager.set_visible(visible)
         for widget in self._all_widgets:
             if widget is not self.checkbox or apply_checkbox:
@@ -413,8 +449,22 @@ class Layer:
         return self.checkbox
     
     def change_glyph_view(self):
-        if self._view:
-            self.glyph_renderer.view.filter = BooleanFilter(booleans=self._view)
+        """Show the rows of `_view`, sent as a binary mask and updated in place;
+        with every row visible no mask is sent at all."""
+        if self.glyph_renderer is None or self._view is None:
+            return
+        booleans = np.asarray(self._view, dtype=bool)
+        view = self.glyph_renderer.view
+        if booleans.all():
+            if not isinstance(view.filter, AllIndices):
+                view.filter = AllIndices()
+        elif isinstance(view.filter, BooleanFilter):
+            current = view.filter.booleans
+            if not (isinstance(current, np.ndarray) and current.shape == booleans.shape
+                    and np.array_equal(current, booleans)):
+                view.filter.booleans = booleans
+        else:
+            view.filter = BooleanFilter(booleans=booleans)
     
     @property
     def show_not_sequenced(self):
@@ -452,7 +502,7 @@ class Layer:
 
             if self.lazy_loading:
                 self.manager.view_filter = booleans.copy()
-            self._view = booleans.tolist()
+            self._view = booleans
             self.change_glyph_view()
 
         self.notsequenced_checkbox.on_change("active", on_checkbox_change)

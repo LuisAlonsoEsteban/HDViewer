@@ -222,8 +222,9 @@ each dataset's run folders to its own destination.
 
 Rendered tissue images are cached separately under
 `<dataset base directory>/tiles/padded-v2-<image-key>-<transform-key>/`.
-The folder contains PNG tiles and `manifest.json`; small images use one PNG in
-the same layout. The image key uses the resolved image path, file size, and
+The folder contains tiles (WebP by default, `VHD_TILE_FORMAT`) and `manifest.json`;
+small images use one image in the same layout. Older PNG caches are regenerated
+on first use. The image key uses the resolved image path, file size, and
 modification time. The transform key includes image scale, padding, output size,
 and image shape. Matching image/transform caches are reused with overwrite off;
 different padding or transforms can produce multiple folders for the same image.
