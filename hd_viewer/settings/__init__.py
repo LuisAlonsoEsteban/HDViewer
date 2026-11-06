@@ -1,7 +1,6 @@
 
 from pathlib import Path
 import os
-from bokeh.palettes import Category20, Category20b, Category20c, Dark2, Muted, Set1
 
 
 # Paths and services
@@ -91,6 +90,7 @@ N_PCS = 30
 N_NEIGHBORS = 15
 MARKER_GENE_COUNT = 5
 METADATA_MARKER_GENE_COUNT = 10
+QC_SCATTER_MAX_POINTS = 50000        # React UI: QC scatters show a random subset beyond this
 MIN_GENE_CELLS = 3
 NORMALIZATION_TARGET_SUM = 1e4
 
@@ -178,9 +178,20 @@ PARAMETER_ALPHA_SPEC = dict(low=0, high=1, value=1.0, not_sequenced=0.3, minv=0.
 PARAMETER_WIDTH_SPEC = dict(low=0, high=20, value=1.0, not_sequenced=0.5, minv=0.5, maxv=4.0)
 CATEGORICAL_PALETTE = ['#e6194b', '#3cb44b', '#4363d8', '#f58231', '#911eb4', '#42d4f4', '#f032e6', '#bfef45', '#fabed4', '#469990', '#dcbeff', '#9A6324', '#fffac8', '#800000', '#aaffc3', '#808000', '#ffd8b1', '#000075', '#a9a9a9', '#ffffff']
 PALETTE_EXCLUDED_GREYS = {'#c7c7c7', '#d9d9d9', '#7f7f7f', '#999999', '#666666', '#bdbdbd', '#969696', '#636363'}
-CLUSTER_PALETTE = [c for c in [*Category20[20], *Category20b[20], *Category20c[20]]
+# Bokeh's Category20/20b/20c, Set1, Dark2 and Muted palettes, copied so settings
+# (and every backend module) import without Bokeh
+_CATEGORY20 = ['#1f77b4', '#aec7e8', '#ff7f0e', '#ffbb78', '#2ca02c', '#98df8a', '#d62728', '#ff9896', '#9467bd', '#c5b0d5',
+               '#8c564b', '#c49c94', '#e377c2', '#f7b6d2', '#7f7f7f', '#c7c7c7', '#bcbd22', '#dbdb8d', '#17becf', '#9edae5']
+_CATEGORY20B = ['#393b79', '#5254a3', '#6b6ecf', '#9c9ede', '#637939', '#8ca252', '#b5cf6b', '#cedb9c', '#8c6d31', '#bd9e39',
+                '#e7ba52', '#e7cb94', '#843c39', '#ad494a', '#d6616b', '#e7969c', '#7b4173', '#a55194', '#ce6dbd', '#de9ed6']
+_CATEGORY20C = ['#3182bd', '#6baed6', '#9ecae1', '#c6dbef', '#e6550d', '#fd8d3c', '#fdae6b', '#fdd0a2', '#31a354', '#74c476',
+                '#a1d99b', '#c7e9c0', '#756bb1', '#9e9ac8', '#bcbddc', '#dadaeb', '#636363', '#969696', '#bdbdbd', '#d9d9d9']
+_SET1 = ['#e41a1c', '#377eb8', '#4daf4a', '#984ea3', '#ff7f00', '#ffff33', '#a65628', '#f781bf', '#999999']
+_DARK2 = ['#1b9e77', '#d95f02', '#7570b3', '#e7298a', '#66a61e', '#e6ab02', '#a6761d', '#666666']
+_MUTED = ['#CC6677', '#332288', '#DDCC77', '#117733', '#88CCEE', '#882255', '#44AA99', '#999933', '#AA4499']
+CLUSTER_PALETTE = [c for c in [*_CATEGORY20, *_CATEGORY20B, *_CATEGORY20C]
                    if c.lower() not in PALETTE_EXCLUDED_GREYS]
-GROUP_PALETTE = [c for c in [*Set1[9], *Dark2[8], *Muted[9]]
+GROUP_PALETTE = [c for c in [*_SET1, *_DARK2, *_MUTED]
                  if c.lower() not in PALETTE_EXCLUDED_GREYS]
 
 # Text autocomplete

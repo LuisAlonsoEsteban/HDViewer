@@ -91,19 +91,13 @@ def make_tile_app():
     @app.route("/<key>/<int:zoom>/<int:x>/<int:y>")
     @app.route("/<key>/<int:zoom>/<int:x>/<int:y>.<ext>")
     def get_tile(key, zoom, x, y, ext=None):
-        with _TILE_LOCK:
-            tile_set = _TILE_SETS.get(key)
-        if tile_set is None:
+        from ....core.tiles import resolve_tile
+        found = resolve_tile(key, zoom, x, y, ext)
+        if found is None:
             abort(404)
-        tiles_path, tile_ext = tile_set
-        if ext is not None and ext != tile_ext:
-            abort(404)
-        filepath = os.path.join(tiles_path, TILE_NAME.format(zoom=zoom, x=x, y=y, ext=tile_ext))
-        if not os.path.exists(filepath):
-            abort(404)
+        filepath, mimetype, etag = found
         # The key is content-versioned, so the response for this URL never changes.
-        response = send_file(filepath, mimetype=TILE_MIMETYPES.get(tile_ext, 'application/octet-stream'),
-                             etag=f"{key}-{zoom}-{x}-{y}", conditional=True, max_age=31536000)
+        response = send_file(filepath, mimetype=mimetype, etag=etag, conditional=True, max_age=31536000)
         response.headers['Cache-Control'] = TILE_CACHE_CONTROL
         response.headers.update(cors)
         return response

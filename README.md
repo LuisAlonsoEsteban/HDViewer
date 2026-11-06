@@ -40,8 +40,7 @@ The public server is free and open to all users. Uploaded data is private to you
 
 - Linux, macOS or Windows (WSL recommended on Windows).
 - Python **3.11** or newer.
-- Memory, as a rough guide: 16 GB RAM for 8/16 µm bins; 32–64 GB for 2 µm bins of
-  a full slide or cell segmentation.
+- Memory, as a rough guide: 16 GB RAM for 8/16 µm bins; 32–64 GB for 2 µm bins of a full slide or cell segmentation.
 - A recent desktop browser: Chrome, Firefox, Edge or Safari.
 - Optional: Docker or Apptainer/Singularity for cell segmentation and most
   deconvolution methods (see [below](#optional-segmentation-and-deconvolution)).
@@ -92,11 +91,31 @@ from your laptop and open <http://localhost:5006/hd_viewer> locally:
 ssh -L 5006:localhost:5006 -L 4000:localhost:4000 user@remote-host
 ```
 
+### New web interface (React, in progress)
+
+A new interface (React + a FastAPI backend, figures still drawn by Bokeh) is being
+built alongside the current one. It covers everything the interface above offers:
+loading data, the map (colouring, hover, selection, extra glyph parameters, image
+opacity), clustering, custom groups, ROIs, differential expression, deconvolution,
+metadata comparison, embeddings, the dataset summary, sample comparison and data
+downloads (.h5ad).
+
+```bash
+# once, to build the front end (needs Node.js 20+; e.g. conda create -n hdv-node -c conda-forge nodejs=22 uvicorn)
+cd frontend && npm ci && npm run build && cd ..
+# serve API + front end on one port (no tile server port needed)
+uvicorn hd_viewer.api.main:app --host 127.0.0.1 --port 8000
+```
+
+Open <http://localhost:8000>. For front-end development, run `npm run dev` in
+`frontend/` (it proxies `/api` to port 8000). Tests: `npm test` (unit) and, with a
+running server, `HDV_URL=http://127.0.0.1:8000 npx playwright test` (browser
+smoke test). Progress against the current interface: [`docs/parity.md`](docs/parity.md).
+
 ## Example datasets
 
 The loading screen offers every example dataset whose files are present on the
-machine. Datasets are looked up under `data/` in the repository (or the folder in
-`VHD_DATA_DIR`), with this layout:
+machine. Datasets are looked up under `data/` in the repository (or the folder in `VHD_DATA_DIR`), with this layout:
 
 ```text
 data/

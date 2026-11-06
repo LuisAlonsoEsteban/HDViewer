@@ -8,6 +8,7 @@ from bokeh.layouts import row
 from .... import settings
 from ...utils.loading import LoadingLogger
 
+from ....core.de_sets import cluster_label, de_colours, de_masks, de_options
 from ...operations.layer.de import (
     DEAnalysis,
     build_de_plots,
@@ -63,23 +64,10 @@ class DEManager:
 
     def _de_options(self, source):
         """Names of the sets available for DE, in display order."""
-        if source == "groups":
-            groups_manager = getattr(self.component, "groups_manager", None)
-            if groups_manager is None:
-                return []
-            return list(getattr(groups_manager, "_groups", {}))
-
-        clustering = self._clustering()
-        if clustering is None:
-            return []
-        names = []
-        for label in getattr(clustering, "_cluster_labels", []):
-            name = f"{self.CLUSTER_PREFIX}{label}"
-            names.append(f"{name} (clustering)" if name in getattr(self.groups, "_groups", {}) else name)
-        return names
+        return de_options(source, getattr(self.component, "groups_manager", None), self._clustering())
 
     def _cluster_label(self, name):
-        return name[len(self.CLUSTER_PREFIX):].removesuffix(" (clustering)")
+        return cluster_label(name)
 
     def _clustering(self):
         manager = getattr(self.component, "clustering_manager", None)
@@ -92,31 +80,11 @@ class DEManager:
 
     def _de_masks(self, source, names):
         """Boolean membership per set, aligned with the sample's observations."""
-        if self.sample is None:
-            return {}
-        
-        obs = self.sample.adata.obs
-        if source == "groups":
-            groups_manager = getattr(self.component, "groups_manager", None)
-            if groups_manager is None:
-                return {}
-            return {
-                n: obs[f"{settings.GROUP_MASK_PREFIX}{n}"].astype(bool).to_numpy()
-                for n in names if f"{settings.GROUP_MASK_PREFIX}{n}" in obs.columns
-            }
-
-        labels = obs[self._clustering().cluster_col].astype(str)
-        return {n: (labels == self._cluster_label(n)).to_numpy() for n in names}
+        return de_masks(self.sample, source, names, getattr(self.component, "groups_manager", None),
+                        self._clustering())
 
     def _de_colors(self, source):
-        if source == "groups":
-            groups_manager = getattr(self.component, "groups_manager", None)
-            if groups_manager is None:
-                return {}
-            return dict(getattr(groups_manager, "_color_map", {}))
-
-        colors = self._clustering()._color_map
-        return {n: colors.get(self._cluster_label(n)) for n in self._de_options("clusters")}
+        return de_colours(source, getattr(self.component, "groups_manager", None), self._clustering())
 
     def _get_de_logger(self, doc):
         if getattr(self, "_de_logger", None) is None:

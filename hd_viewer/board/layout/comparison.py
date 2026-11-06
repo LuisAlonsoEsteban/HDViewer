@@ -27,7 +27,8 @@ from ... import settings
 from ...settings.config import comparison_kwargs
 from . import Panel
 from ..utils.loading import LoadingLogger
-from ...help.comparison import GENE_HELP, LOCAL_HELP, global_help
+from ...core import comparison
+from ...help.comparison import GENE_HELP
 
 
 class ComparisonPanel(Panel):
@@ -41,14 +42,7 @@ class ComparisonPanel(Panel):
     GLOBAL_HELP_HINT = "<i>&#9432; Click a metric to see what it captures.</i>"
     NONE = "(none)"
 
-    GENE_COLUMNS = [
-        ("spatial_pearson", "Spatial r"),
-        ("capture_ratio", "Capture"),
-        ("morans_i_sample1", "Moran low"),
-        ("morans_i_sample2", "Moran high"),
-        ("zero_fraction_sample1", "Zeros low"),
-        ("zero_fraction_sample2", "Zeros high"),
-    ]
+    GENE_COLUMNS = comparison.GENE_COLUMNS
 
     def __init__(self, doc):
         super().__init__(name="comparison_panel")
@@ -186,7 +180,7 @@ class ComparisonPanel(Panel):
         aliases = list(self.components.keys())
 
         # Default order: largest geometries are the low-res sample
-        by_area = sorted(aliases, key=lambda a: -self.components[a].sample.gdf.geometry.area.mean())
+        by_area = comparison.by_area({name: c.sample for name, c in self.components.items()})
         for select, default in ((self.sample1_select, by_area[:1]), (self.sample2_select, by_area[1:2])):
             select.options = aliases
             if select.value not in aliases and default:
@@ -214,23 +208,10 @@ class ComparisonPanel(Panel):
 
     def _celltype_options(self, component):
         """Deconvolution proportions (obsm DataFrames) first, then label columns of adata.obs."""
-        proportions = self._proportion_keys(component)
-        labels = [c for c in self._label_columns(component) if c not in proportions]
-        return [(k, f"{k} (proportions)") for k in proportions] + [(c, c) for c in labels]
+        return comparison.celltype_options(None if component is None else component.sample)
 
     def _label_columns(self, component):
-        if component is None:
-            return []
-        obs = component.sample.adata.obs
-        return [c for c in obs.columns
-                if not c.startswith(self.OBS_PREFIX) and not pd.api.types.is_numeric_dtype(obs[c])]
-
-    @staticmethod
-    def _proportion_keys(component):
-        if component is None:
-            return []
-        obsm = component.sample.adata.obsm
-        return [k for k in obsm.keys() if isinstance(obsm[k], pd.DataFrame)]
+        return comparison.label_columns(None if component is None else component.sample)
 
     def _key(self, select):
         return None if select.value == self.NONE else select.value
@@ -343,33 +324,13 @@ class ComparisonPanel(Panel):
         return oriented_name(canonical, self.swapped)
 
     def _flatten_global(self, global_metrics):
-        metrics, values = [], []
-        for key, value in global_metrics.items():
-            items = value.items() if isinstance(value, dict) else [(None, value)]
-            for sub, val in items:
-                metrics.append(key if sub is None else f"{key} [{sub}]")
-                values.append(float(val) if val is not None else np.nan)
-        return {"metric": metrics, "value": values,
-                "help": [html.escape(global_help(self._name(m)), quote=True) for m in metrics]}
+        rows = comparison.flatten_global(global_metrics, self.swapped)
+        return {"metric": [r["metric"] for r in rows], "value": [r["value"] for r in rows],
+                "help": [html.escape(r["help"], quote=True) for r in rows]}
 
     def _write_obs_columns(self, component, local):
         """Store the local metrics in the low-res adata.obs, NaN (not sequenced) where unmatched."""
-        obs = component.sample.adata.obs
-        obs_names = obs.index.astype(str)
-
-        metrics = []
-        for col in local.columns:
-            # The low-res sample's own clusters are already one of its columns
-            if col in ("obs_name", self._name("cluster_sample1")):
-                continue
-            values = pd.Series(local[col].to_numpy(), index=local["obs_name"].to_numpy())
-            if not pd.api.types.is_numeric_dtype(values) or pd.api.types.is_bool_dtype(values):
-                values = values.map(lambda v: str(v) if pd.notna(v) else np.nan)
-            else:
-                values = values.astype(float).replace([np.inf, -np.inf], np.nan)
-            obs[self.OBS_PREFIX + col] = values.reindex(obs_names).to_numpy()
-            metrics.append(col)
-        return metrics
+        return comparison.write_obs_columns(component.sample, local, self.swapped)
 
     def _clear_obs_columns(self, component):
         """Drop the metric columns of a previous run, returning the one on display (if any)."""
@@ -382,8 +343,7 @@ class ComparisonPanel(Panel):
         cache = component.manager.cache
         cache.drop(columns=[c for c in cache.columns if str(c).startswith(self.OBS_PREFIX)], inplace=True)
 
-        obs = component.sample.adata.obs
-        obs.drop(columns=[c for c in obs.columns if c.startswith(self.OBS_PREFIX)], inplace=True)
+        comparison.clear_obs_columns(component.sample)
         return shown
 
 
@@ -407,7 +367,7 @@ class ComparisonPanel(Panel):
 
     def _update_metric_help(self):
         metric = self.metric_select.value
-        self.metric_help.content = LOCAL_HELP.get(self._name(metric), "") if metric else "Choose a metric."
+        self.metric_help.content = comparison.local_help(metric, self.swapped) if metric else "Choose a metric."
 
     def _update_histogram(self):
         values = self._local_values(self.metric_select.value)

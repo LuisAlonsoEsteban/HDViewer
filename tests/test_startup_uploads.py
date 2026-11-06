@@ -59,7 +59,7 @@ class StartupUploadTests(unittest.TestCase):
             controller.segmentation_info = Div()
 
         with patch.object(StartupController, "_build_segmentation_widgets", skip_segmentation), \
-                patch("hd_viewer.startup.App"):
+                patch("hd_viewer.startup.controller.App"):
             self.startup = StartupController(Document())
         self.upload_dir = use_temporary_upload_dir(self, self.startup)
 
@@ -348,7 +348,7 @@ class StartupLoadsAssembledFilesTests(unittest.TestCase):
             controller.segmentation_info = Div()
 
         with patch.object(StartupController, "_build_segmentation_widgets", skip_segmentation), \
-                patch("hd_viewer.startup.App"):
+                patch("hd_viewer.startup.controller.App"):
             startup = StartupController(Document())
         upload_dir = use_temporary_upload_dir(self, startup)
         contents = {startup.h5_input: ("counts.h5", b"expression" * 5),
@@ -358,7 +358,7 @@ class StartupLoadsAssembledFilesTests(unittest.TestCase):
             upload_file(field, name, data, chunk_bytes=6)
         startup.resolution_select.value = "8"
         self.assertFalse(startup.load_button.disabled)
-        with patch("hd_viewer.startup.VisiumHD") as dataset, \
+        with patch("hd_viewer.startup.controller.VisiumHD") as dataset, \
                 patch.object(startup, "generate_tiles"), \
                 patch.object(startup, "generate_pseudospots"), \
                 patch.object(startup, "generate_segmentations"), \

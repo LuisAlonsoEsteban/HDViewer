@@ -4,7 +4,8 @@ from html import escape
 import numpy as np
 from bokeh.models import Button, Checkbox, CheckboxGroup, Div, MultiChoice, Select
 
-from ...operations.layer.metadata_comparison import compare_metadata, compare_metadata_to_rest, rest_mask, numeric_columns, build_metadata_plot
+from ...operations.layer.metadata_comparison import (compare_metadata, compare_metadata_to_rest, rest_mask, numeric_columns,
+                                                         build_metadata_plot, metadata_presets)
 from ...utils.loading import LoadingLogger
 
 
@@ -29,21 +30,7 @@ class MetadataComparisonManager:
         return self.component.de_manager
 
     def _presets(self):
-        records = dict(self.sample.adata.uns.get('deconvolution_runs', {}))
-        if not records and 'deconvolution' in self.sample.adata.uns:
-            records['latest'] = self.sample.adata.uns['deconvolution']
-        specs = {}
-        numeric = set(numeric_columns(self.sample.adata.obs))
-        ordered = sorted(records.items(), key=lambda item: (1, int(item[0])) if str(item[0]).isdigit() else (0, str(item[0])))
-        for run, record in ordered:
-            for kind, title, unit in (('fraction', 'fractions', 'proportion'),
-                                      ('abundance', 'abundance', str(record.get('abundance_units', 'abundance')))):
-                pairs = [(str(col), str(label)) for col, label in zip(record.get(kind + '_columns', []), record.get('cell_types', []))
-                         if col in numeric]
-                if pairs:
-                    specs[f'{run}:{kind}'] = dict(title=f"Run {run}: {record.get('method', 'deconvolution')} {title}",
-                                                  labels=dict(pairs), unit=unit, fractions=kind == 'fraction')
-        return specs
+        return metadata_presets(self.sample.adata)
 
     def refresh_columns(self):
         if not self._layout_built:

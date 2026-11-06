@@ -5,8 +5,11 @@ import pandas as pd
 
 def _summary_factors(names, sample):
     allowed = getattr(sample, "AGGREGATION_FACTORS", ())
+    prefix = getattr(sample, "aggregate_obs_prefix", None)
+    if not allowed or prefix is None:          # spots and cells are never aggregated
+        return set()
     return {int(name.rsplit(":", 1)[1]) for name in names
-            if name.startswith(sample.aggregate_obs_prefix) and name.rsplit(":", 1)[1].isdigit()
+            if name.startswith(prefix) and name.rsplit(":", 1)[1].isdigit()
             and int(name.rsplit(":", 1)[1]) in allowed}
 
 

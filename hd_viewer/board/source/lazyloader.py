@@ -5,6 +5,7 @@ from bokeh.core.property.descriptors import UnsetValueError
 from bokeh.document import Document
 
 from ... import settings
+from ...core import viewport
 
 class LazyLoader:
 
@@ -38,11 +39,12 @@ class LazyLoader:
         else:
             self.manager.fetch_data()
 
+    @property
+    def _ranges(self):
+        return self.x_range.start, self.x_range.end, self.y_range.start, self.y_range.end
+
     def _ranges_valid(self):
-        values = (self.x_range.start, self.x_range.end, self.y_range.start, self.y_range.end)
-        if any(v is None or not math.isfinite(v) for v in values):
-            return False
-        return values[1] > values[0] and values[3] > values[2]
+        return viewport.ranges_valid(*self._ranges)
 
     def _check_ranges(self):
         """True si los rangos son válidos. Si BokehJS manda NaN (p.ej. mientras
@@ -62,53 +64,29 @@ class LazyLoader:
 
     @property
     def window_size(self):
-        return self.x_range.end - self.x_range.start, self.y_range.end - self.y_range.start
-    
+        return viewport.window_size(*self._ranges)
+
     @property
     def npixels(self):
         return self.window_size[0] * self.window_size[1]
-    
+
     @property
     def x(self):
-        return (self.x_range.start + self.x_range.end) / 2
-    
+        return viewport.center(*self._ranges)[0]
+
     @property
     def y(self):
-        return (self.y_range.start + self.y_range.end) / 2
-    
+        return viewport.center(*self._ranges)[1]
+
     @property
     def static_bbox(self):
-        return [
-            self.x - self.window_size[0] * self.STATIC_RANGE / 2,
-            self.x + self.window_size[0] * self.STATIC_RANGE / 2,
-            self.y - self.window_size[1] * self.STATIC_RANGE / 2,
-            self.y + self.window_size[1] * self.STATIC_RANGE / 2,
-        ]
-    
+        return viewport.static_bbox(*self._ranges, self.STATIC_RANGE)
+
     @property
     def compute_bbox(self):
-        return [
-            self.x - self.window_size[0] * (1 + self.OFFSET) / 2,
-            self.x + self.window_size[0] * (1 + self.OFFSET) / 2,
-            self.y - self.window_size[1] * (1 + self.OFFSET) / 2,
-            self.y + self.window_size[1] * (1 + self.OFFSET) / 2,
-        ]
-    
-    @staticmethod
-    def is_inside(x, y, bbox):
-        return x > bbox[0] and x < bbox[1] and y > bbox[2] and y < bbox[3]
+        return viewport.compute_bbox(*self._ranges, self.OFFSET)
 
-    def _get_hysteresis_bounds(self, factor):
-        next_factor = None
-        prev_factor = None
-        factors = getattr(self.manager.sample, "AGGREGATION_FACTORS", (1,))
-        if factor in factors:
-            idx = factors.index(factor)
-            if idx > 0:
-                prev_factor = factors[idx - 1]
-            if idx < len(factors) - 1:
-                next_factor = factors[idx + 1]
-        return prev_factor, next_factor
+    is_inside = staticmethod(viewport.is_inside)
 
     # Canvas width (px) assumed before the browser has reported the real one
     DEFAULT_CANVAS_PX = settings.DEFAULT_CANVAS_PX
@@ -130,7 +108,7 @@ class LazyLoader:
         """Figure units spanned by one screen pixel (the coarser axis)."""
         width = self._canvas_px(lambda: self.p.inner_width, lambda: self.p.width)
         height = self._canvas_px(lambda: self.p.inner_height, lambda: self.p.height, lambda: width)
-        return max(self.window_size[0] / width, self.window_size[1] / height)
+        return viewport.pixel_size(*self._ranges, width, height)
 
     def get_resolution_level(self):
         sample = self.manager.sample
@@ -150,33 +128,11 @@ class LazyLoader:
             self.window_size[0] / bin_w,
             self.window_size[1] / bin_h,
         )
-        factors = tuple(getattr(sample, "AGGREGATION_FACTORS", (1,)))
-        minimum = getattr(self.manager, 'minimum_aggregation_factor', None)
-        if minimum is not None:
-            factors = tuple(value for value in factors if value >= minimum) or (minimum,)
-            if self._last_factor < factors[0]:
-                self._last_factor = factors[0]
-        factor = factors[0]
-
-        for candidate in factors:
-            if max_span_in_bins / candidate <= settings.TARGET_BINS_PER_AXIS:
-                factor = candidate
-                break
-        else:
-            factor = factors[-1]
-
-        prev_factor, next_factor = self._get_hysteresis_bounds(self._last_factor)
-        if factor != self._last_factor:
-            if factor > self._last_factor and next_factor is not None:
-                promote_at = settings.TARGET_BINS_PER_AXIS * next_factor * (1 + self.HYSTERESIS_RATIO)
-                if max_span_in_bins < promote_at:
-                    factor = self._last_factor
-            elif factor < self._last_factor and prev_factor is not None:
-                demote_at = settings.TARGET_BINS_PER_AXIS * self._last_factor * (1 - self.HYSTERESIS_RATIO)
-                if max_span_in_bins > demote_at:
-                    factor = self._last_factor
-
-        self._last_factor = factor
+        factor, self._last_factor = viewport.aggregation_factor(
+            max_span_in_bins, getattr(sample, "AGGREGATION_FACTORS", (1,)), self._last_factor,
+            target_bins_per_axis=settings.TARGET_BINS_PER_AXIS, hysteresis_ratio=self.HYSTERESIS_RATIO,
+            minimum=getattr(self.manager, 'minimum_aggregation_factor', None),
+        )
         return sample.get_resolution_level_for_factor(factor)
 
     def add_range_callback(self, component, doc):
@@ -221,7 +177,7 @@ class LazyLoader:
                         # cuyas esquinas están a ~1.2*window del centro. Usamos
                         # (1+OFFSET)*window para no recortar nunca bins visibles
                         # y solo podar los de un paneo lejano anterior.
-                        prune_distance = max(self.window_size) * (1 + self.OFFSET)
+                        prune_distance = viewport.prune_distance(*self._ranges, self.OFFSET)
                         self.manager.remove_further_data(x, y, distance=prune_distance)
 
             doc.add_next_tick_callback(update_bbox)

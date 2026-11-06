@@ -27,41 +27,57 @@ from tests.test_spatial_alignment import fixture
 ROOT = Path(__file__).resolve().parents[1]
 
 
-class BackendBoundaryTests(unittest.TestCase):
-    def test_src_has_no_frontend_imports(self):
-        for path in (ROOT/'src').rglob('*.py'):
-            for node in ast.walk(ast.parse(path.read_text())):
-                names = [a.name for a in node.names] if isinstance(node,ast.Import) else [node.module or ''] if isinstance(node,ast.ImportFrom) else []
-                self.assertFalse(any(n=='bokeh_server' or n.startswith('bokeh_server.') for n in names), str(path))
+# Packages shared by the Bokeh UI and the HTTP API: they must not import Bokeh.
+BACKEND_PACKAGES = ('hd_viewer.core', 'hd_viewer.settings', 'hd_viewer.plugins', 'hd_viewer.startup.sample',
+                    'hd_viewer.startup.data', 'hd_viewer.startup.operations', 'hd_viewer.startup.utils')
+BACKEND_MODULES = ('hd_viewer.startup.datasets', 'hd_viewer.board.operations.comparison')
 
-    def test_all_backend_modules_and_analysis_work_when_frontend_imports_are_blocked(self):
-        code = textwrap.dedent('''
+
+def _module_files():
+    for package in BACKEND_PACKAGES:
+        yield from (ROOT / package.replace('.', '/')).rglob('*.py')
+    for module in BACKEND_MODULES:
+        yield ROOT / (module.replace('.', '/') + '.py')
+
+
+class BackendBoundaryTests(unittest.TestCase):
+    def test_backend_sources_have_no_bokeh_imports(self):
+        for path in _module_files():
+            for node in ast.walk(ast.parse(path.read_text())):
+                names = ([a.name for a in node.names] if isinstance(node, ast.Import)
+                         else [node.module or ''] if isinstance(node, ast.ImportFrom) else [])
+                self.assertFalse(any(n == 'bokeh' or n.startswith('bokeh.') for n in names), str(path))
+
+    def test_backend_imports_and_runs_with_bokeh_blocked(self):
+        code = textwrap.dedent(f'''
             import importlib, importlib.abc, pkgutil, sys
-            class NoFrontend(importlib.abc.MetaPathFinder):
+            class NoBokeh(importlib.abc.MetaPathFinder):
                 def find_spec(self, fullname, path=None, target=None):
-                    if fullname == 'bokeh_server' or fullname.startswith('bokeh_server.'):
-                        raise AssertionError('Backend attempted frontend import: ' + fullname)
-            sys.meta_path.insert(0, NoFrontend())
-            import src
-            for info in pkgutil.walk_packages(src.__path__, 'src.'):
-                importlib.import_module(info.name)
-            import anndata as ad
-            import numpy as np
-            import pandas as pd
-            from hd_viewer.board.operations.layer.deconvolution import deconvolve
+                    if fullname == 'bokeh' or fullname.startswith('bokeh.'):
+                        raise AssertionError('Backend imported ' + fullname)
+            sys.meta_path.insert(0, NoBokeh())
+            for name in {BACKEND_PACKAGES!r}:
+                package = importlib.import_module(name)
+                for info in pkgutil.walk_packages(getattr(package, '__path__', []), name + '.'):
+                    if '.plugins.' in info.name and info.name.endswith(('.run', '.sdk')):
+                        continue                    # container entry points, not app code
+                    importlib.import_module(info.name)
+            for name in {BACKEND_MODULES!r}:
+                importlib.import_module(name)
+            import numpy as np, pandas as pd, anndata as ad
             from hd_viewer.startup.sample._sample import Sample
-            reference = ad.AnnData(np.array([[10.,0.],[0.,10.]]),
-                obs=pd.DataFrame({'cell_type':['a','b']},index=['r1','r2']),var=pd.DataFrame(index=['g1','g2']))
-            target = ad.AnnData(np.array([[6.,4.],[3.,7.]]),
-                obs=pd.DataFrame(index=['s1','s2']),var=reference.var.copy())
-            result, genes = deconvolve(target, reference, 'cell_type')
-            np.testing.assert_allclose(result[['a','b']].sum(axis=1), 1.)
-            sample = Sample(pd.DataFrame({'index':['s1','s2']}), target)
-            assert sample.cluster_col == 'leiden'
-            assert not any(n=='bokeh_server' or n.startswith('bokeh_server.') for n in sys.modules)
+            from hd_viewer.core.encoding import CategoricalColor
+            target = ad.AnnData(np.array([[6., 4.], [3., 7.]]), obs=pd.DataFrame(index=['s1', 's2']),
+                                var=pd.DataFrame(index=['g1', 'g2']))
+            sample = Sample(pd.DataFrame({{'index': ['s1', 's2']}}), target)
+            sample.expression_scale = 'log1p'
+            assert np.isfinite(sample.get_value(colname='g1').to_numpy()).all()
+            codes = CategoricalColor('k', not_sequenced_val='#ccc').get_values(pd.Series(['a', None]))
+            assert list(codes) == [1, 0]
+            assert not any(n == 'bokeh' or n.startswith('bokeh.') for n in sys.modules)
         ''')
-        result = subprocess.run([sys.executable,'-c',code],cwd=ROOT,capture_output=True,text=True,timeout=120)
-        self.assertEqual(result.returncode,0,result.stdout+result.stderr)
+        result = subprocess.run([sys.executable, '-c', code], cwd=ROOT, capture_output=True, text=True, timeout=300)
+        self.assertEqual(result.returncode, 0, result.stdout + result.stderr)
 
 
 class BackendConfigurationTests(unittest.TestCase):
@@ -108,7 +124,7 @@ class BackendConfigurationTests(unittest.TestCase):
                             SPOT_BUFFER_QUAD_SEGS=8,GENE_CACHE_SIZE=3,MIN_GENE_CELLS=2), \
              patch('hd_viewer.startup.data.image.image.ImageProcessor',wraps=ImageProcessor) as image_factory, \
              patch('hd_viewer.startup.operations.bins2spots.Bins2Spots',wraps=Bins2Spots) as spots_factory, \
-             patch('hd_viewer.board.app.Bins',wraps=BackendBins) as bins_factory:
+             patch('hd_viewer.core.workspace.Bins',wraps=BackendBins) as bins_factory:
             AlignedIntegrationTests('test_startup_builds_aligned_image_before_native_layers').test_startup_builds_aligned_image_before_native_layers()
             self.assertEqual(image_factory.call_args.kwargs['tile_size'],32)
             self.assertEqual(spots_factory.call_args.kwargs['spot_buffer_quad_segs'],8)

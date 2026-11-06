@@ -262,7 +262,7 @@ class SegmentationSharingTests(unittest.TestCase):
         self.work = Path(self.temp.name)
 
     def test_service_is_one_per_process_and_does_not_detect_on_creation(self):
-        import hd_viewer.startup as startup
+        import hd_viewer.startup.controller as startup
         made = []
         with patch.object(startup, '_segmentation_service', None), \
                 patch.object(startup, 'segmentation_kwargs', return_value=dict(config={'runner': 'local'})), \

@@ -1,6 +1,5 @@
 
 import numpy as np
-import scanpy as sc
 import math
 
 from bokeh.layouts import column, row
@@ -8,6 +7,7 @@ from bokeh.models import ColumnDataSource, Div, TabPanel, Tabs, DataTable, Table
 from bokeh.plotting import figure
 
 from ... import settings
+from ...core import summary
 from . import Panel
 from ...help import help_header, tutorial_link
 
@@ -22,28 +22,10 @@ class MetadataPanel(Panel):
 
     def _compute_general_stats(self, geom):
         """Calcula las estadísticas numéricas para la tabla de resumen."""
-        adata = geom.sample.adata
-        n_total = geom.sample.n_geometries
-        n_not_seq = geom.sample.n_not_sequenced
-        n_seq = n_total - n_not_seq
-        pct_seq = round(100 * n_seq / n_total, 1) if n_total > 0 else 0
-
-        mean_umis = 0.0
-        if adata is not None and "total_counts" in adata.obs.columns:
-            mean_umis = round(float(adata.obs["total_counts"].mean()), 1)
-
-        umis_per_um2 = round(
-                float(
-                    mean_umis /
-                    geom.sample.get_unit_area_um2()
-                    if geom.sample.get_unit_area_um2() > 0
-                    else 0
-                ),
-                1
-            )
-        
+        stats = summary.general_stats(geom.sample)
         return {
-            "Values": [str(n_total), str(n_seq), str(n_not_seq), f"{pct_seq}%", str(mean_umis), str(umis_per_um2)]
+            "Values": [str(stats["total"]), str(stats["sequenced"]), str(stats["not_sequenced"]),
+                       f"{stats['pct_sequenced']}%", str(stats["mean_umis"]), str(stats["umis_per_um2"])]
         }
 
     def _build_general_tab(self, geometries):
@@ -102,10 +84,8 @@ class MetadataPanel(Panel):
                 continue
 
             try:
-                adata.var["mt"] = adata.var_names.str.startswith(("mt-", "MT-"))
-                if "pct_counts_mt" not in adata.obs.columns:
-                    sc.pp.calculate_qc_metrics(adata, qc_vars=["mt"], inplace=True, log1p=False)
-            except Exception as e:
+                summary.ensure_qc(adata)
+            except Exception:
                 continue
 
             obs = adata.obs

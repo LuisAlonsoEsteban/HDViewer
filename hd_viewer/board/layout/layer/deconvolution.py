@@ -1,24 +1,14 @@
 
-from functools import lru_cache
 from html import escape
-import json
-from urllib.parse import quote
 
-import numpy as np
-import pandas as pd
 from bokeh.layouts import column
 from bokeh.models import Button, Checkbox, Div, NumericInput, Select
 
 from .... import settings
-from ....settings.config import deconvolution_service_kwargs
-from ...operations.layer.deconvolution import DeconvolutionService, DeconvolutionResult, validate_result
+from ....core import deconvolution as core
 from ...utils.loading import LoadingLogger
 
-
-@lru_cache(maxsize=1)
-def _default_service():
-    # One queue and runner per viewer process, shared by all layers/sessions.
-    return DeconvolutionService(**deconvolution_service_kwargs())
+_default_service = core.default_service
 
 
 class DeconvolutionManager:
@@ -40,84 +30,20 @@ class DeconvolutionManager:
 
     @property
     def history(self):
-        return self.component.sample.adata.uns.get('deconvolution_runs', {})
+        return core.runs(self.component.sample)
 
     @property
     def cache_namespace(self):
         """Native input resolution and layer, independent of display aggregation."""
         sample = self.component.sample
-        size = self.source_bin_size_um or getattr(sample, 'bin_size', None)
-        resolution = 'native'
-        if size is not None:
-            size = float(size)
-            if np.isfinite(size) and size > 0:
-                label = f'{int(size):03d}' if size.is_integer() else f'{size:g}'.replace('.', 'p')
-                resolution = f'square_{label}um'
         kind = getattr(self.component, 'sample_type', type(sample).__name__.lower())
-        key = getattr(self.component, 'key', kind)
-        # Encode identifiers as individual directory names, including dots/slashes.
-        parts = [resolution, quote(str(kind), safe='').replace('.', '%2E')]
-        if key != kind:
-            parts.append(quote(str(key), safe='').replace('.', '%2E'))
-        return '/'.join(parts)
+        return core.cache_namespace(sample, kind, getattr(self.component, 'key', kind), self.source_bin_size_um)
 
     def apply_result(self, result, label_column):
-        if not isinstance(result, DeconvolutionResult):
-            fractions, genes = result
-            result = DeconvolutionResult(fractions.drop(columns='most_abundant', errors='ignore'), genes,
-                                         metadata=dict(method='nnls', version='0.1.0', params={}))
-
         sample = self.component.sample
-        validate_result(result, sample.adata.obs_names)
-        fractions = result.fractions.copy()
-        dominant = pd.Series(np.nan, index=fractions.index, dtype=object)
-        assigned = fractions.notna().any(axis=1)
-        dominant.loc[assigned] = fractions.loc[assigned].idxmax(axis=1)
-        fractions['most_abundant'] = dominant
-
-        # Validate everything before publishing under the sample lock.
-        with sample.fetch_lock:
-            run = 1
-            while str(run) in self.history or any(str(c).startswith(f'{self.DECONV_RESULT_PREFIX}{run}:') for c in sample.get_colnames()):
-                run += 1
-            prefix = f'{self.DECONV_RESULT_PREFIX}{run}:'
-            fraction_columns = [prefix + name for name in result.fractions.columns]
-            abundance_columns = []
-            for name, original in zip(fraction_columns, result.fractions.columns):
-                sample.adata.obs[name] = result.fractions[original].astype(float)
-            sample.adata.obs[prefix + 'most_abundant'] = dominant.astype('category')
-            if result.abundance is not None:
-                for i, original in enumerate(result.abundance.columns):
-                    # Separate namespace avoids collisions with biological cell-type names.
-                    name = f'{self.DECONV_RESULT_PREFIX}{run}_abundance:{i}'
-                    abundance_columns.append(name)
-                    sample.adata.obs[name] = result.abundance[original].astype(float)
-                sample.adata.obsm[f'deconvolution_{run}_abundance'] = result.abundance.copy()
-                sample.adata.obsm['deconvolution_abundance'] = result.abundance.copy()
-            else:
-                sample.adata.obsm.pop('deconvolution_abundance', None)
-            metadata = dict(
-                method=result.metadata.get('method', 'nnls'), version=result.metadata.get('version', ''),
-                params_json=json.dumps(result.metadata.get('params', {}), sort_keys=True),
-                reference_id=result.metadata.get('reference_id', ''), reference_path=self.reference_path or '',
-                reference_name=self.reference_name or '', label_column=label_column,
-                cell_types=list(result.fractions.columns), genes=result.genes,
-                fraction_columns=fraction_columns, abundance_columns=abundance_columns,
-                abundance_units=result.metadata.get('abundance_units', ''),
-                fraction_units=result.metadata.get('fraction_units', 'relative fraction'),
-                log_path=result.metadata.get('log_path', ''), run_id=result.metadata.get('run_id', ''),
-                cache_namespace=result.metadata.get('cache_namespace', ''),
-            )
-            sample.adata.obsm['deconvolution'] = fractions
-            sample.adata.obsm[f'deconvolution_{run}'] = fractions.copy()
-            sample.adata.uns['deconvolution'] = metadata
-            sample.adata.uns.setdefault('deconvolution_runs', {})[str(run)] = metadata.copy()
-            means = list(sample.adata.uns.get('mean_obs_columns', []))
-            sample.adata.uns['mean_obs_columns'] = list(dict.fromkeys(means + fraction_columns))
-            if hasattr(sample, 'clear_multiscale_cache'):
-                sample.clear_multiscale_cache()
-        self.columns = fraction_columns
-        self.current_run = str(run)
+        run = core.publish_result(sample, result, label_column, self.reference_path, self.reference_name)
+        self.columns = list(core.runs(sample)[run]['fraction_columns'])
+        self.current_run = run
         self.component.refresh_completions()
 
     def get_widgets(self, doc):
@@ -259,13 +185,7 @@ class DeconvolutionManager:
                 return
             # Snapshot counts/annotations while on the document thread. Later UI edits
             # cannot change which input data a background run consumes.
-            sample = self.component.sample
-            with sample.fetch_lock:
-                import anndata as ad
-                target = ad.AnnData(sample.adata.X.copy(), obs=pd.DataFrame(index=sample.adata.obs_names.copy()),
-                                    var=pd.DataFrame(index=sample.adata.var_names.copy()))
-                if name == 'spacexr' and 'spatial' in sample.adata.obsm:
-                    target.obsm['spatial'] = sample.adata.obsm['spatial'].copy()
+            target = core.snapshot_target(self.component.sample, name)
             reference = self.reference
             work_dir = self.work_dir
             cache_namespace = self.cache_namespace

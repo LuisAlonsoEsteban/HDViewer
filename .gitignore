@@ -17,3 +17,11 @@ segmentation/images/
 *.sif
 
 tmp
+
+# React front end: build output and local test artifacts
+hd_viewer/api/dist/
+frontend/node_modules/
+frontend/test-results/
+frontend/playwright-report/
+frontend/test-results-*/
+test-results/

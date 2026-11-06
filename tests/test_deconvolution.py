@@ -138,7 +138,7 @@ class DeconvolutionTests(unittest.TestCase):
             upload_file(field, name, b"unused")
         # Exercise the actual preparation entry point without loading spatial data.
         with patch("anndata.read_h5ad", wraps=ad.read_h5ad) as read, \
-             patch("hd_viewer.startup.VisiumHD"), \
+             patch("hd_viewer.startup.controller.VisiumHD"), \
              patch.object(startup, "generate_tiles"), \
              patch.object(startup, "generate_pseudospots"), \
              patch.object(startup, "generate_segmentations"), \
@@ -188,7 +188,7 @@ class DeconvolutionTests(unittest.TestCase):
                 startup = StartupController(ImmediateDoc())
                 startup.data_source.active = 1
                 startup.example_select.value = key
-                with patch('hd_viewer.startup.VisiumHD'), \
+                with patch('hd_viewer.startup.controller.VisiumHD'), \
                      patch.object(startup, 'generate_tiles') as tiles, \
                      patch.object(startup, 'generate_pseudospots'), \
                      patch.object(startup, 'generate_segmentations') as segmentation, \

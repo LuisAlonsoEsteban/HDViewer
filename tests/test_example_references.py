@@ -39,7 +39,7 @@ class ExampleReferenceTests(unittest.TestCase):
                 self.assertFalse(startup.reference_input.complete)
                 self.assertFalse(startup.reference_annotations_input.complete)
                 self.assertIsNone(startup._reference_upload_error())
-                with patch("hd_viewer.startup.VisiumHD", return_value=dataset), \
+                with patch("hd_viewer.startup.controller.VisiumHD", return_value=dataset), \
                      patch.object(startup, "generate_tiles"), \
                      patch.object(startup, "generate_pseudospots"), \
                      patch.object(startup, "generate_segmentations"), \
@@ -78,7 +78,7 @@ class ExampleReferenceTests(unittest.TestCase):
         self.assertFalse(startup.reference_input_widget.visible)
         self.assertIsNone(startup._reference_upload_error())
         with patch("hd_viewer.startup.data.singlecell.read_reference") as read, \
-             patch("hd_viewer.startup.VisiumHD"), \
+             patch("hd_viewer.startup.controller.VisiumHD"), \
              patch.object(startup, "generate_tiles") as tiles, \
              patch.object(startup, "generate_pseudospots"), \
              patch.object(startup, "generate_segmentations"), \

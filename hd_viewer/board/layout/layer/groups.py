@@ -11,14 +11,12 @@ from bokeh.models import (
 from bokeh.layouts import column, row
 
 from .... import settings
-from ...utils.palette import GROUP_PALETTE, palette_color
 from ...utils.loading import LoadingLogger
 from ....startup.utils.progress import report, reporting
 
-OPERATORS  = [">", "<", ">=", "<=", "=="]
-GROUPS_COL = settings.GROUPS_COL
+from ....core.groups import GROUPS_COL, OPERATORS, GroupsState  # noqa: F401  (re-exported)
 
-class GroupsManager:
+class GroupsManager(GroupsState):
     """
     Manages creation of custom groups based on gene/metadata conditions.
     Stores results in adata.obs[GROUPS_COL], same structure as leiden.
@@ -28,23 +26,11 @@ class GroupsManager:
 
     def __init__(self, component):
         self.component = component
-
-        self._groups: dict = {}   # group_name → [conditions]
-        self._active_groups: set = set()
-
-        self._fixed_masks = {}
-        self._group_origins = {}
-        self._change_listeners = []
+        super().__init__()
         self._conditions: list = []   # conditions being built [(col, op, val, logic)]
-        
+
         self._group_checkbox = None
         self._group_layout = None
-
-        self._color_map: dict = {}
-        # Bumped whenever group masks are (re)written: the active-groups label
-        # column only needs rebuilding when masks or the active set change
-        self._mask_version = 0
-        self._groups_col_signature = None
 
         self._conditions_div = None
         self._status_div = None
@@ -52,82 +38,31 @@ class GroupsManager:
         self._operation_running = False
 
     @property
-    def sample(self):
+    def _base_sample(self):
         return self.component.manager.sample
 
-    @property
-    def has_groups(self) -> bool:
-        return (
-            GROUPS_COL in self.sample.adata.obs.columns
-            and len(self._groups) > 0
-        )
 
-    def add_change_listener(self, callback):
-        if callback not in self._change_listeners:
-            self._change_listeners.append(callback)
 
-    def remove_change_listener(self, callback):
-        if callback in self._change_listeners:
-            self._change_listeners.remove(callback)
 
-    def _notify_group_change(self):
-        for callback in list(self._change_listeners):
-            callback()
 
-    def group_for_roi(self, roi_id):
-        return next((name for name, origin in self._group_origins.items() if origin == roi_id), None)
 
     def add_mask_group(self, name, mask, doc, origin_roi_id=None, prepared=None):
         """Create a fixed membership group, independently of gene conditions."""
-        mask = np.asarray(mask, dtype=bool)
-        
-        if mask.shape != (self.sample.adata.n_obs,) or not mask.any():
-            raise ValueError("A group needs a nonempty mask aligned with the sample observations.")
-        if origin_roi_id is not None and self.group_for_roi(origin_roi_id):
-            return self.group_for_roi(origin_roi_id)
-        
-        base, suffix = name, 2
-        while name in self._groups:
-            name = f"{base} ({suffix})"
-            suffix += 1
-
-        self._fixed_masks[name] = pd.Series(mask.copy(), index=self.sample.adata.obs_names.copy())
-        self._groups[name] = []
-        self._group_origins[name] = origin_roi_id
-        self._active_groups.add(name)
-        
-        try:
-            self._apply_groups_to_adata(prepared)
-        except Exception:
-            self._groups.pop(name)
-            self._fixed_masks.pop(name)
-            self._group_origins.pop(name)
-            self._active_groups.discard(name)
-            self.sample.adata.obs.drop(columns=[f"{settings.GROUP_MASK_PREFIX}{name}"], errors="ignore", inplace=True)
-            raise
-        
-        self._rebuild_group_widgets(doc)
-        self._notify_group_change()
+        existing = self.group_for_roi(origin_roi_id) if origin_roi_id is not None else None
+        name = self.add_fixed_group(name, mask, origin_roi_id=origin_roi_id, prepared=prepared)
+        if existing is None:
+            self._rebuild_group_widgets(doc)
+            self._notify_group_change()
         return name
 
     def delete_group(self, name, doc, prepared=None):
         """Shared deletion path for condition groups and ROI snapshot groups."""
         if name not in self._groups:
             return
-        report(f"Removing group '{name}' and clearing its selection...")
-        mask_key = f"{settings.GROUP_MASK_PREFIX}{name}"
-        if mask_key in self.sample.adata.obs:
-            members = set(self.sample.adata.obs_names[self.sample.adata.obs[mask_key].astype(bool)])
+        members = self.members(name)
+        if members:
             self.component.set_selected_obs_names(self.component.get_selected_obs_names() - members)
-        del self._groups[name]
-        self._mask_version += 1
-        self._fixed_masks.pop(name, None)
-        self._group_origins.pop(name, None)
-        self._active_groups.discard(name)
-        self.sample.adata.obs.drop(columns=[f"{settings.GROUP_MASK_PREFIX}{name}"], errors="ignore", inplace=True)
-        if hasattr(self.sample, 'clear_multiscale_cache'):
-            self.sample.clear_multiscale_cache()
-        if self._groups:
+        if self.forget_group(name):
             self._apply_groups_to_adata(prepared)
         else:
             if GROUPS_COL in self.sample.adata.obs:
@@ -220,47 +155,12 @@ class GroupsManager:
                 return
 
 
-            if col in self.sample.adata.var_names:
-                try:
-                    float(val)
-                except ValueError:
-                    self._status_div.text = (
-                        "<p style='color:red;font-size:11px'>Gene expression conditions require a numeric value.</p>"
-                    )
-                    return
-
-                var_idx = {g: i for i, g in enumerate(self.sample.adata.var_names)}
-                expr = self.sample.adata.X[:, var_idx[col]]
-                if hasattr(expr, 'toarray'):
-                    expr = expr.toarray().flatten()
-                else:
-                    expr = np.asarray(expr).flatten()
-                self._status_div.text = (
-                    f"<p style='color:#4e9af1;font-size:11px'>"
-                    f"{col}: max={float(expr.max()):.2f}, "
-                    f"mean={float(expr.mean()):.3f}</p>"
-                )
-            elif col in self.sample.adata.obs.columns:
-                series = self.sample.adata.obs[col]
-                if pd.api.types.is_numeric_dtype(series):
-                    try:
-                        float(val)
-                    except ValueError:
-                        self._status_div.text = (
-                            "<p style='color:red;font-size:11px'>Numeric metadata requires a numeric value.</p>"
-                        )
-                        return
-                elif op in (">", "<", ">=", "<="):
-                    self._status_div.text = (
-                        "<p style='color:red;font-size:11px'>Only == is supported for non-numeric metadata values.</p>"
-                    )
-                    return
-                self._status_div.text = ""
-            else:
-                self._status_div.text = (
-                    "<p style='color:red;font-size:11px'>Unknown gene or metadata column.</p>"
-                )
+            try:
+                hint = self.check_condition(col, op, val)
+            except ValueError as exc:
+                self._status_div.text = f"<p style='color:red;font-size:11px'>{escape(str(exc))}</p>"
                 return
+            self._status_div.text = f"<p style='color:#4e9af1;font-size:11px'>{escape(hint)}</p>" if hint else ""
 
             self._conditions.append((col, op, val, logic))
             doc.add_next_tick_callback(_render_conditions)
@@ -283,32 +183,22 @@ class GroupsManager:
             cname = group_name_input.value.strip() or "Group A"
             if cname in self._groups:
                 self._status_div.text = (
-                    f"<p style='color:red;font-size:11px'>Group '{cname}' already exists.</p>"
+                    f"<p style='color:red;font-size:11px'>Group '{escape(cname)}' already exists.</p>"
                 )
                 return
 
             if self.logger.running:
                 return
             conditions = list(self._conditions)
-            groups = {**self._groups, cname: conditions}
 
-            def done(prepared):
-                self._groups[cname] = conditions
-                self._active_groups.add(cname)
-                try:
-                    self._apply_groups_to_adata(prepared)
-                except Exception:
-                    self._groups.pop(cname)
-                    self._active_groups.discard(cname)
-                    self.sample.adata.obs.drop(columns=[f"{settings.GROUP_MASK_PREFIX}{cname}"], errors="ignore", inplace=True)
-                    raise
+            def done(result):
+                self.commit_condition_group(*result)
                 self._conditions.clear()
                 _render_conditions()
                 self._rebuild_group_widgets(doc)
-                self._notify_group_change()
 
             self.run_group_action(doc, f"Creating group '{cname}'",
-                                  lambda: self._prepare_groups(groups), done,
+                                  lambda: self.prepare_condition_group(cname, conditions), done,
                                   f"Group '{escape(cname)}' created.")
 
         def on_delete_group():
@@ -423,12 +313,6 @@ class GroupsManager:
             return
         self._group_layout.children = self._build_group_widgets(doc)
 
-    def _count_spots_bool(self, cname: str) -> int:
-        col_key = f"{settings.GROUP_MASK_PREFIX}{cname}"
-        obs = self.sample.adata.obs
-        if col_key not in obs.columns:
-            return 0
-        return int(obs[col_key].astype(bool).sum())
 
     # ------------------------------------------------------------------
     # Visibility mask
@@ -448,13 +332,7 @@ class GroupsManager:
             if labels is not None and len(labels) == n_source:
                 visible = pd.Series(labels, dtype=object).isin(self._active_groups)
             else:
-                obs_names = pd.Series(mgr.loaded_obs_names, dtype=object)
-                visible = pd.Series(False, index=obs_names.index)
-                for gname in self._active_groups:
-                    col_key = f"{settings.GROUP_MASK_PREFIX}{gname}"
-                    if col_key in adata.obs.columns:
-                        in_group = obs_names.map(adata.obs[col_key].astype(bool))
-                        visible |= in_group.fillna(False).astype(bool)
+                visible = pd.Series(self.visible_mask(mgr.loaded_obs_names))
             visible = visible.to_numpy(dtype=bool)
         else:
             visible = pd.Series([False] * len(gdf), index=gdf.index)
@@ -474,17 +352,7 @@ class GroupsManager:
         if self.component.lazy_loading:
             mgr.view_filter = visible
 
-        signature = (id(adata), self._mask_version, tuple(self._groups), tuple(sorted(self._active_groups)))
-        if signature != self._groups_col_signature:
-            # Over every native observation: not on every stream or pan
-            col = pd.Series(None, index=adata.obs.index, dtype=object)
-            for gname in self._groups:
-                if gname in self._active_groups:
-                    col_key = f"{settings.GROUP_MASK_PREFIX}{gname}"
-                    if col_key in adata.obs.columns:
-                        col[adata.obs[col_key].astype(bool).to_numpy()] = gname
-            adata.obs[GROUPS_COL] = col
-            self._groups_col_signature = signature
+        self.refresh_active_labels()
 
         self.component._view = visible
         self.component.change_glyph_view()
@@ -520,41 +388,10 @@ class GroupsManager:
 
         logger.run(title, work, finish, failed)
 
-    def _prepare_groups(self, groups, fixed_masks=None):
-        """Prepare membership and labels without changing observations or Bokeh models."""
-        adata = self.sample.adata
-        fixed_masks = self._fixed_masks if fixed_masks is None else fixed_masks
-        masks = {}
-        labels = pd.Series(None, index=adata.obs_names, dtype=object)
-        for gname, conditions in groups.items():
-            report(f"Evaluating group '{gname}' ({adata.n_obs:,} observations)...")
-            key = f"{settings.GROUP_MASK_PREFIX}{gname}"
-            if key in adata.obs:
-                mask = adata.obs[key].astype(bool)
-            elif gname in fixed_masks:
-                mask = fixed_masks[gname].reindex(adata.obs_names, fill_value=False)
-            else:
-                mask = self._build_mask(conditions, adata)
-            masks[gname] = mask
-            labels.loc[mask] = gname
-            report(f"Group '{gname}': {int(mask.sum()):,} members")
-        report("Preparing group labels...")
-        return masks, labels.astype('category')
 
     def _apply_groups_to_adata(self, prepared=None):
-        adata = self.sample.adata
-        masks, labels = prepared if prepared is not None else self._prepare_groups(self._groups)
-
-        self._mask_version += 1
-        for gname, mask in masks.items():
-            adata.obs[f"{settings.GROUP_MASK_PREFIX}{gname}"] = mask.values
-            if gname not in self._color_map:
-                self._color_map[gname] = palette_color(GROUP_PALETTE, len(self._color_map))
-
-        adata.obs[GROUPS_COL] = labels
-        if hasattr(self.sample, 'clear_multiscale_cache'):
-            self.sample.clear_multiscale_cache()
-        
+        """Store the groups, then colour the map by them."""
+        self.store_groups(prepared)
         try:
             self.component.clustering_manager.apply_colors_to_column(GROUPS_COL)
         except ValueError:
@@ -583,68 +420,11 @@ class GroupsManager:
             self.component.manager.source.data = data
             self.component.manager.fetch_data()
 
-    def _rebuild_custom_groups_col(self):
-        adata = self.sample.adata
-        self._mask_version += 1
-        col   = pd.Series(None, index=adata.obs.index, dtype=object)
-        for gname in self._groups:
-            col_key = f"{settings.GROUP_MASK_PREFIX}{gname}"
-            if col_key in adata.obs.columns:
-                col[adata.obs[col_key].astype(bool)] = gname
-        adata.obs[GROUPS_COL] = col.astype('category')
 
     # ------------------------------------------------------------------
     # Build boolean mask from conditions
     # ------------------------------------------------------------------
 
-    def _build_mask(self, conditions, adata) -> pd.Series:
-        obs     = adata.obs
-        var_idx = {g: i for i, g in enumerate(adata.var_names)}
-        mask    = None
-
-        for col, op, val, logic in conditions:
-            report(f"Evaluating condition: {col} {op} {val}")
-            if col in var_idx:
-                expr = adata.X[:, var_idx[col]]
-                if hasattr(expr, 'toarray'):
-                    expr = expr.toarray().flatten()
-                else:
-                    expr = np.asarray(expr).flatten()
-                series = pd.Series(expr, index=obs.index)
-                try:
-                    val_f = float(val)
-                except ValueError as exc:
-                    raise ValueError(f"Gene condition '{col}' requires a numeric value.") from exc
-                ops = {'>': series > val_f, '<': series < val_f,
-                       '>=': series >= val_f, '<=': series <= val_f}
-                cond_mask = ops.get(op, series == val_f)
-            elif col in obs.columns:
-                series = obs[col]
-                if pd.api.types.is_numeric_dtype(series):
-                    try:
-                        val_f = float(val)
-                    except ValueError as exc:
-                        raise ValueError(f"Column '{col}' requires a numeric value for operator '{op}'.") from exc
-                    ops = {'>': series > val_f, '<': series < val_f,
-                           '>=': series >= val_f, '<=': series <= val_f}
-                    cond_mask = ops.get(op, series == val_f)
-                else:
-                    if op not in ("==",):
-                        raise ValueError(f"Operator '{op}' is only supported for numeric columns; use == for '{col}'.")
-                    cond_mask = series.astype(str) == str(val)
-            else:
-                continue
-
-            if mask is None:
-                mask = cond_mask
-            elif logic == "AND":
-                mask = mask & cond_mask
-            else:
-                mask = mask | cond_mask
-
-        if mask is None:
-            return pd.Series([False] * len(obs), index=obs.index)
-        return mask
 
     # ------------------------------------------------------------------
     # Utilities

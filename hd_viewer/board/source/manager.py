@@ -5,32 +5,13 @@ import numpy as np
 from bokeh.models import ColumnDataSource
 
 from ... import settings
+from ...core.layer_state import (  # noqa: F401  (re-exported)
+    LayerRows, ParameterSet, _compact, parameter_column, source_columns,
+)
 
 
-def _compact(array):
-    # Screen coordinates and styles need no double precision: half the bytes
-    return array.astype(np.float32) if array.dtype == np.float64 else array
-
-
-def source_columns(frame):
-    """Keep numeric columns binary-serializable; polygon/string columns stay lists.
-
-    Own the arrays so source updates cannot mutate a sample's cached DataFrame.
-    Object columns deliberately stay one-dimensional lists, including equal-size
-    polygon rings, which NumPy would otherwise expand into a rectangular array.
-    """
-    return {name: _compact(column.to_numpy(copy=True)) if column.dtype.kind in 'biuf'
-            else column.tolist() for name, column in frame.items()}
-
-
-def parameter_column(values, size):
-    if np.isscalar(values):
-        values = [values] * size
-    array = np.asarray(values)
-    return _compact(array) if array.dtype.kind in 'biuf' else list(values)
-
-
-class SourceManager:
+class SourceManager(ParameterSet):
+    """Static layers (spots): every row is loaded once into a ColumnDataSource."""
 
     def __init__(self, sample):
         self.sample = sample
@@ -47,24 +28,18 @@ class SourceManager:
     def n_geometries(self):
         return self.sample.n_geometries
 
+    @property
+    def _data(self):
+        return self.source.data
+
+    def _set(self, name, values):
+        self.source.data[name] = values
+
     def reset(self):
         self.source = ColumnDataSource(data={'x': [], 'y': []})
         for param in self.parameters:
             self.source.data[param.attr] = []
         self.is_empty = True
-
-    def get_param(self, attr):
-        for param in self.parameters:
-            if param.attr == attr:
-                return param
-        return None
-    
-    def get_params_by_colname(self, colname):
-        params = []
-        for param in self.parameters:
-            if not param.is_static and param.colname == colname:
-                params.append(param)
-        return params
 
     def get_nan_vector(self):
         return self.sample.get_obs_names().isna().to_numpy()
@@ -166,14 +141,6 @@ class SourceManager:
         if not self.get_params_by_colname(old_colname):
             self.source.data.pop(old_colname, None)
         
-    def get_colnames(self):
-        return list({param.colname for param in self.parameters if not param.is_static})
-
-    def _gene_parameters(self):
-        adata = self.sample.adata
-        return [param for param in self.parameters
-                if not param.is_static and adata is not None and param.colname in adata.var_names]
-
     def refresh_values(self):
         """Re-read gene values after the sample's expression scale changed."""
         for param in self._gene_parameters():
@@ -186,7 +153,7 @@ class SourceManager:
         colnames = self.get_colnames()
         if len(colnames) > 0:
             self.is_sequenced.clear()
-            self.is_sequenced += (~fetched_data[colnames[0]].isna()).to_numpy().tolist()
+            self.is_sequenced += (~fetched_data[self._sequenced_column(colnames)].isna()).to_numpy().tolist()
 
         for param in self.parameters:
             if not param.is_static:
@@ -211,23 +178,6 @@ class SourceManager:
             self.component.apply_selected_obs_names()
         self.is_empty = False
 
-    def _set_column(self, name, values):
-        """Assign a column unless it is unchanged (e.g. a colour picker edit only
-        changes the palette of a colour-coded column)."""
-        current = self.source.data.get(name)
-        if (isinstance(current, np.ndarray) and isinstance(values, np.ndarray)
-                and current.shape == values.shape and np.array_equal(current, values)):
-            return
-        self.source.data[name] = values
-
-    def colors(self, attr='color'):
-        """Displayed hex colours of a colour-coded attribute, row by row."""
-        param = self.get_param(attr)
-        values = self.source.data.get(attr, [])
-        if getattr(param, 'mapper', None) is None:
-            return list(values)
-        return param.decode(values)
-
     def update_param(self, attr, *args, **kwargs):
         param = self.get_param(attr)
         if param.is_static:
@@ -244,7 +194,6 @@ class SourceManager:
             self.component.apply_selected_obs_names()
 
 
-import math
 from concurrent.futures import ThreadPoolExecutor
 from functools import partial
 from time import perf_counter
@@ -253,61 +202,37 @@ from time import perf_counter
 FETCH_EXECUTOR = ThreadPoolExecutor(max_workers=settings.VIEWPORT_FETCH_WORKERS, thread_name_prefix="viewport-fetch")
 
 
-class DynamicSourceManager(SourceManager):
+class BokehSink:
+    """LayerRows sink writing to a Bokeh ColumnDataSource."""
 
-
-    def __init__(self, *args, **kwargs):
-        super().__init__(*args, **kwargs)
-        # Bumped whenever the loaded rows are dropped (new level, colours...): a
-        # background load started before that is stale and must not be added
-        self._generation = 0
-        self._in_flight = False
-        self._queued_doc = None
-        # Raw, non-hovered values remain on the server for slider/style changes.
-        # Only columns used by active parameters are retained.
-        self._value_cache = {}
-        self.indexes = []
-        self.bbox = None
-        self.fetch_kwargs = {}
-        self.resolution_level = None
-        self.fixed_aggregation_factor = None
-        self._context_callbacks = []
-        # Constant per display level (bins): sent once as glyph values, not per row
-        self.glyph_constants = {}
-        self._last_fetch_rows = 0
-        # A hidden layer keeps nothing loaded and fetches nothing until shown
-        self.active = True
-        # Row names stay on the server (hover asks for them): positions of
-        # `_obs_names` match the source rows; `row_version` changes with them
-        self._obs_names = np.empty(0, dtype=object)
-        self.row_version = 0
-        self.clear_sources()
+    def __init__(self, source):
+        self.source = source
 
     @property
-    def loaded_obs_names(self):
-        return self._obs_names
+    def data(self):
+        return self.source.data
 
-    def _rows_changed(self):
-        self.row_version += 1
-        sync = getattr(self.component, 'sync_hover_names', None)
-        if sync is not None:
-            sync()
+    def stream(self, columns):
+        self.source.stream(columns)
 
-    GLYPH_CONSTANTS = ('width', 'height', 'angle')
+    def replace(self, columns):
+        self.source.data = columns
 
-    def set_active(self, active):
-        """Hidden layers drop their rows (freeing the browser) and skip loads;
-        the caller reloads the viewport when the layer is shown again."""
-        if active == self.active:
-            return
-        self.active = active
-        if not active:
-            self.clear_sources()
+    def set(self, name, values):
+        self.source.data[name] = values
 
-    def needs_pruning(self):
-        """Drop far rows only once the loaded rows exceed a budget: every prune
-        resends all retained rows to the browser."""
-        return len(self.indexes) > settings.PRUNE_ROW_BUDGET * max(self._last_fetch_rows, 1)
+
+class DynamicSourceManager(LayerRows):
+    """Lazily loaded layers (bins, cells) of the Bokeh UI: core row logic plus a
+    ColumnDataSource, background loads on the document's loop and the layer
+    component's hooks (selection, tooltips, visibility masks, hover names)."""
+
+    def __init__(self, sample):
+        self.component = None
+        self._queued_doc = None
+        self._context_callbacks = []
+        self.source = ColumnDataSource(data={'x': [], 'y': []})
+        super().__init__(sample, sink=BokehSink(self.source))
 
     def on_context_change(self, callback):
         self._context_callbacks.append(callback)
@@ -316,268 +241,49 @@ class DynamicSourceManager(SourceManager):
         for callback in self._context_callbacks:
             callback()
 
-    @property
-    def n_geometries(self):
-        return len(self.indexes)
+    # -- LayerRows hooks -------------------------------------------------------
 
-    def clear_sources(self):
-        self._generation += 1
-        self.indexes.clear()
-        self.is_sequenced.clear()
-
-        self.cache = self.cache[0:0]
-        self._value_cache.clear()
-
-        if len(self.parameters) > 0:
-            attr_dict = {param.attr: [] for param in self.parameters}
-            hovered_dict = {param.colname: [] for param in self.parameters 
-                        if not param.is_static and param.colname_hovered}
-        else:
-            attr_dict = {}
-            hovered_dict = {}
-        
-        self.source.data = {
-            'x': [], 
-            'y': [], 
-            **attr_dict, 
-            **hovered_dict
-        }
-        self._obs_names = np.empty(0, dtype=object)
-        self._rows_changed()
-        self.view_filter = np.empty(0, dtype=bool)
+    def _on_context_change(self):
         self._notify_context_change()
 
-    def update_colname(self, old_colname, new_colname, attrs=None):
-        """Point the parameters reading `old_colname` at `new_colname`; with `attrs`,
-        only those attributes (other parameters may read the same column)."""
-        previous_level = self.effective_resolution_level
-        for param in self.get_params_by_colname(old_colname):
-            if attrs is not None and param.attr not in attrs:
-                continue
-            param.colname = new_colname
+    def _on_rows_changed(self):
+        sync = getattr(self.component, 'sync_hover_names', None)
+        if sync is not None:
+            sync()
 
-            if hasattr(param, "min_counts"):
-                min_val, max_val = self.sample.get_range(param.colname)
-                if isinstance(min_val, str):
-                    param.min_counts = 0
-                    param.max_counts = 1
-                else:
-                    param.min_counts = min_val
-                    param.max_counts = max_val
+    def _show_not_sequenced(self):
+        return self.component is None or self.component.show_not_sequenced
 
-        if not self._refresh_loaded_parameters(previous_level, refetch=True):
-            self.clear_sources()
-            self.fetch_data()
-
-    def refresh_values(self):
-        """Re-read gene values after the sample's expression scale changed,
-        keeping the loaded geometry when possible."""
-        params = self._gene_parameters()
-        if not params:
-            return
-        for param in params:
-            if hasattr(param, "min_counts"):
-                param.min_counts, param.max_counts = self.sample.get_range(param.colname)
-        if self._refresh_loaded_parameters(self.effective_resolution_level, refetch=True):
-            return
-        self.clear_sources()
-        if self.bbox is not None:
-            self.fetch_data()
-
-    def add_parameter(self, param):
-        # Replace any parameter already bound to this attribute (e.g. clustering
-        # swaps the static color for the cluster column)
-        previous_level = self.effective_resolution_level
-        existing_param = self.get_param(param.attr)
-        if existing_param is not None:
-            self.parameters.remove(existing_param)
-        self.parameters.append(param)
-
-        if param.is_static:
-            param.set_is_sequenced(self.is_sequenced)
-        elif self.sample.is_continous(param.colname):
-            param.min_counts, param.max_counts = self.sample.get_range(param.colname)
-
-        if self._refresh_loaded_parameters(previous_level, refetch=not param.is_static):
-            return
-
-        # Changed resolution or incomplete row coverage requires a full reload.
-        self.clear_sources()
-        if self.bbox is not None:
-            self.fetch_data()
-
-    def remove_parameter(self, attr):
-        param = self.get_param(attr)
-        if param is None:
-            return
-        previous_level = self.effective_resolution_level
-        self.parameters.remove(param)
-        if self._refresh_loaded_parameters(previous_level):
-            return
-        self.clear_sources()
-        if self.bbox is not None:
-            self.fetch_data()
-
-    def update_param(self, attr, *args, **kwargs):
-        param = self.get_param(attr)
-        if param.is_static:
-            self._set_column(param.attr, parameter_column(param.update(*args, **kwargs), len(self.indexes)))
-        elif param.colname in self.source.data or param.colname in self._value_cache:
-            values = self.source.data.get(param.colname, self._value_cache.get(param.colname))
-            series = pd.Series(values)
-            self.source.data[param.attr] = parameter_column(
-                param.update(series, *args, **kwargs), len(self.indexes))
-        else:
-            param.update(pd.Series(dtype=object), *args, **kwargs)
-            self.clear_sources()
-            self.fetch_data()
-            return
-
+    def _after_style_change(self):
         if self.component is not None:
             self.component.apply_selected_obs_names()
 
-    def _refresh_loaded_parameters(self, previous_level, refetch=False):
-        """Update values/style without retransmitting the loaded geometry.
-
-        A pan may have retained rows outside the latest fetch box. If a new
-        column cannot cover every loaded row, use the ordinary reload path.
-        In-flight requests and resolution changes also use that path.
-        """
-        if not self.active:
-            return True                 # nothing loaded; shown again → full reload
-        if (not self.indexes or self._in_flight
-                or previous_level != self.effective_resolution_level):
-            return False
-        colnames = self.get_colnames()
-        if refetch:
-            request = self._request(self.bbox)
-            fetched = self._fetch(dict(request, return_coords=False))
-            if not fetched.index.is_unique:
-                return False
-            positions = fetched.index.get_indexer(self.indexes)
-            if (positions < 0).any():
-                return False
-            values = {name: fetched[name].to_numpy()[positions] for name in colnames}
-        else:
-            values = {name: self.source.data.get(name, self._value_cache.get(name))
-                      for name in colnames}
-            if any(value is None for value in values.values()):
-                return False
-
-        if colnames:
-            self.is_sequenced[:] = (~pd.isna(values[colnames[0]])).tolist()
-        updates = {}
-        for param in self.parameters:
-            if not refetch and not param.is_static and param.attr in self.source.data:
-                continue
-            if param.is_static:
-                result = param.get_values(is_sequenced_values=self.is_sequenced)
-            else:
-                series = pd.Series(values[param.colname])
-                if param.colname.startswith('Group'):
-                    series = series.fillna('No asignado').astype(str)
-                result = param.get_values(series)
-                if param.colname_hovered:
-                    updates[param.colname] = parameter_column(values[param.colname], len(self.indexes))
-            # Static edits only need to send their own column. Other style
-            # columns have not changed if their raw values are unchanged.
-            if refetch or param.attr not in self.source.data or param.is_static:
-                updates[param.attr] = parameter_column(result, len(self.indexes))
-        hovered = {param.colname for param in self.parameters
-                   if not param.is_static and param.colname_hovered}
-        self._value_cache = {name: np.asarray(value) for name, value in values.items() if name not in hovered}
-        keep = {'x', 'y', 'obs_name', *updates,
-                *(param.attr for param in self.parameters), *hovered}
-        removed = set(self.source.data) - keep
-        if removed:
-            self.source.data = {**{key: value for key, value in self.source.data.items() if key in keep}, **updates}
-        else:
-            for name, value in updates.items():
-                self._set_column(name, value)
-        self.view_filter = np.ones(len(self.indexes), dtype=bool)
-        if (self.component is not None and not self.component.show_not_sequenced
-                and len(self.is_sequenced) == len(self.indexes)):
-            self.view_filter = np.asarray(self.is_sequenced, dtype=bool)
-        self._generation += 1
-        self._notify_context_change()
+    def _after_update(self):
         self._update_component()
-        return True
 
-    def get_nan_vector(self):
-        names = pd.Series(self.loaded_obs_names, dtype=object)
-        sequenced = names.isin(self.sample.adata.obs_names)
-        # Aggregated bins use display names rather than native observation names.
-        prefix = getattr(self.sample, 'aggregate_obs_prefix', None)
-        if prefix is not None:
-            summaries = names.dropna().astype(str)
-            summaries = summaries[summaries.str.startswith(prefix)]
-            suffixes = summaries.str.rsplit(':', n=1).str[-1]
-            factors = pd.to_numeric(suffixes[suffixes.str.isdigit()].unique()).astype(int)
-            for factor in factors:
-                if factor in self.sample.AGGREGATION_FACTORS:
-                    sequenced |= names.isin(self.sample.aggregation_names(factor).dropna())
-        return ~sequenced.to_numpy(dtype=bool)
+    def _update_component(self):
+        if self.component is not None:
+            apply_constants = getattr(self.component, "apply_glyph_constants", None)
+            if apply_constants is not None:
+                apply_constants(self.glyph_constants)
+            self.component.apply_selected_obs_names()
 
-    @property
-    def minimum_aggregation_factor(self):
-        """Cluster columns set a floor; larger display bins remain available."""
-        get_forced_factor = getattr(self.sample, "get_forced_aggregation_factor", None)
-        return get_forced_factor(self.get_colnames()) if get_forced_factor is not None else None
+            self.component.update_hover_tooltips()
+            cm = getattr(self.component, "clustering_manager", None)
+            gm = getattr(self.component, "groups_manager", None)
+            color_param = self.get_param('color')
+            # El color puede ser un StaticParameter (sin colname).
+            showing_groups = getattr(color_param, "colname", None) == settings.GROUPS_COL
+            if showing_groups and gm is not None and getattr(gm, "_groups", None):
+                gm._apply_visibility_mask()
+            elif (not showing_groups and cm is not None and getattr(cm, "is_clustered", False)
+                    and len(cm._active_clusters) < len(cm._cluster_labels)):
+                cm._apply_visibility_mask()
+            else:
+                self.component._view = self.view_filter.copy()
+                self.component.change_glyph_view()
 
-    @property
-    def effective_resolution_level(self):
-        requested = (self.sample.get_resolution_level_for_factor(self.fixed_aggregation_factor)
-                     if self.fixed_aggregation_factor is not None else self.resolution_level)
-        minimum = self.minimum_aggregation_factor
-        if minimum is None:
-            return requested
-        get_factor = getattr(self.sample, 'get_aggregation_factor', lambda level: 1)
-        return self.sample.get_resolution_level_for_factor(max(minimum, get_factor(requested)))
-
-    def set_aggregation_factor(self, factor):
-        """None follows zoom; 1 means native; other supported factors are fixed."""
-        if factor is not None and factor not in self.sample.AGGREGATION_FACTORS:
-            raise ValueError(f"Unsupported bin aggregation factor: {factor}")
-        minimum = self.minimum_aggregation_factor
-        if factor is not None and minimum is not None and factor < minimum:
-            raise ValueError(f"Displayed cluster columns require an aggregation factor of at least {minimum}.")
-        previous_level = self.effective_resolution_level
-        self.fixed_aggregation_factor = factor
-        if self.effective_resolution_level != previous_level:
-            self.clear_sources()
-        self._notify_context_change()
-
-    def set_fetch_context(self, bbox=None, resolution_level=None, **fetch_kwargs):
-        previous_level = self.effective_resolution_level
-        extra_changed = fetch_kwargs != self.fetch_kwargs
-
-        self.bbox = bbox
-        self.resolution_level = resolution_level
-        self.fetch_kwargs = fetch_kwargs
-        resolution_changed = self.effective_resolution_level != previous_level
-
-        if resolution_changed or extra_changed:
-            self.clear_sources()
-
-        self._notify_context_change()
-        return resolution_changed or extra_changed
-
-    def _request(self, bbox):
-        """Arguments of Sample.fetch_data for the current context."""
-        fetch_kwargs = dict(self.fetch_kwargs)
-        if self.effective_resolution_level is not None:
-            fetch_kwargs["resolution_level"] = self.effective_resolution_level
-        return dict(colnames=self.get_colnames(), bbox=bbox, **fetch_kwargs)
-
-    def _fetch(self, request):
-        with self.sample.fetch_lock:
-            return self.sample.fetch_data(**request)
-
-    def add_data(self, bbox=None):
-        request = self._request(bbox)
-        start = perf_counter()
-        fetched_data = self._fetch(request)
-        self._add_fetched(fetched_data, request, fetch_ms=(perf_counter() - start) * 1e3)
+    # -- background loads ---------------------------------------------------------
 
     def fetch_data_async(self, doc):
         """Like fetch_data, but Sample.fetch_data runs in a worker thread and the
@@ -622,159 +328,3 @@ class DynamicSourceManager(SourceManager):
             self._add_fetched(data, request, wait_ms=wait_ms, fetch_ms=fetch_ms)
         if self._queued_doc is not None and self.bbox is not None:
             self._start_async()
-
-    def _add_fetched(self, fetched_data, request, wait_ms=None, fetch_ms=None):
-        """Add the rows of `fetched_data` that are not loaded yet."""
-        if not self.active:
-            return
-        colnames = request["colnames"]
-        self._last_fetch_rows = fetched_data.shape[0]
-        new_data = fetched_data[~fetched_data.index.isin(self.indexes)].copy()
-
-        if new_data.shape[0] == 0:
-            return
-
-        constants = [name for name in self.GLYPH_CONSTANTS if name in new_data.columns]
-        for name in constants:
-            self.glyph_constants[name] = float(new_data[name].iloc[0])
-        new_data = new_data.drop(columns=constants)
-
-        new_is_sequenced = []
-        if len(colnames) > 0:
-            new_is_sequenced = (~new_data[colnames[0]].isna()).to_numpy().tolist()
-
-        for param in self.parameters:
-            if not param.is_static:
-                vector_datos = new_data[param.colname].copy()
-                if param.colname.startswith("Group"):
-                    vector_datos = vector_datos.fillna("No asignado").astype(str)
-
-                new_data[param.attr] = param.get_values(vector_datos)
-            else:
-                new_data[param.attr] = param.get_values(is_sequenced_values=new_is_sequenced)
-
-        cols_to_drop = [param.colname for param in self.parameters 
-                if not param.is_static and not param.colname_hovered
-                and not any(not other.is_static and other.colname == param.colname
-                            and other.colname_hovered for other in self.parameters)]
-        for name in set(cols_to_drop):
-            values = new_data[name].to_numpy(copy=True)
-            previous = self._value_cache.get(name)
-            self._value_cache[name] = values if previous is None else np.concatenate((previous, values))
-        new_data = new_data.drop(cols_to_drop, axis=1, inplace=False)
-        
-        names = new_data['obs_name'].to_numpy(dtype=object)
-        new_data = new_data.drop(columns=['obs_name'])
-        existing_cols = set(self.source.data.keys())
-        present_cols  = set(new_data.columns)
-
-        for missing in existing_cols - present_cols:
-            new_data[missing] = np.nan
-
-        extra = present_cols - existing_cols
-        if extra:
-            new_data = new_data.drop(columns=list(extra), inplace=False)
-
-        self.source.stream(source_columns(new_data))
-        self._obs_names = np.concatenate((self._obs_names, names))
-
-        self.indexes.extend(new_data.index.tolist())
-        new_visible = np.ones(new_data.shape[0], dtype=bool)
-        if (self.component is not None and not self.component.show_not_sequenced
-                and len(new_is_sequenced) == new_data.shape[0]):
-            new_visible = np.asarray(new_is_sequenced, dtype=bool)
-        self.view_filter = np.concatenate((self.view_filter, new_visible))
-        self.is_sequenced += new_is_sequenced
-
-        self._update_component()
-
-    def _update_component(self):
-        if self.component is not None:
-            apply_constants = getattr(self.component, "apply_glyph_constants", None)
-            if apply_constants is not None:
-                apply_constants(self.glyph_constants)
-            self.component.apply_selected_obs_names()
-
-            self.component.update_hover_tooltips()
-            cm = getattr(self.component, "clustering_manager", None)
-            gm = getattr(self.component, "groups_manager", None)
-            color_param = self.get_param('color')
-            # El color puede ser un StaticParameter (sin colname).
-            showing_groups = getattr(color_param, "colname", None) == settings.GROUPS_COL
-            if showing_groups and gm is not None and getattr(gm, "_groups", None):
-                gm._apply_visibility_mask()
-            elif (not showing_groups and cm is not None and getattr(cm, "is_clustered", False)
-                    and len(cm._active_clusters) < len(cm._cluster_labels)):
-                cm._apply_visibility_mask()
-            else:
-                self.component._view = self.view_filter.copy()
-                self.component.change_glyph_view()
-
-
-    def fetch_data(self):
-        if self.bbox is None or not self.active:
-            return
-        self.add_data(bbox=self.bbox)
-
-    def remove_indcs(self, rem_indcs):
-        if len(rem_indcs) == 0 or len(self.indexes) == 0:
-            return
-
-        rem_idx_set = set(rem_indcs)
-        keep_mask = ~pd.Index(self.indexes).isin(rem_idx_set)
-
-        new_source_data = {}
-        for key, values in self.source.data.items():
-            new_source_data[key] = (values[keep_mask] if isinstance(values, np.ndarray)
-                                    else [value for value, keep in zip(values, keep_mask) if keep])
-        self.source.data = new_source_data
-
-        self._value_cache = {name: values[keep_mask] for name, values in self._value_cache.items()}
-        if len(self.cache) == len(keep_mask):
-            self.cache = self.cache.iloc[keep_mask].reset_index(drop=True)
-        if len(self.is_sequenced) == len(keep_mask):
-            self.is_sequenced[:] = np.asarray(self.is_sequenced, dtype=bool)[keep_mask].tolist()
-
-        self.view_filter = self.view_filter[keep_mask]
-        self._obs_names = self._obs_names[keep_mask]
-        self._rows_changed()
-        if self.component is not None:
-            self.component._view = self.view_filter.copy()
-
-        indexes_array = np.asarray(self.indexes, dtype=object)
-        self.indexes = indexes_array[keep_mask].tolist()
-        self._update_component()
-
-    def remove_data(self, bbox):
-        fetch_kwargs = dict(self.fetch_kwargs)
-        if self.effective_resolution_level is not None:
-            fetch_kwargs["resolution_level"] = self.effective_resolution_level
-        fetched_data = self._fetch(dict(bbox=bbox, **fetch_kwargs))
-        removed_indexes = fetched_data['obs_name'].to_numpy()
-        self.remove_indcs(removed_indexes)
-
-    @staticmethod
-    def distance(p1, p2):
-        if isinstance(p2[0], tuple) or isinstance(p2[1], tuple):
-            p2 = (
-                sum(p2[0]) / len(p2[0]),
-                sum(p2[1]) / len(p2[1])
-            )
-            
-        return math.sqrt((p1[0] - p2[0])**2 + (p1[1] - p2[1])**2)
-
-    @staticmethod
-    def _centers(values):
-        if len(values) > 0 and np.ndim(values[0]) > 0:
-            return np.array([np.mean(v) if len(v) else np.nan for v in values], dtype=float)
-        return np.asarray(values, dtype=float)
-
-    def remove_further_data(self, x, y, distance=1000):
-        x_values = self._centers(self.source.data['x'])
-        y_values = self._centers(self.source.data['y'])
-
-        distances = np.hypot(x_values - x, y_values - y)
-        indexes_array = np.asarray(self.indexes, dtype=object)
-        
-        removed_indexes = indexes_array[distances > distance].tolist()
-        self.remove_indcs(removed_indexes)

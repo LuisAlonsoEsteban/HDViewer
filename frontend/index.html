@@ -1,0 +1,17 @@
+<!doctype html>
+<html lang="en">
+  <head>
+    <meta charset="UTF-8" />
+    <meta name="viewport" content="width=device-width, initial-scale=1.0" />
+    <title>VisiumVisualizer</title>
+    <meta name="description" content="Interactive exploration of Visium HD spatial transcriptomics: bins, pseudospots and segmented cells over the tissue image." />
+    <!-- BokehJS from the server's own Bokeh install: always the version that built the figures -->
+    <script src="./static/bokehjs/bokeh.min.js"></script>
+    <script src="./static/bokehjs/bokeh-gl.min.js"></script>
+    <script src="./static/bokehjs/bokeh-api.min.js"></script>
+  </head>
+  <body>
+    <div id="root"></div>
+    <script type="module" src="/src/main.tsx"></script>
+  </body>
+</html>

@@ -1,5 +1,4 @@
 
-from ..settings.config import sample_kwargs
 
 from .. import settings
 
@@ -18,7 +17,7 @@ from .layout import (
 
 from .components.image import ImageComponent
 
-from ..startup.sample import Bins, Spots, Cells
+from ..core.workspace import build_sample, micrometres_per_unit
 from .components.layer import Squares, Circles, Patches
 
 class App:
@@ -82,12 +81,9 @@ class App:
 
         spatial_transform = getattr(b2s, "spatial_transform", None)
 
+        sample = build_sample(sample_type, polygons, adata, b2s)
+
         if sample_type == "spots":
-            radius = (spatial_transform.pitch * b2s.converter.VisiumV2.SPOT_DIAMETER / (2 * b2s.bins_size)
-                      if spatial_transform is not None else
-                      b2s.converter.get_pixels(b2s.converter.VisiumV2.SPOT_DIAMETER) / 2 * b2s.tile_scale_xfactor)
-            sample = Spots(polygons, adata, radius=radius, **sample_kwargs())
-            sample.spatial_transform = spatial_transform
             geom = Circles('radius', self.figure_panel.p, sample, hover_color='green', alias='Spot')
             geom.sample_type = sample_type
             
@@ -110,19 +106,7 @@ class App:
             geom.manager.fetch_data()
 
         elif sample_type == "bins":
-            sample = Bins(
-                polygons,
-                adata,
-                on='index',
-                **sample_kwargs("bins"),
-                pixels_per_bin=b2s.converter.visiumHD.pixels_per_bin,
-                spatial_transform=spatial_transform,
-                bin_size=b2s.bins_size,
-                tile_scale_xfactor=b2s.tile_scale_xfactor,
-                tile_scale_yfactor=b2s.tile_scale_yfactor,
-            )
-            um_per_px = (float(sample.bin_size) / sample.pixels_per_bin
-                         if sample.pixels_per_bin and sample.bin_size > 0 else None)
+            um_per_px = micrometres_per_unit(sample)
             if spatial_transform is not None:
                 if self.figure_panel.measure_tool is not None:
                     self.figure_panel.measure_tool.set_transform(spatial_transform, um_per_px)
@@ -164,8 +148,6 @@ class App:
             geom.attach_loader(self.doc)
 
         elif sample_type == "cells":
-            sample = Cells(polygons, adata, **sample_kwargs("cells"))
-            sample.spatial_transform = spatial_transform
             n_cell_layers = sum(g.sample_type == "cells" for g in self.geometries)
             geom = Patches(
                 self.figure_panel.p, 

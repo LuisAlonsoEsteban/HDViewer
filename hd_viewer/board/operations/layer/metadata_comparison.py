@@ -20,6 +20,26 @@ def numeric_columns(frame):
             and not pd.api.types.is_complex_dtype(frame[name].dtype)]
 
 
+def metadata_presets(adata):
+    """Column sets of the saved deconvolution runs: '<run>:fraction' / '<run>:abundance' ->
+    dict(title, labels (column -> cell type), unit, fractions)."""
+    records = dict(adata.uns.get('deconvolution_runs', {}))
+    if not records and 'deconvolution' in adata.uns:
+        records['latest'] = adata.uns['deconvolution']
+    specs = {}
+    numeric = set(numeric_columns(adata.obs))
+    ordered = sorted(records.items(), key=lambda item: (1, int(item[0])) if str(item[0]).isdigit() else (0, str(item[0])))
+    for run, record in ordered:
+        for kind, title, unit in (('fraction', 'fractions', 'proportion'),
+                                  ('abundance', 'abundance', str(record.get('abundance_units', 'abundance')))):
+            pairs = [(str(col), str(label)) for col, label in zip(record.get(kind + '_columns', []), record.get('cell_types', []))
+                     if col in numeric]
+            if pairs:
+                specs[f'{run}:{kind}'] = dict(title=f"Run {run}: {record.get('method', 'deconvolution')} {title}",
+                                              labels=dict(pairs), unit=unit, fractions=kind == 'fraction')
+    return specs
+
+
 def compare_metadata(frame, masks, columns, statistic='mean'):
     """Summarize each column within each mask, retaining overlaps in every group.
 

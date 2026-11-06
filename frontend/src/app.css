@@ -1,0 +1,4 @@
+html, body, #root { height: 100%; margin: 0; }
+body { background: #14251f; }
+.map-host { position: absolute; inset: 0; }
+.bk-root, .map-host > div { width: 100%; height: 100%; }
