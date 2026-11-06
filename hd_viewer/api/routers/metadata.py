@@ -10,7 +10,7 @@ from bokeh.layouts import column
 from fastapi import APIRouter, Depends, HTTPException
 from pydantic import BaseModel, Field
 
-from ...board.operations.layer.metadata_comparison import (build_metadata_plot, compare_metadata,
+from ...analysis.metadata_comparison import (build_metadata_plot, compare_metadata,
                                                            compare_metadata_to_rest, metadata_presets,
                                                            numeric_columns, rest_mask)
 from ...core.de_sets import de_inputs, de_masks, de_options
@@ -35,7 +35,7 @@ def _presets(view):
     presets += [dict(key=key, title=spec["title"], unit=spec["unit"], fractions=spec["fractions"], all_columns=True,
                      columns=[dict(name=name, label=label) for name, label in spec["labels"].items()])
                 for key, spec in specs.items()]
-    # As the Bokeh UI: the latest run, preferring its fractions
+    # The latest run, preferring its fractions
     default = NUMERIC
     if specs:
         default = next(reversed(specs))
@@ -81,6 +81,7 @@ def compare(layer_id: str, body: CompareRequest, session=Depends(current_session
         labels = {column["name"]: column["label"] for column in spec["columns"]}
         if set(body.columns) - set(labels):
             raise HTTPException(422, "Selected metadata columns must exist and contain numeric values.")
+        generation = view.metadata["generation"]
         _, masks, colours, _ = de_inputs(sample, chosen, view.groups, view.clustering)
         if len(masks) != len(chosen):
             raise HTTPException(422, "A selected group or cluster no longer exists.")
@@ -116,6 +117,8 @@ def compare(layer_id: str, body: CompareRequest, session=Depends(current_session
         charts.append(chart)
     item = json_item(column(*charts, sizing_mode="stretch_width"), "metadata", theme=THEME)
     with view.lock:
+        if view.metadata["generation"] != generation:      # groups or clusters changed meanwhile
+            raise HTTPException(409, "The groups or clusters changed during the comparison; run it again.")
         view.metadata.update(item=item, compared=dict(chosen=chosen, include_rest=body.include_rest))
     return dict(ready=True, plots=len(charts))
 

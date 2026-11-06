@@ -4,16 +4,10 @@ import anndata as ad
 import geopandas as gpd
 import numpy as np
 import pandas as pd
-from bokeh.plotting import figure
 from shapely.geometry import box
 
-from hd_viewer.board.components.layer import Patches
 from hd_viewer.startup.sample import Cells
-
-
-class ImmediateDoc:
-    def add_next_tick_callback(self, callback):
-        callback()
+from tests.fixtures import loaded, make_view, show
 
 
 def make_cells(n=20):
@@ -24,35 +18,30 @@ def make_cells(n=20):
                                      for i in range(n) for j in range(n)], index=names)
     adata = ad.AnnData(np.ones((n * n, 2)), obs=pd.DataFrame(index=names),
                        var=pd.DataFrame(index=["g0", "g1"]))
-    plot = figure(x_range=(0, 1000), y_range=(0, 1000))
-    layer = Patches(plot, Cells(gdf, adata), lazy_loading=True, alias="Cell", key="cells_test")
-    layer.add_parameter(attr="alpha", colname="g0", colname_hovered=True)
-    layer.add_parameter(attr="color", static=True, val="#6baed6", not_sequenced_val="#b8b8b8")
-    layer.attach_loader(ImmediateDoc())
-    layer.loader.add_range_callback(layer, ImmediateDoc())
-    return layer, plot
+    return Cells(gdf, adata)
 
 
-def n_loaded(layer):
-    return len(layer.manager.loaded_obs_names)
+def make_cell_view(n=20, sample=None):
+    return make_view(make_cells(n) if sample is None else sample, kind="cells")
 
 
-def zoom_to(plot, x0, width):
-    plot.x_range.update(start=x0, end=x0 + width)
-    plot.y_range.update(start=x0, end=x0 + width)
+def zoom_to(view, x0, width, width_px=600, height_px=600):
+    """Show the square [x0, x0 + width]² (as the browser's range change does)."""
+    return show(view, x0, x0 + width, x0, x0 + width, width=width_px, height=height_px)
 
 
 class CellLoadingTests(unittest.TestCase):
     def test_cells_load_at_every_zoom(self):
-        layer, plot = make_cells()
-        self.assertEqual(n_loaded(layer), 400)                # whole slide: every cell
+        view = make_cell_view()
+        zoom_to(view, 0, 1000)
+        self.assertEqual(len(loaded(view)), 400)              # whole slide: every cell
 
-        zoom_to(plot, 0, 90)
-        self.assertGreater(n_loaded(layer), 0)
-        self.assertLess(n_loaded(layer), 400 // 4)            # only the visible region
+        zoom_to(view, 0, 90)
+        self.assertGreater(len(loaded(view)), 0)
+        self.assertLess(len(loaded(view)), 400 // 4)          # only the visible region
 
-        zoom_to(plot, 0, 1000)                                # back out: all again
-        self.assertEqual(n_loaded(layer), 400)
+        zoom_to(view, 0, 1000)                                # back out: all again
+        self.assertEqual(len(loaded(view)), 400)
 
 
 if __name__ == "__main__":

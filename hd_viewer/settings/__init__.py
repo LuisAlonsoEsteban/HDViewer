@@ -5,16 +5,6 @@ import os
 
 # Paths and services
 BASE_DIR = Path(__file__).resolve().parents[1]
-DOWNLOADABLE_DATA_PATH = (BASE_DIR / "static" / "data").resolve()
-# Tile server bind address/port. Use VHD_TILE_HOST=127.0.0.1 behind a reverse proxy.
-SERVER_HOST = os.environ.get("VHD_TILE_HOST", "0.0.0.0")
-TILE_SERVER_PORT = int(os.environ.get("VHD_TILE_PORT", 4000))
-DOWNLOAD_SERVER_PORT = 5002
-# URL the *browser* uses for tiles. Locally the tile server is reached directly;
-# on a public HTTPS host set VHD_TILE_URL=/tiles and proxy /tiles/ to the port.
-TILE_URL = os.environ.get("VHD_TILE_URL", f"http://localhost:{TILE_SERVER_PORT}").rstrip("/")
-# Exported .h5ad files are removed from the public static folder after this delay.
-DOWNLOAD_RETENTION_SECONDS = 600
 # Root of the bundled example datasets (see hd_viewer/startup/datasets.py).
 DATA_DIR = Path(os.environ.get("VHD_DATA_DIR", BASE_DIR.parent / "data")).resolve()
 
@@ -25,11 +15,9 @@ UPLOAD_DEFAULT_BIN_SIZE = 16
 # Largest single file accepted by the startup uploads (bytes; default 20 GiB).
 # Files are streamed to disk in chunks, so this bounds disk use, not memory.
 UPLOAD_MAX_BYTES = int(os.environ.get("VHD_UPLOAD_MAX_BYTES", 20 * 1024 ** 3))
-# Size of each upload chunk sent over the Bokeh websocket. Base64 adds a third,
-# so keep it well below Bokeh's default 20 MB websocket message limit.
+# Size of each upload chunk (one HTTP PUT of raw bytes); keep it below the reverse
+# proxy's request body limit (deploy/nginx-hdviewer.conf allows 16 MiB).
 UPLOAD_CHUNK_BYTES = 4 * 1024 ** 2
-PROGRESS_WIDTH = 560
-STARTUP_PROGRESS_REFRESH_MS = 50
 
 # Image tiles and grid fitting
 TILE_SIZE = 256
@@ -42,7 +30,6 @@ GRID_FIT_MAX_POINTS = 4096
 GRID_MAX_CONDITION_NUMBER = 1e10
 
 # Bins and aggregation
-DEFAULT_BIN_SIZE = 2.0
 AGGREGATED_PREFIX = "agg:"
 AGGREGATE_OBS_PREFIX = "summary:"
 AGGREGATION_FACTORS = (1, 2, 4, 8, 12)
@@ -63,8 +50,6 @@ STATIC_RANGE = 0.6
 OFFSET = 0.7
 HYSTERESIS_RATIO = 0.15
 TARGET_BINS_PER_AXIS = 180
-DEFAULT_CANVAS_PX = 800
-VIEWPORT_FETCH_WORKERS = 4
 GENE_CACHE_SIZE = 8
 # Far rows are dropped only once the loaded rows exceed this multiple of the
 # last viewport fetch (each prune resends every retained row)
@@ -72,7 +57,6 @@ PRUNE_ROW_BUDGET = 3
 assert STATIC_RANGE <= OFFSET, "Offset must be larger than the static range for efficient loading"
 
 # Clustering, embeddings and expression preprocessing
-CLUSTER_COLOR_LABEL = "cluster_color"
 CLUSTER_RESOLUTION = 0.9
 CLUSTER_ALGORITHM = "leiden"
 CLUSTER_N_CLUSTERS = 8
@@ -153,12 +137,6 @@ SEGMENTATION_PIDS_LIMIT = 4096
 # Map appearance and panel layout
 PLOT_MIN_HEIGHT = 180
 PLOT_BACKGROUND_COLOR = "#14251f"
-PANEL_SPLITS = {
-    "columns": {"sizes": [30, 45, 25], "minSize": 100, "gutterSize": 5},
-    "metadata": {"sizes": [50, 50], "minSize": 100, "gutterSize": 5},
-    "map": {"sizes": [75, 25], "minSize": [200, 80], "gutterSize": 8},
-    "right": {"sizes": [50, 50], "minSize": 100, "gutterSize": 5},
-}
 RULER_COLOR = "#ffd166"
 
 # Layer colours and drawing parameter defaults
@@ -170,7 +148,6 @@ NOT_SEQUENCED_ATTRS = {
     "color": "#b8b8b8",
     "alpha": 0.5,
 }
-NOT_SEQUENCED_VAL = {'spots': {'color': '#cccccc'}, 'bins': {'color': '#cccccc'}, 'cells': {'color': '#cccccc'}}
 CELL_LAYER_COLORS = ['#6baed6', '#fd8d3c', '#74c476', '#9e9ac8', '#f768a1', '#fdd0a2']
 PARAMETER_NOT_SEQUENCED_COLOR = "#f5f5f5"
 PARAMETER_COLOR_SPEC = dict(value="#ffffff", not_sequenced="#cccccc")
@@ -194,19 +171,9 @@ CLUSTER_PALETTE = [c for c in [*_CATEGORY20, *_CATEGORY20B, *_CATEGORY20C]
 GROUP_PALETTE = [c for c in [*_SET1, *_DARK2, *_MUTED]
                  if c.lower() not in PALETTE_EXCLUDED_GREYS]
 
-# Text autocomplete
-AUTOCOMPLETE_MIN_CHARACTERS = 2
-METADATA_INPUT_MIN_CHARACTERS = 1
-AUTOCOMPLETE_CASE_SENSITIVE = False
-AUTOCOMPLETE_SEARCH_STRATEGY = "starts_with"
-
-# Loading status
-MAX_LOG_LINES = 6
-LOADING_FONT_SIZE = 12
-LOADING_REFRESH_MS = 500
 
 # Deconvolution plugins have independent execution and cache configuration.
-DECONVOLUTION_ROOT = BASE_DIR / 'board' / 'operations' / 'layer' / 'deconvolution' / 'api'
+DECONVOLUTION_ROOT = BASE_DIR / 'analysis' / 'deconvolution' / 'api'
 DECONVOLUTION_CONFIG_PATH = DECONVOLUTION_ROOT / 'config.yaml'
 # Fallback for standalone layers; loaded datasets supply <data path>/deconvolution.
 DECONVOLUTION_WORK_DIR = UPLOAD_DIR / 'deconvolution'

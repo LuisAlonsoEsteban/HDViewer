@@ -1,11 +1,12 @@
 """One map layer as seen by one browser session.
 
 `LayerView` wraps the shared core.layer_state.LayerRows (with a recording sink)
-and adds what the Bokeh UI keeps in its layer components: the view geometry
+and adds the per-layer interface state: the view geometry
 decisions of the lazy loader, the colouring choices of the Color tab and the
 native selection. Every change returns the recorded operations, which the API
 sends as a binary frame (api.frames).
 """
+import math
 import threading
 
 import numpy as np
@@ -58,7 +59,9 @@ class LayerView:
                        running=None, compared=None)      # (source, names) being / last compared
         self.job = dict(name=None, state="idle", message="")      # clustering or DE (they exclude each other)
         self.deconvolution_job = dict(name="deconvolution", state="idle", message="")   # may take hours
-        self.metadata = dict(item=None, compared=None)       # last metadata comparison (Bokeh json_item)
+        # Last metadata comparison (Bokeh json_item); `generation` changes with groups and clusters,
+        # so a comparison computed meanwhile is discarded
+        self.metadata = dict(item=None, compared=None, generation=0)
         # Last embedding: method, embedded native obs names and coordinates; `version`
         # changes with the hover values (recolouring)
         self.embedding = dict(method=None, names=None, x=None, y=None, values=None, version=0)
@@ -68,6 +71,12 @@ class LayerView:
                                        not_sequenced_val=defaults["not_sequenced_alpha"], colname_hovered=True))
         self.rows.add_parameter(StaticParameter(colour, attr="color",
                                                 not_sequenced_val=settings.NOT_SEQUENCED_ATTRS["color"]))
+        if kind == "spots":
+            # The circle glyph reads a per-row radius: declare it before the first
+            # fetch, so even an empty state matches the figure's source
+            self.rows.coordinate_columns = ("x", "y", "radius")
+            if "radius" not in self.rows.sink.data:
+                self.rows.sink.data["radius"] = []
         self.rows.sink.take()
 
     # -- description -----------------------------------------------------------
@@ -80,19 +89,26 @@ class LayerView:
                     aggregation_factors=list(getattr(self.sample, "AGGREGATION_FACTORS", ())),
                     fixed_aggregation=self.rows.fixed_aggregation_factor)
 
+    def _value_label(self, name):
+        """A column's tooltip label; genes name the layer's expression scale."""
+        scale = self.sample.expression_scale
+        if name in self.sample.adata.var_names and scale != "counts":
+            return name + (" (log-normalized)" if scale == "log1p" else " (normalized)")
+        return name
+
     def tooltips(self):
         rows = [["Barcode", "$index{custom}"]]
+        shown = set()
         name = self.colour_by.get("name")
         if self.colour_by["kind"] != "static" and name in self.rows.sink.data:
-            label = name
-            if name in self.sample.adata.var_names and self.sample.expression_scale != "counts":
-                label += " (log-normalized)" if self.sample.expression_scale == "log1p" else " (normalized)"
-            rows.append([label, f"@{{{name}}}"])
+            rows.append([self._value_label(name), f"@{{{name}}}"])
+            shown.add(name)
         for param in self.extra_parameters():         # Parameters tab columns shown on hover
             column = getattr(param, "colname", None)
             if (not param.is_static and param.colname_hovered and column in self.rows.sink.data
-                    and all(row[0] != column for row in rows)):
-                rows.append([column, f"@{{{column}}}"])
+                    and column not in shown):
+                rows.append([self._value_label(column), f"@{{{column}}}"])
+                shown.add(column)
         return rows
 
     # -- extra glyph parameters (Parameters tab) -------------------------------------
@@ -133,7 +149,39 @@ class LayerView:
                     rows=len(rows.indexes), level=rows.effective_resolution_level,
                     constants=dict(rows.glyph_constants), palette=list(colour.palette),
                     palettes=self.parameter_palettes(),
-                    tooltips=self.tooltips(), visible=self.visible)
+                    tooltips=self.tooltips(), visible=self.visible, bins=self.bin_info())
+
+    # -- bin resolution readout (the map's overlay) ------------------------------------
+
+    def _native_geometry(self):
+        """(width, height, rotation°) of a native bin, measured on its footprint."""
+        if not hasattr(self, "_native"):
+            self._native = None
+            gdf = self.sample.gdf
+            if not gdf.empty:
+                corners = list(gdf.geometry.iloc[0].exterior.coords)
+                dx, dy = corners[1][0] - corners[0][0], corners[1][1] - corners[0][1]
+                hx, hy = corners[2][0] - corners[1][0], corners[2][1] - corners[1][1]
+                angle = (math.degrees(math.atan2(dy, dx)) + 90) % 180 - 90
+                self._native = (math.hypot(dx, dy), math.hypot(hx, hy), 0.0 if abs(angle) < 0.005 else angle)
+        return self._native
+
+    def bin_info(self):
+        """What the bins overlay shows: the displayed aggregation and its geometry."""
+        if self.kind != "bins":
+            return None
+        rows, sample = self.rows, self.sample
+        factor = sample.get_aggregation_factor(rows.effective_resolution_level)
+        native = self._native_geometry()
+        if factor > 1:
+            rotation = native[2] if native and getattr(sample, "spatial_transform", None) else 0.0
+            geometry = (sample.native_width * factor, sample.native_height * factor, rotation)
+        else:
+            geometry = native
+        return dict(factor=int(factor), width=geometry and float(geometry[0]), height=geometry and float(geometry[1]),
+                    rotation=geometry and float(geometry[2]), bin_size_um=getattr(sample, "bin_size", None),
+                    fixed=rows.fixed_aggregation_factor, minimum=rows.minimum_aggregation_factor,
+                    factors=[int(f) for f in getattr(sample, "AGGREGATION_FACTORS", ())])
 
     def visibility(self):
         """Rows to draw: the not-sequenced rule plus the shown clusters or groups."""
@@ -300,6 +348,8 @@ class LayerView:
         that compared re-clustered clusters or one of the removed `groups`; a
         metadata comparison against The rest also depends on every group
         (`groups_changed`). True if the DE results were dropped."""
+        if clusters or groups or groups_changed:
+            self.metadata["generation"] += 1
         compared = self.metadata["compared"]
         if compared and ((clusters and any(source == "clusters" for source, _ in compared["chosen"]))
                          or any(name in groups for _, name in compared["chosen"])
@@ -330,7 +380,7 @@ class LayerView:
         return [[int(i), str(names[i])] for i in positions if isinstance(i, int) and 0 <= i < len(names)]
 
     def select(self, row_version, positions):
-        from ..board.components.layer.utils.selection import native_selection
+        from ..core.selection import native_selection
         if row_version != self.rows.row_version:
             raise ValueError("stale rows")
         names = self.rows.loaded_obs_names
@@ -339,7 +389,7 @@ class LayerView:
         return len(self.selected)
 
     def selected_positions(self):
-        from ..board.components.layer.utils.selection import selection_indices
+        from ..core.selection import selection_indices
         return selection_indices(self.sample, self.selected, self.rows.loaded_obs_names)
 
     def column_names(self, query="", limit=50):

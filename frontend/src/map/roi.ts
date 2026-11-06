@@ -84,7 +84,10 @@ export function showDraft(id: string, outline: Outline | null): void {
 }
 
 /** A layer's saved ROI outlines, in their colours. */
+const shownOutlines = new Map<string, SavedOutline[]>();
+
 export function showOutlines(layer: string, outlines: SavedOutline[]): void {
+  shownOutlines.set(layer, outlines);
   const source = bridge.model(layer, "rois");
   if (source) {
     source.data = { xs: outlines.map((o) => o.xs), ys: outlines.map((o) => o.ys), color: outlines.map((o) => o.colour) };
@@ -96,4 +99,9 @@ export function focus(x0: number, x1: number, y0: number, y1: number): void {
   if (!plot) return;
   plot.x_range.setv({ start: x0, end: x1 });
   plot.y_range.setv({ start: y0, end: y1 });
+}
+
+/** Draw the outlines again on a newly embedded map figure. */
+export function restoreOutlines(): void {
+  shownOutlines.forEach((outlines, layer) => showOutlines(layer, outlines));
 }

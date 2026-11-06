@@ -20,7 +20,7 @@ from fastapi import APIRouter, Depends, HTTPException
 from pydantic import BaseModel
 
 from ... import settings
-from ...board.operations.comparison import compare_samples, oriented_name
+from ...analysis.comparison import compare_samples, oriented_name
 from ...core import comparison as core
 from ...settings.config import comparison_kwargs
 from ...startup.utils.progress import reporting

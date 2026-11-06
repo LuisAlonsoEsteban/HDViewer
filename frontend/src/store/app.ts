@@ -34,7 +34,27 @@ export interface Workspace {
 
 type Screen = "landing" | "loading" | "workspace";
 
-export interface Job { name: string | null; state: "idle" | "running" | "done" | "failed"; message: string }
+/** The displayed bins (frame headers of bins layers; the map's overlay). */
+export interface BinInfo {
+  factor: number;
+  width: number | null;
+  height: number | null;
+  rotation: number | null;
+  bin_size_um: number | null;
+  fixed: number | null;
+  minimum: number | null;
+  factors: number[];
+}
+
+export interface Job {
+  name: string | null;
+  state: "idle" | "running" | "done" | "failed";
+  message: string;
+  started?: number;      // ms since epoch, when the browser saw the run start
+  log?: string[];        // recent step messages of the run (newest last)
+}
+
+const LOG_LINES = 6;
 export type ResultKind = "de" | "metadata";
 
 interface State {
@@ -56,6 +76,8 @@ interface State {
   fail(message: string): void;
   setWorkspace(workspace: Workspace): void;
   updateLayer(id: string, changes: Partial<Layer>): void;
+  binInfo: Record<string, BinInfo>;
+  setBinInfo(layer: string, info: BinInfo): void;
 }
 
 export const useApp = create<State>((set) => ({
@@ -65,10 +87,19 @@ export const useApp = create<State>((set) => ({
   jobs: {},
   analysisVersion: {},
   results: null,
+  binInfo: {},
+  setBinInfo: (layer, info) => set((state) => ({ binInfo: { ...state.binInfo, [layer]: info } })),
   showResults: (layer, kind = "de") =>
     set((state) => ({ results: layer ? { layer, kind, run: (state.results?.run ?? 0) + 1 } : null })),
   setJob: (layer, job) =>
-    set((state) => ({ jobs: { ...state.jobs, [layer]: { ...state.jobs[layer], [job.name ?? ""]: job } } })),
+    set((state) => {
+      const previous = state.jobs[layer]?.[job.name ?? ""];
+      const continuing = previous?.state === "running" && job.state === "running";
+      const log = continuing ? [...(previous.log ?? [])] : [];
+      if (job.message && log[log.length - 1] !== job.message) log.push(job.message);
+      const entry = { ...job, started: continuing ? previous.started : Date.now(), log: log.slice(-LOG_LINES) };
+      return { jobs: { ...state.jobs, [layer]: { ...state.jobs[layer], [job.name ?? ""]: entry } } };
+    }),
   analysesChanged: (layer) =>
     set((state) => ({ analysisVersion: { ...state.analysisVersion, [layer]: (state.analysisVersion[layer] ?? 0) + 1 } })),
   setScreen: (screen) => set({ screen }),

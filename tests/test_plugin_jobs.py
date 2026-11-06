@@ -13,8 +13,8 @@ from unittest.mock import patch
 
 from hd_viewer.plugins.jobs import Cancelled, JobTable, JOBS
 from hd_viewer.plugins.runners import DockerRunner, ApptainerRunner, LocalRunner, RunnerError
-from hd_viewer.board.operations.layer.deconvolution import DeconvolutionService, discover as discover_deconv
-from hd_viewer.board.operations.layer.deconvolution.plugins import ROOT, SDK_DIR
+from hd_viewer.analysis.deconvolution import DeconvolutionService, discover as discover_deconv
+from hd_viewer.analysis.deconvolution.plugins import ROOT, SDK_DIR
 from hd_viewer.startup.data.image.segmentation import SegmentationService
 from tests.test_deconvolution import reference
 from tests.test_deconvolution_plugins import target
@@ -119,7 +119,7 @@ class CommandTests(unittest.TestCase):
 
 class CredentialTests(unittest.TestCase):
     def setUp(self):
-        from hd_viewer.board.operations.layer.deconvolution.cibersortx import CREDENTIALS
+        from hd_viewer.analysis.deconvolution.cibersortx import CREDENTIALS
         self.plugin = discover_deconv()['cibersortx']
         self.plugin.command = ['--mixture', 'mixture.tsv']
         self.plugin.secret_args = CREDENTIALS
@@ -160,8 +160,8 @@ class CredentialTests(unittest.TestCase):
         self.assertIn('/.singularity.d/runscript', argv[argv.index('-c') + 1])
 
     def test_cibersortx_bridge_keeps_credentials_out_of_the_command(self):
-        from hd_viewer.board.operations.layer.deconvolution.cibersortx import run
-        from hd_viewer.board.operations.layer.deconvolution.api.sdk.vhd_deconv import Job  # noqa: F401
+        from hd_viewer.analysis.deconvolution.cibersortx import run
+        from hd_viewer.analysis.deconvolution.api.sdk.vhd_deconv import Job  # noqa: F401
         plugin = discover_deconv()['cibersortx']
         with tempfile.TemporaryDirectory() as folder:
             root = Path(folder)
@@ -232,7 +232,7 @@ class JobTableTests(unittest.TestCase):
         self.assertTrue(slots.acquire(blocking=False) is False)
 
     def test_closing_the_session_kills_its_running_process(self):
-        from hd_viewer.startup import _cleanup_session
+        from hd_viewer.core.session import cleanup_session
         runner, errors = LocalRunner({}, **KWARGS), []
         started = threading.Event()
 
@@ -248,7 +248,7 @@ class JobTableTests(unittest.TestCase):
         thread.start()
         self.assertTrue(started.wait(10))
         start = time.monotonic()
-        _cleanup_session('session-x')
+        cleanup_session('session-x')
         thread.join(10)
         self.assertFalse(thread.is_alive())
         self.assertLess(time.monotonic() - start, 10)
@@ -262,14 +262,14 @@ class SegmentationSharingTests(unittest.TestCase):
         self.work = Path(self.temp.name)
 
     def test_service_is_one_per_process_and_does_not_detect_on_creation(self):
-        import hd_viewer.startup.controller as startup
+        import hd_viewer.core.pipeline as pipeline
         made = []
-        with patch.object(startup, '_segmentation_service', None), \
-                patch.object(startup, 'segmentation_kwargs', return_value=dict(config={'runner': 'local'})), \
+        with patch.object(pipeline, '_segmentation_service', None), \
+                patch.object(pipeline, 'segmentation_kwargs', return_value=dict(config={'runner': 'local'})), \
                 patch('hd_viewer.startup.data.image.segmentation.service.make_runner',
                       side_effect=lambda *a, **k: made.append(1) or LocalRunner({}, **KWARGS)):
             services = []
-            threads = [threading.Thread(target=lambda: services.append(startup.segmentation_service()))
+            threads = [threading.Thread(target=lambda: services.append(pipeline.segmentation_service()))
                        for _ in range(8)]
             for thread in threads:
                 thread.start()

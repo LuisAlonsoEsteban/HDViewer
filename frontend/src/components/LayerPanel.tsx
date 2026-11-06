@@ -1,7 +1,8 @@
 import { useEffect, useState } from "react";
 import { Autocomplete, Button, Checkbox, ColorInput, Select, Slider, Stack, Switch, Text } from "@mantine/core";
 import { getJson } from "../api/client";
-import { requestViewport, setStyle } from "../map/layers";
+import { bridge } from "../bokeh/bridge";
+import { requestViewport, sendSelection, setStyle } from "../map/layers";
 import { Layer, useApp } from "../store/app";
 
 /** Display controls of one layer (the Bokeh UI's General and Color tabs). */
@@ -51,14 +52,14 @@ export function LayerPanel({ layer }: { layer: Layer }) {
                 onChange={(e) => change({ show_not_sequenced: e.currentTarget.checked },
                                        { show_not_sequenced: e.currentTarget.checked })} />
       {layer.kind === "bins" && (
-        <Select label="Bin resolution" disabled={!layer.visible}
-                value={String(layer.fixed_aggregation ?? 0)}
-                data={[{ value: "0", label: "Follow zoom" },
-                       ...layer.aggregation_factors.map((f) => ({ value: String(f), label: f === 1 ? "Native" : `${f} × ${f} bins` }))]}
-                onChange={(value) => change({ aggregation: Number(value) },
-                                            { fixed_aggregation: Number(value) || null }, true)} />
+        <Text size="xs" c="dimmed">Bin resolution: see the box at the top right of the map.</Text>
       )}
       {error && <Text size="xs" c="red.4">{error}</Text>}
+      <Button size="xs" variant="default" disabled={!layer.visible}
+              onClick={async () => {
+                bridge.selectQuietly(bridge.model(layer.id, "source"), []);
+                await sendSelection(layer.id, []);
+              }}>Clear selection</Button>
       {/* The layer's AnnData with its clusters, groups and deconvolution results */}
       <Button component="a" size="xs" variant="default" href={`api/layers/${encodeURIComponent(layer.id)}/export`}
               download={`${layer.id}.h5ad`}>Download data (.h5ad)</Button>

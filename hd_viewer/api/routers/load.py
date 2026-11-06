@@ -63,6 +63,8 @@ def _config(session, body):
     reference, annotations = fields["reference"], fields["reference_annotations"]
     if not reference.complete and (annotations.complete or reference.status == reference.UPLOADING):
         raise HTTPException(422, "The single-cell reference has not finished uploading.")
+    if reference.complete and annotations.status == annotations.UPLOADING:
+        raise HTTPException(422, "The reference annotations have not finished uploading.")
     if body.bins_size not in (2, 8, 16):
         raise HTTPException(422, "Choose the bin size of the uploaded files (2, 8 or 16 µm).")
     return LoadConfig(img_path=str(fields["image"].path), adata_path=str(fields["expression"].path),
@@ -111,7 +113,11 @@ def start_load(body: LoadRequest, session=Depends(current_session)):
                 session.publish(dict(type="failed", task=task, message=message, fatal=False))
             with session.lock:
                 session.loaded = loaded
-                open_workspace(session)
+                try:
+                    open_workspace(session)
+                except Exception:
+                    session.loaded, session.views = None, {}
+                    raise
             session.load["state"] = "ready"
             session.publish(dict(type="ready"))
         except Exception as exc:

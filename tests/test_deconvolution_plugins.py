@@ -1,4 +1,4 @@
-"""Plugin contracts, real local NNLS, and viewer persistence/regression tests."""
+"""Plugin contracts, real local NNLS, and the viewer's run history and failures."""
 import io
 import json
 import os
@@ -14,16 +14,15 @@ import anndata as ad
 import numpy as np
 import pandas as pd
 from scipy import sparse
-from bokeh.models import Button, NumericInput, Select
-from bokeh.events import ButtonClick
 
-from hd_viewer.board.operations.layer.deconvolution import DeconvolutionService, DeconvolutionResult, discover, validate_result
-from hd_viewer.board.operations.layer.deconvolution.service import matrix_fingerprint
-from hd_viewer.board.operations.layer.deconvolution.plugins import ROOT, SDK_DIR
-from hd_viewer.board.operations.layer.deconvolution.api.sdk.vhd_deconv import write_table, read_table, Job
+from hd_viewer.analysis.deconvolution import DeconvolutionService, DeconvolutionResult, discover, validate_result
+from hd_viewer.analysis.deconvolution.service import matrix_fingerprint
+from hd_viewer.analysis.deconvolution.plugins import ROOT, SDK_DIR
+from hd_viewer.analysis.deconvolution.api.sdk.vhd_deconv import write_table, read_table, Job
 from hd_viewer.plugins.manifest import Param
 from hd_viewer.plugins.runners import DockerRunner, ApptainerRunner, RunnerError
-from tests.test_deconvolution import reference, ImmediateDoc
+from hd_viewer.core import deconvolution as core
+from tests.test_deconvolution import DeconvolutionApiTestCase, reference
 from tests.test_param_form import make_layer
 
 
@@ -261,7 +260,7 @@ class PluginServiceTests(unittest.TestCase):
     def test_reference_lock_wait_is_reported_and_released(self):
         import fcntl
         import threading
-        from hd_viewer.board.operations.layer.deconvolution.service import _file_lock
+        from hd_viewer.analysis.deconvolution.service import _file_lock
         path = self.work / 'reference.lock'
         waiting, acquired = threading.Event(), threading.Event()
         with path.open('a') as owner:
@@ -317,7 +316,7 @@ class PluginServiceTests(unittest.TestCase):
 
     def test_nnls_reports_through_original_progress_utilities(self):
         from hd_viewer.startup.utils.progress import reporting
-        from hd_viewer.board.operations.layer.deconvolution import deconvolve
+        from hd_viewer.analysis.deconvolution import deconvolve
         messages = []
         with reporting(messages.append):
             deconvolve(target(), reference(), 'cell_type')
@@ -326,8 +325,8 @@ class PluginServiceTests(unittest.TestCase):
 
     def test_no_frontend_imports_in_standalone_package(self):
         code = '''import sys
-import hd_viewer.board.operations.layer.deconvolution
-assert not any(m.startswith(('bokeh', 'hd_viewer.board.layout', 'hd_viewer.board.components', 'hd_viewer.startup')) for m in sys.modules)
+import hd_viewer.analysis.deconvolution
+assert not any(m.startswith(('bokeh', 'fastapi', 'hd_viewer.api', 'hd_viewer.core', 'hd_viewer.startup')) for m in sys.modules)
 '''
         result = subprocess.run([sys.executable, '-c', code], capture_output=True, text=True)
         self.assertEqual(result.returncode, 0, result.stderr)
@@ -389,7 +388,7 @@ class ContainerCommandTests(unittest.TestCase):
             self.assertNotIn('private-token', str(raised.exception))
 
     def test_cibersortx_signature_workflow_and_cache(self):
-        from hd_viewer.board.operations.layer.deconvolution.cibersortx import run
+        from hd_viewer.analysis.deconvolution.cibersortx import run
         plugin = discover()['cibersortx']
         with tempfile.TemporaryDirectory() as folder, patch.dict(os.environ, {
                 'VHD_CIBERSORTX_USERNAME': 'private-user', 'VHD_CIBERSORTX_TOKEN': 'private-token'}):
@@ -421,63 +420,67 @@ class ContainerCommandTests(unittest.TestCase):
             self.assertNotIn('--single_cell', selected.command)
 
 
-class ViewerPluginTests(unittest.TestCase):
-    def test_method_controls_and_failure_restore(self):
-        layer, _ = make_layer()
-        manager = layer.deconvolution_manager
-        manager.reference = reference()
-        controls = manager.get_widgets(ImmediateDoc())
-        method = next(w for w in controls if isinstance(w, Select) and w.title == 'Deconvolution method')
-        run = next(w for w in controls if isinstance(w, Button))
-        self.assertEqual(method.value, 'nnls')
-        self.assertFalse(run.disabled)
-        method.value = 'cell2location'
-        self.assertTrue(run.disabled)
-        expected = next(w for w in controls[4].children if isinstance(w, NumericInput) and 'Expected cells' in w.title)
-        expected.value = 5
-        self.assertFalse(run.disabled)
-        method.value = 'nnls'
-        with patch.object(manager.service, 'run', side_effect=RunnerError('synthetic failure')):
-            run._trigger_event(ButtonClick(run))
-            import time
-            deadline = time.monotonic() + 5
-            while run.disabled and time.monotonic() < deadline:
-                time.sleep(.01)
-        self.assertFalse(run.disabled)
-        self.assertFalse(method.disabled)
-        self.assertIn('synthetic failure', controls[controls.index(run) + 1].text)
-        self.assertFalse(manager.history)
+class ViewerPluginTests(DeconvolutionApiTestCase):
+    def setUp(self):
+        super().setUp()
+        self.install({'bins': ('bins', make_layer().sample, 'Bins')}, reference(), self.session.directory)
 
-    def test_history_abundance_export_and_saved_readout(self):
-        layer, _ = make_layer()
-        manager = layer.deconvolution_manager
-        manager.reference = reference()
-        index = layer.sample.adata.obs_names
+    def check(self, method, **params):
+        return self.client.post('/api/layers/bins/deconvolution/check',
+                                json=dict(method=method, label_column='cell_type', params=params))
+
+    def test_method_parameters_and_failure_restore(self):
+        state = self.state()
+        methods = {method['name']: method for method in state['methods']}
+        self.assertEqual(set(methods), {'nnls', 'cell2location', 'music', 'spacexr', 'cibersortx'})
+        self.assertEqual(methods['nnls']['unavailable'], '')
+        self.assertEqual(self.check('nnls').status_code, 200)
+        missing = self.check('cell2location')
+        self.assertEqual(missing.status_code, 422)
+        self.assertIn('required', missing.json()['detail'])
+        expected = next(p for p in methods['cell2location']['params'] if p['name'] == 'N_cells_per_location')
+        self.assertIn('Expected cells', expected['label'])
+        self.assertEqual(self.check('cell2location', N_cells_per_location=5).status_code, 200)
+        self.assertEqual(self.check('nope').status_code, 422)
+
+        service = core.default_service()
+        with patch.object(service, 'run', side_effect=RunnerError('synthetic failure')), \
+                patch('hd_viewer.api.routers.deconvolution.traceback'):        # an expected failure
+            state = self.run_method(expect='failed')
+        self.assertIn('synthetic failure', state['job']['message'])
+        self.assertEqual(state['runs'], [])
+        self.assertNotIn('deconvolution_runs', self.session.views['bins'].sample.adata.uns)
+        self.run_method()                                   # the layer can run again
+
+    def test_history_abundance_export_and_saved_runs(self):
+        sample = self.session.views['bins'].sample
+        index = sample.adata.obs_names
         fractions = pd.DataFrame([[.25, .75]] * len(index), index=index, columns=['A', 'B'])
-        manager.apply_result(DeconvolutionResult(fractions, ['g0', 'g1'], fractions * 4,
-                            dict(method='cell2location', params={'batch_column': None}, abundance_units='expected cells')), 'cell_type')
-        manager.apply_result(DeconvolutionResult(fractions, ['g0'], metadata=dict(method='nnls')), 'cell_type')
-        self.assertEqual(len(manager.history), 2)
-        self.assertNotIn('deconvolution_abundance', layer.sample.adata.obsm)
-        self.assertIn('deconvolution_1_abundance', layer.sample.adata.obsm)
-        self.assertNotIn('deconv_1_abundance:0', layer.sample.adata.uns['mean_obs_columns'])
-        controls = manager.get_widgets(ImmediateDoc())
-        selects = {w.title: w for w in controls if isinstance(w, Select)}
-        selects['Saved deconvolution run'].value = '1'
-        selects['Readout'].value = 'abundance'
-        self.assertEqual(selects['Display cell type'].value, 'deconv_1_abundance:0')
-        self.assertTrue(layer.sample.is_continous('deconv_1_abundance:0'))
+        core.publish_result(sample, DeconvolutionResult(fractions, ['g0', 'g1'], fractions * 4, dict(
+            method='cell2location', params={'batch_column': None}, abundance_units='expected cells')), 'cell_type')
+        core.publish_result(sample, DeconvolutionResult(fractions, ['g0'], metadata=dict(method='nnls')), 'cell_type')
+        self.assertEqual(len(core.runs(sample)), 2)
+        self.assertNotIn('deconvolution_abundance', sample.adata.obsm)
+        self.assertIn('deconvolution_1_abundance', sample.adata.obsm)
+        self.assertNotIn('deconv_1_abundance:0', sample.adata.uns['mean_obs_columns'])
+        self.assertTrue(sample.is_continous('deconv_1_abundance:0'))
+        runs = self.state()['runs']
+        self.assertEqual([(r['id'], r['method']) for r in runs], [('1', 'cell2location'), ('2', 'nnls')])
+        self.assertEqual(runs[0]['abundance_columns'], ['deconv_1_abundance:0', 'deconv_1_abundance:1'])
+        self.assertEqual(runs[0]['abundance_units'], 'expected cells')
+        self.assertEqual(runs[1]['abundance_columns'], [])
+        self.assertEqual(self.client.patch('/api/layers/bins/style',
+                                           json=dict(colour_by='deconv_1_abundance:0')).status_code, 200)
         with tempfile.TemporaryDirectory() as folder:
             path = Path(folder) / 'export.h5ad'
-            layer.sample.adata.write_h5ad(path)
+            sample.adata.write_h5ad(path)
             restored = ad.read_h5ad(path)
         self.assertEqual(restored.uns['deconvolution_runs']['1']['method'], 'cell2location')
         self.assertIsNone(json.loads(restored.uns['deconvolution_runs']['1']['params_json'])['batch_column'])
         pd.testing.assert_frame_equal(restored.obsm['deconvolution_1_abundance'], fractions * 4)
-        # Restored AnnData history can be browsed without the original in-memory manager.
-        layer.sample.adata = restored
-        manager.current_run = ''
-        self.assertEqual(len(manager.get_widgets(ImmediateDoc())), len(controls))
+        # Restored AnnData history can be browsed without the in-memory results.
+        sample.adata = restored
+        self.assertEqual(self.state()['runs'], runs)
 
 
 class ExternalAdapterSmokeTests(unittest.TestCase):

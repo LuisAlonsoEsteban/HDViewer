@@ -19,7 +19,7 @@ segmentation/images/
 tmp
 
 # React front end: build output and local test artifacts
-hd_viewer/api/dist/
+# hd_viewer/api/dist/ is committed: a local launch needs no Node.js (rebuild with `npm run build` in frontend/)
 frontend/node_modules/
 frontend/test-results/
 frontend/playwright-report/

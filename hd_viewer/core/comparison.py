@@ -1,14 +1,14 @@
-"""Sample comparison around board.operations.comparison.compare_samples, without any UI.
+"""Sample comparison around analysis.comparison.compare_samples, without any UI.
 
 Local metrics are stored on the low-resolution (reference) sample as
 `cmp_<metric>` columns so they can be shown on the map like any metadata. The
-Bokeh UI (board.layout.comparison) and the HTTP API use these functions.
+HTTP API (routers.comparison) uses these functions.
 """
 import numpy as np
 import pandas as pd
 
 from .. import settings
-from ..board.operations.comparison import oriented_name
+from ..analysis.comparison import oriented_name
 
 PREFIX = settings.COMPARISON_OBS_PREFIX
 GENE_COLUMNS = [
@@ -50,7 +50,7 @@ def celltype_options(sample):
 
 def flatten_global(global_metrics, swapped):
     """Rows (metric, value, help) of the global metrics; dict values become `key [sub]` rows."""
-    from ..help.comparison import global_help       # the help package imports Bokeh (UI)
+    from ..help.comparison import global_help
     rows = []
     for key, value in global_metrics.items():
         items = value.items() if isinstance(value, dict) else [(None, value)]

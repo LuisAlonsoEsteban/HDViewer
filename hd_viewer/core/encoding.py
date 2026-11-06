@@ -1,8 +1,8 @@
 """Encoding of displayed values: alpha scaling and colour codes + palettes.
 
 Bokeh-free: a colour is sent as a small integer code per row plus a palette
-(list of hex colours); the Bokeh UI and the API each turn the palette into
-their own colour mapper.
+(list of hex colours); the browser maps codes to colours with one colour
+mapper per attribute.
 """
 import numpy as np
 import pandas as pd

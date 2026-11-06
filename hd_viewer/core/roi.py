@@ -2,8 +2,7 @@
 
 `ROIGeometry` builds ROI shapes (box, lasso, radius around a point, a barcode or a
 group's bins), computes their native-observation membership, resolves barcodes
-and prepares outlines for display. The Bokeh UI subclasses it
-(board.layout.layer.roi) and the HTTP API uses it directly.
+and prepares outlines for display. The HTTP API holds one per layer view.
 """
 import threading
 import uuid

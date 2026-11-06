@@ -1,1 +1,1 @@
-"""UI-agnostic application logic shared by the Bokeh UI and the HTTP API (no Bokeh imports)."""
+"""UI-agnostic application logic behind the HTTP API (no web or Bokeh imports)."""

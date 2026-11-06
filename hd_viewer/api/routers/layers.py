@@ -48,6 +48,16 @@ def _prefix(request):
     return request.scope.get("root_path", "")
 
 
+def _inverse(transform, bins):
+    """Map units -> full-resolution image pixels (3x3, row-major): the spatial
+    transform's inverse, or (no transform) the image's tile scale per axis."""
+    if transform is not None:
+        return transform.inverse.ravel().tolist()
+    if bins is None or not getattr(bins, "tile_scale_xfactor", None) or not getattr(bins, "tile_scale_yfactor", None):
+        return None
+    return [1 / bins.tile_scale_xfactor, 0.0, 0.0, 0.0, 1 / bins.tile_scale_yfactor, 0.0, 0.0, 0.0, 1.0]
+
+
 @router.get("/workspace")
 def workspace(request: Request, session=Depends(current_session)):
     loaded = _loaded(session)
@@ -57,7 +67,7 @@ def workspace(request: Request, session=Depends(current_session)):
     return dict(
         layers=[view.describe() for view in session.views.values()],
         image=dict(size=loaded.image_processor.max_dim,
-                   inverse=None if transform is None else transform.inverse.ravel().tolist(),
+                   inverse=_inverse(transform, bins),
                    um_per_px=None if bins is None else micrometres_per_unit(bins)),
         tiles=dict(template=figures.tile_template(processor, _prefix(request)),
                    single=processor.mem <= settings.TILE_MEM_THRESHOLD, max_zoom=processor.max_zoom,

@@ -1,5 +1,9 @@
 # Cell segmentation plugins
 
+> **New to plugins?** Start with the community guide, [`docs/plugins.md`](../../../../../../docs/plugins.md):
+> it explains both plugin kinds, how to try your method locally and how to share it.
+> This page is the full reference for segmentation plugins.
+
 Each segmentation method is a self-contained plugin in `plugins/<name>/`. The viewer
 lists every plugin it finds on the loading page. Users can select several plugins; each
 one runs on its own and becomes a separate cells layer, so the methods can be compared
@@ -11,8 +15,8 @@ dependencies (TensorFlow, PyTorch, …) without affecting the viewer or the othe
 Each plugin names a **prebuilt container image** in its manifest. The viewer pulls it
 from the registry the first time it is used, so nothing is installed or built at
 runtime. The `Dockerfile` next to each plugin is the source of that image. The workflow
-in `.github/workflows/segmentation-images.yml` rebuilds and publishes it whenever
-`segmentation/` changes on `main`.
+in `.github/workflows/segmentation-images.yml` rebuilds and publishes it whenever a
+plugin or the SDK in this folder changes on `main`.
 
 | Plugin      | What it does                                            | Needs        |
 |-------------|---------------------------------------------------------|--------------|
@@ -99,7 +103,7 @@ cell it falls in, and adds the cells as a layer.
    The viewer only pulls and runs it.
 5. Test it without the viewer:
    ```bash
-   cd segmentation
+   cd hd_viewer/startup/data/image/segmentation/api
    docker build -t ghcr.io/<owner>/visium-seg-my_method:0.1.0 -f plugins/my_method/Dockerfile .
    mkdir -p /tmp/seg/in /tmp/seg/out
    cp some_image.tif /tmp/seg/in/image.tif

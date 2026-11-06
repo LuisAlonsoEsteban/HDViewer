@@ -2,13 +2,16 @@ import { useEffect, useRef, useState } from "react";
 import { Loader, Text } from "@mantine/core";
 import { getJson } from "../api/client";
 import { bridge } from "../bokeh/bridge";
-import { imageOpacity, requestViewport, sendSelection, setImageAlpha, setMapHost } from "../map/layers";
+import { imageOpacity, requestViewport, resyncLayers, sendSelection, setImageAlpha, setMapHost } from "../map/layers";
 import { useApp } from "../store/app";
+import { BinInfoOverlay } from "./BinInfoOverlay";
 
 /** The tissue map: a Bokeh figure from the server whose layers load lazily. */
 export function MapView() {
   const host = useRef<HTMLDivElement>(null);
   const [status, setStatus] = useState<"loading" | "ready" | "error">("loading");
+  const layers = useApp((s) => s.workspace?.layers);
+  const binLayers = (layers ?? []).filter((l) => l.kind === "bins");
 
   useEffect(() => {
     let timer: ReturnType<typeof setTimeout> | undefined;
@@ -26,7 +29,7 @@ export function MapView() {
         await bridge.embed(item, host.current!, "map");
         setImageAlpha(imageOpacity());
         setStatus("ready");
-        reload();
+        await resyncLayers();         // also after returning from the overview page
       } catch (exc) {
         console.error(exc);
         setStatus("error");
@@ -43,6 +46,11 @@ export function MapView() {
   return (
     <div style={{ position: "relative", height: "100%" }}>
       <div ref={host} className="map-host" />
+      {status === "ready" && (
+        <div className="bin-info-stack">
+          {binLayers.map((layer) => <BinInfoOverlay key={layer.id} layer={layer} />)}
+        </div>
+      )}
       {status === "loading" && <Loader style={{ position: "absolute", top: "50%", left: "50%" }} />}
       {status === "error" && <Text c="red.4" p="md">The map could not be loaded.</Text>}
     </div>

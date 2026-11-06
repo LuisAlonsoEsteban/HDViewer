@@ -69,7 +69,7 @@ def state(layer_id: str, session=Depends(current_session)):
                                                       or "loaded reference",
                                                       cells=reference.n_obs, genes=reference.n_vars),
         columns=columns, label_column=label, runner=service.runner.name if service else None,
-        methods=[dict(describe(plugin), citation=plugin.citation, unavailable=service.unavailable_reason(name))
+        methods=[dict(describe(plugin), unavailable=service.unavailable_reason(name))
                  for name, plugin in service.plugins.items()] if service else [],
         runs=runs, job=view.deconvolution_job)
 
@@ -116,7 +116,7 @@ def run(layer_id: str, body: RunRequest, session=Depends(current_session)):
         if view.deconvolution_job["state"] == "running":
             raise HTTPException(409, "A deconvolution is already running on this layer.")
         view.deconvolution_job = dict(name="deconvolution", state="running", message=f"Deconvolution ({plugin.title})")
-    # As the Bokeh UI: cells deconvolve at the dataset's bin size, other layers at their own
+    # Cells deconvolve at the dataset's bin size, other layers at their own
     sample = view.sample
     dataset_size = getattr(getattr(loaded, "dataset", None), "bins_size", None)
     size = dataset_size if view.kind == "cells" else (getattr(sample, "bin_size", None) or dataset_size)

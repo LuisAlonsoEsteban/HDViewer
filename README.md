@@ -13,6 +13,7 @@ The public server is free and open to all users. Uploaded data is private to you
 - [Example datasets](#example-datasets)
 - [Input files](#input-files)
 - [Optional: segmentation and deconvolution](#optional-segmentation-and-deconvolution)
+- [Bring your own method: plugins](#bring-your-own-method-plugins)
 - [Configuration](#configuration)
 - [Hosting a public instance](#hosting-a-public-instance)
 - [Documentation](#documentation) · [Data privacy](#data-privacy) · [Citation](#citation) · [License](#license) · [Contact](#contact)
@@ -33,6 +34,9 @@ The public server is free and open to all users. Uploaded data is private to you
   RCTD (spacexr), cell2location, MuSiC or CIBERSORTx.
 - **Sample comparison** across layers or resolutions.
 - Export of layer data as AnnData (`.h5ad`) and of the tissue map as PNG.
+- **Extensible with your own methods**: segmentation and deconvolution methods are
+  plugins (a manifest and a script, run in a container), so new methods need no
+  changes to the viewer. See [Bring your own method](#bring-your-own-method-plugins).
 
 ## Run it locally
 
@@ -68,49 +72,29 @@ pip install -r requirements.txt
 From the repository root:
 
 ```bash
-bokeh serve hd_viewer --show
+uvicorn hd_viewer.api.main:app --port 8000
 ```
 
-Your browser opens <http://localhost:5006/hd_viewer>. The landing page links
-to the tutorial; **Launch** opens the loading screen, where you either pick an
-example dataset or upload your own files.
+Open <http://localhost:8000>. The landing page links to the tutorial; **Explore
+your data** opens the loading screen, where you either pick an example dataset or
+upload your own files.
 
+- One process serves everything: the web interface, the API, the image tiles and
+  the progress events. Use `--port 8001` to change the port.
 - Uploads stream to the server in 4 MB pieces, so multi-gigabyte Visium HD files
   need no extra flags. Each file may be up to 20 GiB (`VHD_UPLOAD_MAX_BYTES`), and
   the `tmp/` folder in the repository needs enough free disk space to hold it.
-- Image tiles are served by a small helper server on port **4000**. If that port is
-  taken, choose another with `VHD_TILE_PORT=4100 bokeh serve hd_viewer ...`.
-- Use `--port 5007` to change the viewer's port.
+- The built web interface ships in `hd_viewer/api/dist/`, so no Node.js is needed
+  to run it. To change the interface, see [For developers](#for-developers).
 
 ### Running on a remote machine (HPC, workstation)
 
-Start the viewer on the remote machine without `--show`, then forward both ports
-from your laptop and open <http://localhost:5006/hd_viewer> locally:
+Start the server on the remote machine, then forward its port from your laptop
+and open <http://localhost:8000> locally:
 
 ```bash
-ssh -L 5006:localhost:5006 -L 4000:localhost:4000 user@remote-host
+ssh -L 8000:localhost:8000 user@remote-host
 ```
-
-### New web interface (React, in progress)
-
-A new interface (React + a FastAPI backend, figures still drawn by Bokeh) is being
-built alongside the current one. It covers everything the interface above offers:
-loading data, the map (colouring, hover, selection, extra glyph parameters, image
-opacity), clustering, custom groups, ROIs, differential expression, deconvolution,
-metadata comparison, embeddings, the dataset summary, sample comparison and data
-downloads (.h5ad).
-
-```bash
-# once, to build the front end (needs Node.js 20+; e.g. conda create -n hdv-node -c conda-forge nodejs=22 uvicorn)
-cd frontend && npm ci && npm run build && cd ..
-# serve API + front end on one port (no tile server port needed)
-uvicorn hd_viewer.api.main:app --host 127.0.0.1 --port 8000
-```
-
-Open <http://localhost:8000>. For front-end development, run `npm run dev` in
-`frontend/` (it proxies `/api` to port 8000). Tests: `npm test` (unit) and, with a
-running server, `HDV_URL=http://127.0.0.1:8000 npx playwright test` (browser
-smoke test). Progress against the current interface: [`docs/parity.md`](docs/parity.md).
 
 ## Example datasets
 
@@ -174,7 +158,7 @@ Images are pulled from `ghcr.io` on first use.
 - Segmentation: [`hd_viewer/startup/data/image/segmentation/api/config.yaml`](hd_viewer/startup/data/image/segmentation/api/config.yaml)
 - Deconvolution, including RCTD/MuSiC R setups and CIBERSORTx credentials
   (`VHD_CIBERSORTX_USERNAME`, `VHD_CIBERSORTX_TOKEN`):
-  [deconvolution plugin guide](hd_viewer/board/operations/layer/deconvolution/api/README.md)
+  [deconvolution plugin guide](hd_viewer/analysis/deconvolution/api/README.md)
 
 NNLS deconvolution and every other feature work without containers.
 
@@ -188,6 +172,44 @@ session is waiting for the same result. If a run fails, users see a short messag
 with a run id; its log is kept as `<run id>/run.log` under the dataset's
 `segmentation/` or `deconvolution/` folder.
 
+## Bring your own method: plugins
+
+Every segmentation and deconvolution method in VisiumVisualizer is a **plugin**, and
+you can add yours the same way. A plugin is one folder:
+
+```text
+plugins/my_method/
+├── manifest.yaml      # title, version, container image, parameters (the settings form)
+├── run.py             # reads the inputs, runs the method, writes the result
+├── requirements.txt
+└── Dockerfile
+```
+
+The viewer reads the manifest and builds the method's settings form from it. It runs
+`run.py` in its own container or environment, so the method keeps its own dependencies
+(Python, R, GPU libraries…), and shows the result like the bundled methods: a new
+**Cells** layer for segmentation, or cell-type fractions in the **Deconv.** tab.
+
+| | Segmentation | Deconvolution |
+|---|---|---|
+| Input | Tissue image (`image.tif`) and µm per pixel | Layer counts (`target.h5ad`) and single-cell reference (`reference.h5ad`) |
+| Output | Cell polygons (`cells.geojson`) | Cell-type fractions (`fractions.json`) |
+| Template to copy | [`watershed`](hd_viewer/startup/data/image/segmentation/api/plugins/watershed) | [`nnls`](hd_viewer/analysis/deconvolution/api/plugins/nnls) |
+
+To get started:
+
+1. Read the **[plugin guide](docs/plugins.md)**: two quick starts, the manifest
+   reference, testing without the viewer, packaging in a container and a checklist.
+2. Copy a template, edit `manifest.yaml` and `run.py`, and restart the server. Your
+   method appears in the interface.
+3. To make it available to everyone on <https://hdviewer.unav.edu>, open a pull request
+   ([contribution guide](CONTRIBUTING.md)) or first a
+   [*New method plugin* issue](https://github.com/LuisAlonsoEsteban/VisiumVisualizer/issues/new?template=method-plugin.yml).
+
+Reference documentation:
+[segmentation plugins](hd_viewer/startup/data/image/segmentation/api/README.md) ·
+[deconvolution plugins](hd_viewer/analysis/deconvolution/api/README.md).
+
 ## Configuration
 
 Defaults live in [`hd_viewer/settings/__init__.py`](hd_viewer/settings/__init__.py).
@@ -196,9 +218,9 @@ The following environment variables override them without editing code:
 | Variable | Default | Purpose |
 |---|---|---|
 | `VHD_DATA_DIR` | `<repo>/data` | Folder holding the example datasets |
-| `VHD_TILE_PORT` | `4000` | Port of the image tile server |
-| `VHD_TILE_HOST` | `0.0.0.0` | Address the tile server binds to |
-| `VHD_TILE_URL` | `http://localhost:<port>` | Tile URL as seen by the browser (see below) |
+| `VHD_ROOT_PATH` | empty | URL prefix when served under a sub-path (e.g. `/viewer`) |
+| `VHD_SESSION_TTL` | `1800` | Seconds of inactivity before a session and its files are removed |
+| `VHD_MAX_SESSIONS` | `50` | Concurrent sessions; further visitors are asked to retry later |
 | `VHD_TILE_FORMAT`, `VHD_TILE_QUALITY` | `webp`, `80` | Tile encoding (`webp` or lossless `png`); changing it re-tiles |
 | `VHD_UPLOAD_MAX_BYTES` | 20 GiB | Largest file accepted per upload field |
 | `VHD_SEG_RUNNER`, `VHD_DECONV_RUNNER` | `auto` | Force `docker`, `apptainer` or `local` plugins |
@@ -211,60 +233,50 @@ repository and removed when the browser session closes.
 ## Hosting a public instance
 
 This is how <https://hdviewer.unav.edu> is deployed; you only need it to host your
-own shared instance. Run a single Bokeh process (the tile registry is per process)
-behind an HTTPS reverse proxy that also routes the tile server:
+own shared instance. Run **one** uvicorn process (sessions, loaded datasets and the
+tile registry live in its memory) behind an HTTPS reverse proxy:
 
 ```bash
-export VHD_TILE_HOST=127.0.0.1 VHD_TILE_URL=/tiles
-export BOKEH_SECRET_KEY=$(python -c "import secrets; print(secrets.token_urlsafe(32))")
-export BOKEH_SIGN_SESSIONS=yes
-bokeh serve hd_viewer --port 5006 --address 127.0.0.1 \
-    --allow-websocket-origin=hdviewer.unav.edu --use-xheaders
+uvicorn hd_viewer.api.main:app --host 127.0.0.1 --port 8000 --workers 1 \
+    --proxy-headers --forwarded-allow-ips 127.0.0.1
 ```
 
-```nginx
-server {
-    listen 443 ssl;
-    server_name hdviewer.unav.edu;
-    location /tiles/ {
-        proxy_pass http://127.0.0.1:4000/;
-    }
-    location / {
-        proxy_pass http://127.0.0.1:5006;
-        proxy_http_version 1.1;
-        proxy_set_header Upgrade $http_upgrade;
-        proxy_set_header Connection "upgrade";
-        proxy_set_header Host $host;
-        proxy_set_header X-Forwarded-For $proxy_add_x_forwarded_for;
-        proxy_set_header X-Forwarded-Proto $scheme;
-        proxy_read_timeout 86400;
-    }
-}
-```
+Ready-to-adapt files are in [`deploy/`](deploy/): a systemd unit
+([`hdviewer.service`](deploy/hdviewer.service)) and an nginx site
+([`nginx-hdviewer.conf`](deploy/nginx-hdviewer.conf)) that forwards everything to
+port 8000, upgrades the `/api/events` WebSocket, streams upload chunks and
+compresses the binary layer data. Session cookies are marked `Secure` automatically
+behind HTTPS.
 
 ## Documentation
 
 - **Tutorial:** [`hd_viewer/static/tutorial.html`](hd_viewer/static/tutorial.html),
-  also at `/hd_viewer/static/tutorial.html` on a running instance and behind every
+  also at `/static/assets/tutorial.html` on a running instance and behind every
   in-app help button.
 - **Biological use case:** a walkthrough reproducing Figure 4a–b of Oliveira et al.
   (2025) on the P1 colorectal cancer sample:
   [`hd_viewer/static/biological-use-case.html`](hd_viewer/static/biological-use-case.html).
-- **Plugin API** for adding segmentation or deconvolution methods:
-  [deconvolution plugins](hd_viewer/board/operations/layer/deconvolution/api/README.md).
+- **Plugins** (adding segmentation or deconvolution methods): the
+  [plugin guide](docs/plugins.md), with reference pages for
+  [segmentation](hd_viewer/startup/data/image/segmentation/api/README.md) and
+  [deconvolution](hd_viewer/analysis/deconvolution/api/README.md) plugins.
+- **Contributing:** [CONTRIBUTING.md](CONTRIBUTING.md).
 
 ## Data privacy
 
 Each browser session gets its own private folder on the server. Uploaded files,
 intermediate results and exports are only reachable from that session, and the
 folder is deleted when the session ends (closing the tab, or after inactivity).
-Exported `.h5ad` files get a random, unguessable name and are removed from the
-server ten minutes after they are prepared. No account, e-mail address, analytics or tracking cookies are used.
+Exported `.h5ad` files are written to a randomly named file in that folder and
+deleted as soon as they have been sent. No account, e-mail address, analytics or tracking cookies are used.
 
 ## Running the tests
 
 ```bash
-python -m unittest discover -s tests
+python -m unittest discover -s tests          # Python: core, analyses and the HTTP API
+cd frontend && npm test                        # front-end unit tests
+# browser tests, against a running server with the example datasets:
+HDV_URL=http://127.0.0.1:8000 npx playwright test
 ```
 
 ## Citation
@@ -288,13 +300,33 @@ Luis Alonso, Computational Biology group, Tecnun, University of Navarra —
 
 ## For developers
 
-Presentation files:
+Architecture:
 
-- `hd_viewer/templates/index.html`: landing page and workspace shell.
-- `hd_viewer/static/css/app.css`: responsive landing/setup/workspace layout.
-- `hd_viewer/static/css/widgets.css`: shared styles inside Bokeh shadow roots.
-- `hd_viewer/presentation.py`: project metadata and per-session style integration.
-- `hd_viewer/static/assets/README.md`: image/logo sources and attribution.
+- `hd_viewer/core/`: the application logic, with no web or Bokeh imports (layer
+  rows and colour encoding, viewport decisions, loading pipeline, sessions,
+  clustering, groups, ROIs, embeddings, export).
+- `hd_viewer/analysis/`: differential expression, metadata and sample comparison,
+  and the deconvolution service with its container plugins.
+- `hd_viewer/startup/`: readers, samples (bins, pseudospots, cells), image tiling and
+  segmentation plugins.
+- `hd_viewer/api/`: the FastAPI server. Figures are built with Bokeh and sent as
+  `json_item`s; each layer's data goes to the browser as compact binary frames.
+- `frontend/`: the React + TypeScript interface (Vite, Mantine). BokehJS is loaded
+  from the server's own Bokeh install, so it always matches the figures.
+
+To work on the interface (Node.js 20+):
+
+```bash
+cd frontend
+npm ci
+npm run dev       # http://localhost:5173, proxies /api to a server on port 8000
+npm run build     # writes hd_viewer/api/dist/ (commit it with your changes)
+```
+
+Presentation files: `frontend/src/screens/` (landing, loading, workspace),
+`frontend/src/landing/landing.css` (landing page), `hd_viewer/help/help.py` (texts
+of the in-app "?" buttons) and `hd_viewer/static/assets/README.md` (image and logo
+sources).
 
 `CITATION.cff` and its downloadable copy at `hd_viewer/static/citation.cff` must be
 kept identical.

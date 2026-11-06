@@ -45,7 +45,7 @@ def _scatter(x, y, title, x_label, y_label, colour):
 
 @router.get("/layers/{layer_id}/qc")
 def qc(layer_id: str, session=Depends(current_session)):
-    """% MT and genes per observation, and both against UMIs (as the Bokeh Summary panel)."""
+    """% MT and genes per observation, and both against UMIs."""
     view = _view(session, layer_id)
     with view.lock, view.sample.fetch_lock:
         obs = summary.ensure_qc(view.sample.adata)

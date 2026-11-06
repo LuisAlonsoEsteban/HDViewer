@@ -3,6 +3,7 @@ import { Anchor, Button, Select, Stack, Text } from "@mantine/core";
 import { getJson, sendJson } from "../api/client";
 import { requestViewport, setStyle } from "../map/layers";
 import { Layer, useApp } from "../store/app";
+import { JobProgress } from "./JobProgress";
 import { Param, PluginParamForm } from "./PluginParamForm";
 
 interface Method {
@@ -138,6 +139,7 @@ export function DeconvolutionPanel({ layer }: { layer: Layer }) {
       <Button color="green" onClick={start} loading={running} disabled={!!reason || !plugin || !label}>
         Run deconvolution
       </Button>
+      <JobProgress job={job} message={false} />
       <Text size="xs" c={job?.state === "failed" || error ? "red.4" : "dark.1"} style={{ whiteSpace: "pre-wrap" }}>
         {error ?? (job && job.state !== "idle" ? job.message
           : ready ? `Reference ready: ${state!.reference!.name} (${state!.reference!.cells.toLocaleString()} cells, `

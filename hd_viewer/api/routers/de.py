@@ -12,7 +12,7 @@ from fastapi import APIRouter, Depends, HTTPException, Query
 from pydantic import BaseModel, Field
 
 from ... import settings
-from ...board.operations.layer.de import DEAnalysis, DEPresenter, build_de_plots
+from ...analysis.de import DEAnalysis, DEPresenter, build_de_plots
 from ...core.de_sets import de_colours, de_inputs, de_options
 from ...startup.utils.progress import reporting
 from . import current_session

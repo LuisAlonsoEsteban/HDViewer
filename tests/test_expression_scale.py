@@ -8,7 +8,8 @@ import pandas as pd
 from shapely.geometry import box
 
 from hd_viewer.startup.sample import Bins
-from tests.test_roi_manager import make_layer
+from tests.fixtures import column, loaded
+from tests.test_roi_manager import Api, make_layer
 
 
 def expected(counts, library, scale):
@@ -65,35 +66,47 @@ class SampleScaleTests(unittest.TestCase):
 
 
 class LayerScaleTests(unittest.TestCase):
-    def test_selector_redraws_every_layer_type(self):
+    def test_scale_change_redraws_every_layer_type(self):
         for kind in ("bins", "spots", "cells"):
             with self.subTest(kind=kind):
-                layer = make_layer(kind)
-                select = layer.expression_scale_select
-                self.assertEqual(select.value, "counts")
-                X = np.asarray(layer.sample.adata.X)
-                library = dict(zip(layer.sample.adata.obs_names, X.sum(axis=1)))
-                g0 = dict(zip(layer.sample.adata.obs_names, X[:, 0]))
+                api = Api(self, kind)
+                view = api.view
+                self.assertEqual(view.describe()["scale"], "counts")
+                X = np.asarray(view.sample.adata.X)
+                library = dict(zip(view.sample.adata.obs_names, X.sum(axis=1)))
+                g0 = dict(zip(view.sample.adata.obs_names, X[:, 0]))
+                self.assertEqual(view.colour_by, dict(kind="gene", name="g0"))
 
                 for scale in ("log1p", "normalized", "counts"):
-                    select.value = scale
-                    source = layer.manager.source.data
-                    names = list(layer.manager.loaded_obs_names)
-                    shown = np.asarray(source["g0"], dtype=float)
+                    response = api.patch("style", json=dict(scale=scale))
+                    self.assertEqual(response.status_code, 200, response.text)
+                    self.assertEqual(view.describe()["scale"], scale)
+                    names = loaded(view)
+                    shown = np.asarray(column(view, "g0"), dtype=float)
                     sequenced = [name in g0 for name in names]
+                    self.assertEqual(sum(not s for s in sequenced), 1)          # the not-sequenced shape
                     want = expected(np.array([g0[n] for n in names if n in g0]),
                                     np.array([library[n] for n in names if n in g0]), scale)
-                    np.testing.assert_allclose(shown[sequenced], want)
-                    alpha = layer.manager.get_param("alpha")
-                    self.assertAlmostEqual(alpha.max_counts, layer.sample.get_range("g0")[1])
+                    np.testing.assert_allclose(shown[sequenced], want, rtol=1e-6)
+                    alpha = view.rows.get_param("alpha")
+                    self.assertAlmostEqual(alpha.max_counts, view.sample.get_range("g0")[1], places=5)
+                self.assertEqual(api.patch("style", json=dict(scale="zscore")).status_code, 422)
+                self.assertEqual(view.describe()["scale"], "counts")
 
-    def test_tooltips_name_the_scale_of_hovered_genes(self):
-        layer = make_layer("bins")
-        layer.add_parameter(attr="line_width", colname="g1", colname_hovered=True)
-        for scale, label in (("counts", "g1: @g1"), ("normalized", "g1 (normalized): @g1"),
-                             ("log1p", "g1 (log-normalized): @g1")):
-            layer.expression_scale_select.value = scale
-            self.assertIn(label, layer.get_hover_tooltips())
+    def test_tooltips_name_the_scale_of_the_coloured_gene(self):
+        view = make_layer("bins")
+        for scale, label in (("counts", "g0"), ("normalized", "g0 (normalized)"),
+                             ("log1p", "g0 (log-normalized)")):
+            view.set_scale(scale)
+            self.assertIn([label, "@{g0}"], view.tooltips())
+
+    def test_tooltips_name_the_scale_of_hovered_parameter_genes(self):
+        view = make_layer("bins")
+        view.set_parameter("line_width", mode="data", column="g1", hovered=True)
+        for scale, label in (("counts", "g1"), ("normalized", "g1 (normalized)"),
+                             ("log1p", "g1 (log-normalized)")):
+            view.set_scale(scale)
+            self.assertIn([label, "@{g1}"], view.tooltips())
 
 
 if __name__ == "__main__":

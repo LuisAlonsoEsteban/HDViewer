@@ -1,16 +1,14 @@
-"""Source updates preserve geometry, alignment, and compact Bokeh messages."""
+"""Row updates preserve geometry, alignment, and compact browser operations."""
 import threading
 import unittest
 from types import SimpleNamespace
-from unittest.mock import Mock
 
 import numpy as np
 import pandas as pd
-from bokeh.document import Document
-from bokeh.document.events import ColumnDataChangedEvent
 
-from hd_viewer.board.source.manager import DynamicSourceManager, SourceManager, source_columns
-from hd_viewer.board.source.parameter import CategoricalColor, Scaler, StaticParameter
+from hd_viewer.api.views import ViewRows
+from hd_viewer.core.encoding import CategoricalColor, Scaler, StaticParameter
+from hd_viewer.core.layer_state import LayerRows, source_columns
 
 
 class Sample:
@@ -48,18 +46,33 @@ class Sample:
         return f'agg:{factor}'
 
 
-def make_manager(polygons=False, hovered=False):
+class Source:
+    """`manager.source.data` of the old tests: the sink's columns."""
+
+    def __init__(self, sink):
+        self.sink = sink
+
+    @property
+    def data(self):
+        return self.sink.data
+
+
+def make_manager(polygons=False, hovered=False, rows_class=LayerRows):
     sample = Sample(polygons)
-    manager = DynamicSourceManager(sample)
+    manager = rows_class(sample)
+    manager.source = Source(manager.sink)
     manager.add_parameter(Scaler(0., 1., 'gene', attr='alpha', not_sequenced_val=0., colname_hovered=hovered))
     manager.add_parameter(StaticParameter('#123456', not_sequenced_val='#888888'))
     manager.bbox = [0, 4, 0, 4]
     manager.fetch_data()
     sample.requests.clear()
-    doc = Document()
-    doc.add_root(manager.source)
-    doc.hold('collect')
-    return manager, sample, doc
+    manager.sink.take()
+    return manager, sample, manager.sink
+
+
+def column_ops(sink):
+    """Operations sent since the last call, with the columns each one touches."""
+    return [(op[0], {op[1]} if op[0] == 'set' else set(op[1])) for op in sink.take()]
 
 
 class SourceUpdateTests(unittest.TestCase):
@@ -81,11 +94,10 @@ class SourceUpdateTests(unittest.TestCase):
         self.assertEqual(manager.colors('color'), ['#abcdef', '#ffffff', '#abcdef', '#abcdef'])
         # Geometry is never resent; unchanged colour codes are not resent either
         # (the new colours travel in the parameter's palette)
-        events = doc.callbacks._held_events
-        self.assertLessEqual(len(events), 1)
-        for event in events:
-            self.assertIsInstance(event, ColumnDataChangedEvent)
-            self.assertEqual(set(event.cols), {'color'})
+        ops = column_ops(doc)
+        self.assertLessEqual(len(ops), 1)
+        for kind, cols in ops:
+            self.assertEqual((kind, cols), ('set', {'color'}))
 
     def test_non_hovered_scaling_reuses_raw_values(self):
         manager, sample, doc = make_manager()
@@ -93,7 +105,7 @@ class SourceUpdateTests(unittest.TestCase):
         manager.update_param('alpha', new_maxv=.8)
         self.assertEqual(sample.requests, [])
         np.testing.assert_allclose(manager.source.data['alpha'], [0., 0., .1, .2])
-        self.assertEqual(set(doc.callbacks._held_events[0].cols), {'alpha'})
+        self.assertEqual(column_ops(doc), [('set', {'alpha'})])
 
     def test_raw_cache_tracks_streamed_and_pruned_rows(self):
         manager, sample, _ = make_manager(polygons=True)
@@ -119,7 +131,9 @@ class SourceUpdateTests(unittest.TestCase):
         self.assertFalse(sample.requests[0]['return_coords'])
         np.testing.assert_allclose(manager.source.data['alpha'], [.25, .5, .75, 1.])
         self.assertNotIn('gene', manager._value_cache)
-        self.assertNotIn('x', doc.callbacks._held_events[0].cols)
+        ops = column_ops(doc)
+        self.assertTrue(ops)
+        self.assertTrue(all(kind == 'set' and 'x' not in cols for kind, cols in ops))
 
     def test_incomplete_coverage_falls_back_to_full_fetch(self):
         manager, sample, _ = make_manager()
@@ -170,41 +184,43 @@ class SourceUpdateTests(unittest.TestCase):
         self.assertEqual(manager._value_cache['kind'].tolist(), ['a', 'b', 'a'])
 
     def test_pruning_resynchronizes_selection_and_visibility(self):
-        manager, _, _ = make_manager()
-        manager.component = SimpleNamespace(show_not_sequenced=True,
-                                            apply_selected_obs_names=Mock(),
-                                            update_hover_tooltips=Mock(), change_glyph_view=Mock())
-        manager.remove_indcs(['a', 'b'])
-        manager.component.apply_selected_obs_names.assert_called_once()
-        manager.component.change_glyph_view.assert_called_once()
-        self.assertEqual(list(manager.component._view), [True, True])
+        from tests.fixtures import loaded, make_view, show
+        view = make_view(n=4, not_sequenced=2)
+        show(view, -1, 5, -1, 5)
+        view.set_show_not_sequenced(False)
+        names = list(loaded(view))
+        view.select(view.rows.row_version, [names.index('b1_1'), names.index('b2_2')])
+        version = view.rows.row_version
+        view.rows.remove_indcs(['b0_0', 'b1_1'])
+        self.assertGreater(view.rows.row_version, version)        # old row positions are stale
+        names = list(loaded(view))
+        self.assertEqual(view.selected_positions(), [names.index('b2_2')])
+        self.assertEqual(len(view.rows.view_filter), len(names))
+        mask = view.visibility()
+        self.assertEqual(len(mask), len(names))
+        hidden = [name for name, shown in zip(names, mask) if not shown]
+        self.assertEqual(len(hidden), 2)                           # the two not-sequenced rows
+        self.assertTrue(pd.isna(hidden).all())                     # (no native name)
+        with self.assertRaises(ValueError):
+            view.select(version, [0])                              # positions of pruned rows
 
     def test_hidden_unsequenced_mask_is_rebuilt_on_gene_switch(self):
-        manager, _, _ = make_manager()
-        manager.component = SimpleNamespace(show_not_sequenced=False,
-                                            apply_selected_obs_names=Mock(),
-                                            update_hover_tooltips=Mock(), change_glyph_view=Mock())
+        manager, _, _ = make_manager(rows_class=ViewRows)
+        manager.show_not_sequenced = False
         manager.view_filter = np.array([True, False, True, True])
         manager.update_colname('gene', 'other')
-        self.assertEqual(list(manager.component._view), [True] * 4)
+        self.assertEqual(list(manager.view_filter), [True] * 4)
 
-    def test_static_only_layers_and_non_lazy_sources(self):
+    def test_static_only_layers(self):
         sample = Sample()
-        manager = DynamicSourceManager(sample)
+        manager = LayerRows(sample)
         manager.add_parameter(StaticParameter(.5, attr='alpha'))
         manager.bbox = [0, 4, 0, 4]
         manager.fetch_data()
         manager.update_param('alpha', new_val=.7)
-        np.testing.assert_allclose(manager.source.data['alpha'], [.7] * 4)
-        static = SourceManager(sample)
-        static.add_parameter(StaticParameter(.5, attr='alpha'))
-        static.fetch_data()
-        static.update_param('alpha', new_val=.7)
-        np.testing.assert_allclose(static.source.data['alpha'], [.7] * 4)
+        np.testing.assert_allclose(manager.sink.data['alpha'], [.7] * 4)
 
     def test_real_samples_switch_values_without_replacing_geometry(self):
-        # Initialize in the same order as the app (startup imports the UI).
-        import hd_viewer.startup
         import anndata as ad
         import geopandas as gpd
         from shapely.geometry import box
@@ -219,7 +235,8 @@ class SourceUpdateTests(unittest.TestCase):
             with self.subTest(kind=kind, level=level):
                 sample = (Bins(gdf.copy(), adata.copy(), pixels_per_bin=1, bin_size=1)
                           if kind == 'bins' else Cells(gdf.copy(), adata.copy()))
-                manager = DynamicSourceManager(sample)
+                manager = LayerRows(sample)
+                manager.source = Source(manager.sink)
                 manager.add_parameter(Scaler(0., 1., 'gene', attr='alpha', not_sequenced_val=0.))
                 manager.set_fetch_context(bbox=[-1, 5, -1, 5], resolution_level=level)
                 manager.fetch_data()
@@ -232,7 +249,6 @@ class SourceUpdateTests(unittest.TestCase):
                 np.testing.assert_allclose(manager._value_cache['other'], expected['other'])
 
     def test_value_only_fetch_preserves_real_observation_index(self):
-        import hd_viewer.startup
         import anndata as ad
         import geopandas as gpd
         from shapely.geometry import box

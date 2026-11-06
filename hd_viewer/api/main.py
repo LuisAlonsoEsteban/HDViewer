@@ -1,8 +1,8 @@
 """HTTP API and static files of the React front end.
 
-Run with ``uvicorn hd_viewer.api.main:app`` (one process: sessions and tiles are
-held in memory). The Bokeh-server UI (`bokeh serve hd_viewer`) keeps working
-side by side; both use the same core.
+Run with ``uvicorn hd_viewer.api.main:app`` (one process: sessions, loaded
+datasets and the tile registry are held in memory). Figures are still built with
+Bokeh on the server and drawn by BokehJS in the browser.
 """
 import asyncio
 import contextlib

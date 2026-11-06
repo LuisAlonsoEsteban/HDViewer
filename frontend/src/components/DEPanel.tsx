@@ -2,6 +2,7 @@ import { useEffect, useState } from "react";
 import { Button, Checkbox, ColorSwatch, Group, SegmentedControl, Select, Stack, Text } from "@mantine/core";
 import { getJson, sendJson } from "../api/client";
 import { Layer, useApp } from "../store/app";
+import { JobProgress } from "./JobProgress";
 
 export interface DESet { name: string; colour: string | null }
 interface Options {
@@ -98,7 +99,8 @@ export function DEPanel({ layer }: { layer: Layer }) {
                        ...factors.filter((f) => f > 1).map((f) => ({ value: String(f), label: `${f} × ${f} bins (summed counts)` }))]} />
       )}
       <Button onClick={run} loading={running} disabled={!options}>Run DE</Button>
-      {job && job.state !== "idle" && <Text size="xs" c={job.state === "failed" ? "red.4" : "dark.1"}>{job.message}</Text>}
+      <JobProgress job={job} />
+      {job && job.state !== "idle" && job.state !== "running" && <Text size="xs" c={job.state === "failed" ? "red.4" : "dark.1"}>{job.message}</Text>}
       {error && <Text size="xs" c="red.4">{error}</Text>}
       {options?.ready && !shown && (
         <Button size="xs" variant="light" onClick={() => showResults(layer.id, "de")}>Show results: {options.header}</Button>

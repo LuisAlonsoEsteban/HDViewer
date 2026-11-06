@@ -1,17 +1,23 @@
-"""compare_samples honours the caller's sample order and per-sample keys; the panel labels results accordingly."""
+"""compare_samples honours the caller's sample order and per-sample keys; results are labelled accordingly."""
 import unittest
+import time
 from types import SimpleNamespace
-from unittest.mock import Mock
 
 import anndata as ad
 import geopandas as gpd
 import numpy as np
 import pandas as pd
 import shapely
+from fastapi.testclient import TestClient
 
-from hd_viewer.board.operations.comparison import compare_samples, oriented_name
+from hd_viewer.analysis.comparison import compare_samples, oriented_name
 from hd_viewer.startup.sample._sample import Sample
+from hd_viewer.api.main import create_app
+from hd_viewer.api.sessions import COOKIE, SessionRegistry
+from hd_viewer.api.views import build_views
+from hd_viewer.core import comparison as core
 from hd_viewer.help.comparison import LOCAL_HELP
+from hd_viewer.settings.config import comparison_kwargs
 
 
 def _grid(n, size, prefix):
@@ -106,51 +112,76 @@ class CompareSamplesOrderTests(unittest.TestCase):
                             sample1_celltype_key='spot_type', sample2_celltype_key='spot_deconv')
 
 
-class ComparisonPanelOrderTests(unittest.TestCase):
-    def _component(self, name, alias, sample):
-        class Component:  # hashable stand-in for a layer component
-            pass
-        component = Component()
-        component.__dict__.update(name=name, alias=alias, sample=sample, autocomplete_input=None,
-                                  manager=SimpleNamespace(cache=pd.DataFrame()),
-                                  refresh_completions=Mock(), get_colnames=lambda: [])
-        return component
-
-    def test_panel_options_follow_user_order_and_results_land_on_low_res_sample(self):
-        from bokeh.document import Document
-        from hd_viewer.board.layout.comparison import ComparisonPanel
-
+class ComparisonOrderTests(unittest.TestCase):
+    def test_options_follow_each_sample_and_results_land_on_the_low_res_sample(self):
         spots, bins = _samples()
-        panel = ComparisonPanel(Document())
-        spot_c, bin_c = self._component('spots', 'Spot', spots), self._component('bins', 'Bin', bins)
-        panel.set_components([spot_c, bin_c])
-        panel.sample1_select.value, panel.sample2_select.value = 'bins', 'spots'
-        values = lambda select: [o[0] if isinstance(o, tuple) else o for o in select.options]
-        self.assertIn('bin_cluster', panel.sample1_cluster_select.options)
-        self.assertIn('bin_deconv', values(panel.sample1_celltype_select))
-        self.assertIn('spot_type', values(panel.sample2_celltype_select))
-        self.assertIn('spot_deconv', values(panel.sample2_celltype_select))
+        self.assertIn('bin_cluster', core.label_columns(bins))
+        self.assertNotIn('spot_cluster', core.label_columns(bins))
+        values = lambda sample: [value for value, _ in core.celltype_options(sample)]
+        self.assertIn('bin_deconv', values(bins))
+        self.assertIn('spot_type', values(spots))
+        self.assertEqual(core.celltype_options(spots)[0], ('spot_deconv', 'spot_deconv (proportions)'))
+        self.assertEqual(core.by_area({'bins': bins, 'spots': spots}), ['spots', 'bins'])
 
+        # Sample 1 = bins, Sample 2 = spots: the spots are still the low-res reference
         result = compare_samples(bins, spots, min_coverage=.5, n_hvg=12, k_neighbors=2,
                                  sample1_cluster_key='bin_cluster', sample2_cluster_key='spot_cluster')
-        panel._on_result(bin_c, spot_c, result)
-        self.assertIs(panel.sample1_component, spot_c)  # local metrics belong to the spots
-        self.assertTrue(panel.swapped)
+        swapped = result['reference_sample'] == 2
+        self.assertTrue(swapped)
+        metrics = core.write_obs_columns(spots, result['local'], swapped)
         obs = spots.adata.obs
         self.assertIn('cmp_total_counts_sample2', obs)
+        self.assertIn('total_counts_sample2', metrics)
         self.assertNotIn('cmp_cluster_sample2', obs)  # the spots' own clusters are not duplicated
         self.assertIn('cmp_cluster_sample1_majority', obs)
         self.assertNotIn('cmp_total_counts_sample1', bins.adata.obs)
-        # Gene table keeps low/high titles: its "low" columns hold the spots' values
-        np.testing.assert_allclose(panel.gene_source.data['morans_i_sample1'],
-                                   result['genes'].sort_values('spatial_pearson', ascending=False)['morans_i_sample2'])
+        # Comparison metrics are not offered as cluster labels
+        self.assertEqual(core.label_columns(spots), ['spot_cluster', 'spot_type'])
         # Help is looked up with the canonical (low-res = sample1) name
-        data = panel.global_source.data
-        i = data['metric'].index('n_sample2')
-        self.assertIn('low-res', data['help'][i])
-        panel.metric_select.value = 'total_counts_sample2'
-        self.assertEqual(panel.metric_help.content, LOCAL_HELP['total_counts_sample1'])
-        self.assertIn('Compared 9 spots with 36 bins', panel.status.div.text)
+        rows = {row['metric']: row for row in core.flatten_global(result['global'], swapped)}
+        self.assertIn('low-res', rows['n_sample2']['help'])
+        self.assertEqual(core.local_help('total_counts_sample2', swapped), LOCAL_HELP['total_counts_sample1'])
+        core.clear_obs_columns(spots)
+        self.assertFalse([c for c in obs.columns if c.startswith(core.PREFIX)])
+
+
+class ComparisonApiOrderTests(unittest.TestCase):
+    def test_gene_table_and_help_are_oriented_low_res_first(self):
+        spots, bins = _samples()
+        registry = SessionRegistry(ttl=3600)
+        client = TestClient(create_app(registry, sweep_seconds=3600))
+        client.__enter__()
+        self.addCleanup(client.__exit__, None, None, None)
+        client.get('/api/load')
+        session = registry.get(client.cookies[COOKIE])
+        session.loaded = SimpleNamespace(samples={'bins': ('spots', bins, 'Bins'), 'spots': ('spots', spots, 'Spots')})
+        session.views = build_views(session.loaded)
+        started = client.post('/api/comparison', json=dict(sample1='bins', sample2='spots', min_coverage=.5, predicate='contains',
+                                                           sample1_cluster_key='bin_cluster',
+                                                           sample2_cluster_key='spot_cluster'))
+        self.assertEqual(started.status_code, 202, started.text)
+        for _ in range(1200):
+            job = client.get('/api/comparison').json()['job']
+            if job['state'] != 'running':
+                break
+            time.sleep(.05)
+        self.assertEqual(job['state'], 'done', job)
+        self.assertIn('Compared 9 spots with 36 spots', job['message'])
+        result = client.get('/api/comparison/result').json()
+        self.assertEqual((result['low'], result['high']), ('spots', 'bins'))
+        # Gene table keeps low/high titles: its "low" columns hold the spots' values
+        expected = compare_samples(bins, spots, **{k: v for k, v in comparison_kwargs().items()
+                                                   if k not in ('min_coverage', 'predicate')},
+                                   min_coverage=.5, predicate='contains', sample1_cluster_key='bin_cluster',
+                                   sample2_cluster_key='spot_cluster')['genes']
+        expected = expected.sort_values('spatial_pearson', ascending=False)
+        keys = [column['key'] for column in result['gene_columns']]
+        low = keys.index('morans_i_sample1') + 1
+        self.assertEqual([row[0] for row in result['genes']], [str(g) for g in expected.index])
+        np.testing.assert_allclose([row[low] for row in result['genes']], expected['morans_i_sample2'])
+        self.assertEqual(result['metric_help']['total_counts_sample2'], LOCAL_HELP['total_counts_sample1'])
+        metrics = {row['metric']: row for row in result['global_metrics']}
+        self.assertIn('low-res', metrics['n_sample2']['help'])
 
 
 if __name__ == '__main__':

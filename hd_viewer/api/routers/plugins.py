@@ -9,6 +9,7 @@ router = APIRouter()
 
 def describe(plugin):
     return dict(name=plugin.name, title=plugin.title, description=plugin.description, url=plugin.url,
+                citation=plugin.citation, version=plugin.version,
                 params=[{key: value for key, value in dataclasses.asdict(param).items()
                          if key != "multiple_subjects"} for param in plugin.params])
 

@@ -5,7 +5,6 @@ the current view and display level, their encoded style columns (alpha, colour
 codes), the raw values kept back for restyling, row names, visibility and the
 per-level glyph constants. It writes every change through a *sink*:
 
-- the Bokeh UI uses a sink wrapping its ColumnDataSource;
 - the HTTP API uses `RecordingSink`, whose recorded operations are sent to the
   browser and applied there to the BokehJS data source.
 

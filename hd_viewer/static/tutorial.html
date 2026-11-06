@@ -9,7 +9,7 @@
 <body>
 
 <header>
-  <div style="display:flex;justify-content:space-between;gap:20px;margin-bottom:22px;font-size:12px"><a href="/hd_viewer" style="text-decoration:none">← VisiumVisualizer</a><a href="https://github.com/LuisAlonsoEsteban/VisiumVisualizer" target="_blank" rel="noopener noreferrer">Source on GitHub ↗</a></div>
+  <div style="display:flex;justify-content:space-between;gap:20px;margin-bottom:22px;font-size:12px"><a href="../../" style="text-decoration:none">← VisiumVisualizer</a><a href="https://github.com/LuisAlonsoEsteban/VisiumVisualizer" target="_blank" rel="noopener noreferrer">Source on GitHub ↗</a></div>
   <div class="eyebrow">VISIUMVISUALIZER</div>
   <h1>Tutorial</h1>
   <p class="lead">Everything the platform does, step by step. Start with <b>Loading data</b> to bring a sample
@@ -184,34 +184,37 @@
     <a class="sub" href="#app-bin-resolution">Bin resolution</a>
     <a href="#app-overview">Overview and coordinates</a>
     <a href="#app-layers">Layers</a>
-    <a class="sub" href="#app-general">General tab</a>
-    <a class="sub" href="#app-color">Color tab</a>
+    <a class="sub" href="#app-general">Display tab: showing a layer</a>
+    <a class="sub" href="#app-color">Display tab: coloring</a>
     <a class="sub" href="#app-clustering">Clustering tab</a>
     <a class="sub" href="#app-deconvolution">Deconvolution tab</a>
     <a class="sub" href="#app-rois">ROIs tab</a>
     <a class="sub" href="#app-groups">Groups tab</a>
     <a class="sub" href="#app-de">DE tab</a>
-    <a class="sub" href="#app-metadata-comparison">Metadata comparison tab</a>
-    <a class="sub" href="#app-parameters">Parameters tab</a>
+    <a class="sub" href="#app-metadata-comparison">Metadata tab</a>
+    <a class="sub" href="#app-parameters">Params tab</a>
     <a href="#app-summary">Summary panel</a>
     <a href="#app-embedding">Embeddings</a>
     <a href="#app-comparison">Comparison</a>
+    <a href="#app-plugins">Your own methods (plugins)</a>
     <a href="#app-workflow">A typical analysis</a>
     <a href="#app-glossary">Glossary</a>
   </nav>
   <main>
     <section id="app-layout">
       <h2>The screen at a glance</h2>
-      <div class="layout-map" role="img" aria-label="Screen layout: summary and layer controls on the left, map in the center, overview and embeddings on the right">
-        <div><b>Left · top</b>Summary of every layer</div>
-        <div><b>Center</b>The map: tissue image with the layers on top. Below it: image opacity and the
-             differential-expression results.</div>
-        <div><b>Right · top</b>Overview of the slide and coordinates of the visible region</div>
-        <div><b>Left · bottom</b>One section per layer (Spots, Bins, Cells) and Comparison. Click a section
-             title to fold it.</div>
-        <div></div>
-        <div><b>Right · bottom</b>Embeddings (PCA, UMAP, t-SNE)</div>
+      <div class="layout-map" role="img" aria-label="Screen layout: layer controls and overview on the left, map in the center, summary, embeddings and comparison on the right">
+        <div><b>Left</b>One section per layer (Spots, Bins, Cells · method), each with its tabs. Click a
+             section title to fold it. At the bottom: the overview of the slide and the image opacity.</div>
+        <div><b>Center</b>The map: tissue image with the layers on top. Differential-expression and
+             metadata-comparison results open below it.</div>
+        <div><b>Right</b>Summary, Embeddings and Comparison tabs. The button at the top left
+             (<span class="ui">Summary · embeddings · comparison</span>) shows or hides this panel.</div>
       </div>
+      <p>Drag the edges between the panels (and the top edge of the results) to resize them. The
+        <span class="ui">?</span> buttons in every tab explain it and link to the matching section here. Click
+        the name at the top left, or <span class="ui">About</span>, to go back to the overview page;
+        <span class="ui">Resume workspace</span> there brings you back to your analysis.</p>
     </section>
 
     <section id="app-map">
@@ -222,21 +225,20 @@
       <p>The image keeps its original orientation and aspect ratio. Transparent padding supplies the
         square tile canvas, and bin rectangles follow the tissue grid's rotation. Original image files
         and annotation coordinates are preserved.</p>
-      <p><b>Image alpha</b>, below the map, fades the tissue image so the layers stand out.</p>
-      <p>Drag the horizontal divider below the map controls to adjust the map's height.
-        Differential-expression results scroll separately in the section below it.</p>
+      <p><b>Image opacity</b>, at the bottom of the left panel, fades the tissue image so the layers stand out.</p>
+      <p>Differential-expression and metadata-comparison results open below the map; drag their top edge
+        to give the map more or less room.</p>
       <p>Cells layers are drawn at every zoom; zoomed out, their outlines are simplified to the detail
         the screen can show.</p>
 
       <h3 id="app-toolbar">Toolbar and selection</h3>
-      <p>The toolbar appears at the right of the map when the mouse is over it.</p>
+      <p>The toolbar is at the right of the map.</p>
       <table>
         <tr><th>Tool</th><th>Use</th></tr>
         <tr><td>Pan</td><td>Drag to move (the default).</td></tr>
         <tr><td>Wheel zoom</td><td>Scroll to zoom.</td></tr>
         <tr><td>Box select / Lasso select</td><td>Select observations. The selection is shared with the
             embeddings: selected points are highlighted in both.</td></tr>
-        <tr><td>Tap</td><td>Select a single observation.</td></tr>
         <tr><td>Save</td><td>Download the current view as a PNG.</td></tr>
         <tr><td>Reset</td><td>Back to the whole slide.</td></tr>
         <tr><td>Ruler / Clear measurement</td><td>See below.</td></tr>
@@ -264,8 +266,8 @@
 
     <section id="app-overview">
       <h2>Overview and coordinates</h2>
-      <p>The overview (top right) shows the whole slide, with a rectangle marking the region the map is
-        showing. <span class="ui">Copy viewport coordinates</span>, in its corner, copies the region shown on
+      <p>The overview (bottom of the left panel) shows the whole slide, with a rectangle marking the region
+        the map is showing. <span class="ui">Copy viewport coordinates</span>, below it, copies the region shown on
         the map as <code>x0,y0,x1,y1</code> in full-resolution image pixels (the same system as Space Ranger's
         <code>pxl_col_in_fullres</code> / <code>pxl_row_in_fullres</code>), e.g. to crop the image elsewhere. The
         coordinates refer to the original image, excluding the canvas padding; for a rotated image they
@@ -275,21 +277,22 @@
     <section id="app-layers">
       <h2>Layers</h2>
       <p>Each representation of the sample is a layer: <b>Spots</b> (pseudospots), <b>Bins</b> and one
-        <b>Cells</b> layer per segmentation method (tabs inside the Cells section). Every layer has the same
-        tabs. An <b>observation</b> is one spot, bin or cell. Not-sequenced observations (inside the tissue
+        <b>Cells</b> layer per segmentation method. Every layer has the same tabs: Display, Clustering,
+        Groups, ROIs, DE, Deconv., Metadata and Params. An <b>observation</b> is one spot, bin or cell. Not-sequenced observations (inside the tissue
         but without counts) are drawn in gray.</p>
 
-      <h3 id="app-general">General tab</h3>
+      <h3 id="app-general">Display tab: showing a layer</h3>
       <ul>
         <li><b>Show …</b>: show or hide the whole layer.</li>
-        <li><b>Show not sequenced …</b>: show or hide the gray observations without counts.</li>
-        <li><b>… alpha</b>: maximum opacity. When coloring by a gene, opacity follows its expression up to
+        <li><b>Show not sequenced</b>: show or hide the gray observations without counts.</li>
+        <li><b>Opacity</b>: maximum opacity. When coloring by a gene, opacity follows its expression up to
             this value; with categories (clusters, groups) every observation uses it.</li>
-        <li><b>Download</b> (Spots only): the pseudospots as an AnnData file (<code>.h5ad</code>) with their
-            counts, as they were when the viewer opened (clusters and groups added later are not included).</li>
+        <li><b>Clear selection</b>: deselect the layer's observations on the map and in the embedding.</li>
+        <li><b>Download data (.h5ad)</b>: the layer as an AnnData file with its counts and everything
+            computed so far in the session: clusters, groups and deconvolution results.</li>
       </ul>
 
-      <h3 id="app-color">Color tab</h3>
+      <h3 id="app-color">Display tab: coloring</h3>
       <ul>
         <li><b>Gene / Metadata</b>: start typing and pick a gene or a metadata column from the suggestions.</li>
         <li><b>Expression values</b>: how genes are displayed. <i>Counts</i> are the raw UMI counts;
@@ -452,7 +455,7 @@
       <p>Method: Wilcoxon rank-sum test on log1p counts normalized to 10,000 per observation, genes detected in at least three observations,
         Benjamini–Hochberg adjusted p-values. Each group or cluster needs at least three observations.</p>
 
-      <h3 id="app-metadata-comparison">Metadata comparison tab</h3>
+      <h3 id="app-metadata-comparison">Metadata tab: metadata comparison</h3>
       <p>Select two or more groups and/or clusters, choose numeric metadata columns, and click
       <b>Compare metadata</b>. Alternatively, tick <b>The rest</b> and select one or more groups/clusters:
       each gets a separate plot against observations outside every defined custom group (including
@@ -472,21 +475,21 @@
       averaged without renormalizing over the selected cell types. These are descriptive comparisons,
       without significance tests; use the separate DE tab for gene-expression testing.</p>
 
-      <h3 id="app-parameters">Parameters tab</h3>
-      <p>Extra drawing parameters of the layer: <b>line color</b>, <b>line width</b>, <b>fill alpha</b>,
-        <b>line alpha</b>. Color and alpha themselves are set in the Color and General tabs.</p>
+      <h3 id="app-parameters">Params tab: drawing parameters</h3>
+      <p>Extra drawing parameters of the layer: <b>fill opacity</b>, <b>line width</b>, <b>line colour</b> and
+        <b>line opacity</b>. Color and opacity themselves are set in the Display tab.</p>
       <ul>
-        <li><b>Fixed value</b>: one value for all observations, plus a value for not-sequenced ones.</li>
-        <li><b>From data</b>: a gene or numeric column scaled between <b>Output min</b> and
-            <b>Output max</b>; for colors, a categorical column (one color per category). Optionally show the
-            column in the hover.</li>
-        <li>The list shows the parameters added so far: <span class="ui">✎</span> to edit,
-            <span class="ui">✕</span> to remove.</li>
+        <li><b>Fixed</b>: one value for all observations, plus a value for not-sequenced ones.</li>
+        <li><b>From data</b>: a gene or numeric column scaled between <b>Min</b> and <b>Max</b>; for colours,
+            a categorical column (one colour per category). Optionally show the column on hover.</li>
+        <li><span class="ui">Apply</span> redraws the map at the same view; <span class="ui">Reset</span> returns the
+            attribute to its default.</li>
       </ul>
     </section>
 
     <section id="app-summary">
       <h2>Summary panel</h2>
+      <p>The <b>Summary</b> tab of the right panel.</p>
       <p><b>General Info</b> compares the layers: number of observations, sequenced and not, % sequenced,
         mean UMIs (counts) per observation and UMIs per µm². Each layer then has:</p>
       <ul>
@@ -499,7 +502,7 @@
 
     <section id="app-embedding">
       <h2>Embeddings</h2>
-      <p>Each layer has a tab. Choose <b>PCA</b>, <b>UMAP</b> or <b>t-SNE</b> and click
+      <p>The <b>Embeddings</b> tab of the right panel: choose the layer, then <b>PCA</b>, <b>UMAP</b> or <b>t-SNE</b> and click
         <span class="ui">Run embedding</span>. Embeddings use the same preprocessing as clustering, so a UMAP
         after clustering only computes the UMAP itself. For bins they use the displayed aggregation level.
         Select points in the embedding to highlight the same observations on the map, and the other way round.</p>
@@ -511,7 +514,8 @@
 
     <section id="app-comparison">
       <h2>Comparison</h2>
-      <p>Compares two layers of the same tissue, e.g. pseudospots vs bins, or two segmentation methods.</p>
+      <p>The <b>Comparison</b> tab of the right panel compares two layers of the same tissue, e.g. pseudospots
+        vs bins, or two segmentation methods.</p>
       <ol>
         <li><b>Sample 1 / Sample 2</b>: the two layers, in either order; results are labeled in the
             order you chose. The layer with larger geometries (the low-res layer) is the reference,
@@ -526,6 +530,33 @@
         click a metric for its explanation. <b>Local</b> has per-geometry metrics: show one on the map, or plot
         two against each other and select points to find them on the map. <b>Genes</b> lists per-gene
         agreement; click a gene to show it on both layers.</p>
+    </section>
+
+    <section id="app-plugins">
+      <h2>Your own methods (plugins)</h2>
+      <p>Every cell segmentation and deconvolution method in the platform is a <b>plugin</b>: a folder with a
+        manifest (title, version, container image and parameters) and a script that runs the method. The
+        interface is built from the manifest, so a new method needs no change to the viewer:</p>
+      <ul>
+        <li><b>Segmentation plugins</b> are listed on the loading screen under <i>Cell segmentation</i>. Tick
+            one or several: each becomes its own <b>Cells · method</b> layer, so methods can be compared side by
+            side, on the map or in the <a href="#app-comparison">Comparison</a> panel.</li>
+        <li><b>Deconvolution plugins</b> are listed in each layer's <a href="#app-deconvolution">Deconv.</a> tab.
+            Every run is saved with the layer and can be shown on the map, used to build groups, or compared
+            in the <a href="#app-metadata-comparison">Metadata</a> tab.</li>
+        <li>The settings form, its limits and help texts come from the manifest. The method's description,
+            documentation link and <b>citation</b> are shown with it: please cite the methods you use.</li>
+        <li>Plugins run in their own container or environment, and their results are cached per input, method
+            version and settings: rerunning the same settings is instant.</li>
+      </ul>
+      <p><b>Adding a method.</b> If you develop a segmentation or deconvolution method, you can add it by
+        copying a template plugin, editing its manifest and script, and restarting your local copy of the
+        platform. The <a href="https://github.com/LuisAlonsoEsteban/VisiumVisualizer/blob/main/docs/plugins.md"
+        target="_blank" rel="noopener">plugin guide</a> walks through both kinds step by step. To make a method
+        available on the public server, propose it with a
+        <a href="https://github.com/LuisAlonsoEsteban/VisiumVisualizer/issues/new?template=method-plugin.yml"
+        target="_blank" rel="noopener">New method plugin</a> issue or a pull request. The public server only
+        runs reviewed plugins from the repository; visitors cannot upload code.</p>
     </section>
 
     <section id="app-workflow">

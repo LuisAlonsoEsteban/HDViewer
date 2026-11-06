@@ -4,10 +4,11 @@ import {
 } from "@mantine/core";
 import { getJson, sendJson, uploadFile } from "../api/client";
 import { PluginParamForm, Param } from "../components/PluginParamForm";
+import { HelpButton } from "../components/HelpButton";
 import { useApp } from "../store/app";
 
-interface Dataset { id: string; title: string; bins_size: number; has_reference: boolean }
-interface Plugin { name: string; title: string; description: string; url?: string; params: Param[] }
+interface Dataset { id: string; title: string; bins_size: number; has_reference: boolean; has_annotations: boolean }
+interface Plugin { name: string; title: string; description: string; url?: string; citation?: string | null; params: Param[] }
 interface Plugins { available: boolean; error: string | null; runner: string | null; segmentation: Plugin[] }
 interface UploadState { status: string; filename: string; size: number; received: number; error: string | null; required: boolean }
 
@@ -18,6 +19,17 @@ const FIELDS: { key: string; label: string; accept: string; help: string }[] = [
   { key: "reference", label: "Single-cell reference (optional)", accept: ".h5ad,.h5", help: "For deconvolution: AnnData with labels, or a 10x .h5" },
   { key: "reference_annotations", label: "Reference annotations (optional)", accept: ".csv,.parquet", help: "Barcode first, then cell-type labels" },
 ];
+
+// Readable names of the load tasks (cells:<method> uses the method's title)
+const TASK_LABELS: Record<string, string> = { tiles: "Image tiles", bins: "Bins", spots: "Pseudospots" };
+
+function taskLabel(task: string, plugins?: Plugins) {
+  if (task.startsWith("cells:")) {
+    const name = task.slice(6);
+    return `Cells · ${plugins?.segmentation.find((p) => p.name === name)?.title ?? name}`;
+  }
+  return TASK_LABELS[task] ?? task;
+}
 
 function bytes(size: number) {
   return size >= 1 << 30 ? `${(size / (1 << 30)).toFixed(1)} GB` : `${(size / (1 << 20)).toFixed(1)} MB`;
@@ -78,6 +90,7 @@ export function Loading() {
     }
   };
 
+  const example = datasets.find((d) => d.id === dataset);
   const required = FIELDS.filter((f) => uploads[f.key]?.required);
   const uploadsReady = required.every((f) => uploads[f.key]?.status === "complete") && !Object.keys(sending).length;
   const canLoad = !running && (source === "example" ? Boolean(dataset) : uploadsReady);
@@ -86,9 +99,26 @@ export function Loading() {
     <Container size="sm" py="xl">
       <Stack>
         <Group justify="space-between">
-          <Title order={2}>Load a dataset</Title>
-          <Button variant="subtle" onClick={() => setScreen("landing")}>Back</Button>
+          <Group gap={6}><Title order={2}>Load a dataset</Title><HelpButton topic="data_source" /></Group>
+          <Button variant="subtle" onClick={() => setScreen("landing")}>← Overview</Button>
         </Group>
+        {config && (
+          <Card withBorder>
+            <Group justify="space-between" wrap="wrap">
+              <div style={{ flex: "1 1 320px" }}>
+                <Title order={4}>New here?</Title>
+                <Text size="sm" c="dark.1">
+                  The tutorial explains every part of the platform: which files to load, what each option computes,
+                  and how to explore the results.
+                </Text>
+                <Anchor size="sm" href={config.use_case_url} target="_blank" rel="noopener">
+                  Follow the biological use-case walkthrough →
+                </Anchor>
+              </div>
+              <Button component="a" href={config.tutorial_url} target="_blank" rel="noopener">📖 Open the tutorial</Button>
+            </Group>
+          </Card>
+        )}
         <Card withBorder>
           <Tabs value={source} onChange={setSource}>
             <Tabs.List>
@@ -98,6 +128,14 @@ export function Loading() {
             <Tabs.Panel value="example" pt="md">
               <Select label="Example dataset" data={datasets.map((d) => ({ value: d.id, label: d.title }))}
                       value={dataset} onChange={setDataset} disabled={running} />
+              {example && (
+                <Text size="xs" c="dark.2" mt={6}>
+                  {example.has_reference
+                    ? "The example's single-cell reference and spatial metadata will load from disk. No upload is required."
+                      + (example.has_annotations ? " Single-cell annotations are included for deconvolution." : "")
+                    : "This example will load without a single-cell reference."}
+                </Text>
+              )}
             </Tabs.Panel>
             <Tabs.Panel value="upload" pt="md">
               <Stack>
@@ -130,6 +168,20 @@ export function Loading() {
                 <Select label="Bin size of the uploaded files" value={binSize} onChange={setBinSize}
                         data={(config?.upload.bin_sizes ?? [2, 8, 16]).map((s) => ({ value: String(s), label: `${s} µm` }))} />
                 <Text size="xs" c="dark.2">Up to {bytes(config?.upload.max_bytes ?? 0)} per file. Files are deleted when your session ends.</Text>
+                <Stack gap={2} data-testid="upload-checklist">
+                  {FIELDS.map((field) => {
+                    const state = uploads[field.key];
+                    const status = sending[field.key] !== undefined ? "uploading…"
+                      : state?.status === "complete" ? "received"
+                      : state?.status === "error" ? `failed: ${state.error}`
+                      : state?.required ? "required" : "optional, not provided";
+                    return <Text key={field.key} size="xs"><b>{field.label}:</b> {status}</Text>;
+                  })}
+                  <Text size="xs" c={uploadsReady ? "teal.3" : "dark.2"}>
+                    {uploadsReady ? "All selected files received. Ready to load."
+                      : "Complete the required uploads and wait for all selected files to arrive."}
+                  </Text>
+                </Stack>
               </Stack>
             </Tabs.Panel>
           </Tabs>
@@ -137,18 +189,27 @@ export function Loading() {
 
         <Card withBorder>
           <Stack>
-            <Title order={4}>Preprocessing</Title>
+            <Group gap={6}><Title order={4}>Preprocessing</Title><HelpButton topic="preprocessing" /></Group>
             <Checkbox label="Generate Visium v2 pseudospots (55 µm)" checked={pseudospots} disabled={running}
                       onChange={(e) => setPseudospots(e.currentTarget.checked)} />
             <Text fw={600} size="sm">Cell segmentation</Text>
             {plugins && !plugins.available && <Text size="sm" c="red.4">Segmentation is unavailable: {plugins.error}</Text>}
+            {plugins?.available && (
+              <Text size="xs" c="dark.2">
+                Select one or more methods to compare; each becomes its own cells layer. Runner: <b>{plugins.runner ?? "detecting…"}</b>.
+                {plugins.runner === "local" && " No container runtime found: plugins use this Python environment (see segmentation/config.yaml)."}
+              </Text>
+            )}
             {plugins?.segmentation.map((plugin) => (
               <Stack key={plugin.name} gap={6}>
                 <Checkbox label={plugin.title} checked={Boolean(selected[plugin.name])} disabled={running}
                           onChange={(e) => setSelected((s) => ({ ...s, [plugin.name]: e.currentTarget.checked ? {} : undefined }))} />
                 {selected[plugin.name] && (
                   <Stack pl="lg" gap="xs">
-                    <Text size="xs" c="dark.2">{plugin.description} {plugin.url && <Anchor href={plugin.url} target="_blank" size="xs">More</Anchor>}</Text>
+                    <Text size="xs" c="dark.2">
+                      {plugin.description} {plugin.url && <Anchor href={plugin.url} target="_blank" size="xs">More</Anchor>}
+                      {plugin.citation && <><br />Please cite: {plugin.citation}</>}
+                    </Text>
                     <PluginParamForm params={plugin.params} values={selected[plugin.name]!}
                                      onChange={(values) => setSelected((s) => ({ ...s, [plugin.name]: values }))} />
                   </Stack>
@@ -166,9 +227,13 @@ export function Loading() {
         {load.tasks && (
           <Card withBorder>
             <Stack gap="xs">
+              <Group gap={6}><Text fw={600} size="sm">Progress</Text><HelpButton topic="progress" /></Group>
               {Object.entries(load.tasks).map(([task, state]) => (
                 <div key={task}>
-                  <Group justify="space-between"><Text size="sm">{task}</Text><Text size="xs" c="dark.2">{state.status}</Text></Group>
+                  <Group justify="space-between">
+                    <Text size="sm">{taskLabel(task, plugins)}</Text>
+                    <Text size="xs" c="dark.2">{Math.round(state.pct)}% · {state.status}</Text>
+                  </Group>
                   <Progress value={state.pct} animated={running && state.pct < 100} />
                 </div>
               ))}

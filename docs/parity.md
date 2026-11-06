@@ -1,10 +1,12 @@
-# React interface: parity checklist (milestones 1–6)
+# Migration from the Bokeh-server interface: parity record
 
-Compared with `bokeh serve hd_viewer` on the same dataset. "Verified" means
-covered by an automated test (tests/test_api.py, tests/test_core_*.py,
-frontend Vitest/Playwright) or checked in a browser.
+The original interface (`bokeh serve hd_viewer`, with a Flask tile server) was
+replaced by the React + FastAPI interface and removed; its last version is commit
+`eb25e63`. This table records each of its features in the new interface. "Verified"
+means covered by an automated test (Python `tests/`, frontend Vitest/Playwright) or
+checked in a browser.
 
-| Feature | Bokeh UI | React UI | Status |
+| Feature | Old interface | New interface | Status |
 |---|---|---|---|
 | Landing page, tutorial and walkthrough links, citation, contact | yes | yes | verified (Playwright) |
 | Load an example dataset, per-task progress | yes | yes (events socket, polling fallback) | verified (API + Playwright, 16 µm mouse brain) |
@@ -56,3 +58,13 @@ frontend Vitest/Playwright) or checked in a browser.
 | Sample comparison (spots vs bins): metrics table, local view, show on map, linked selection | yes | yes | verified (API + Playwright, 16 µm mouse brain) |
 | Download a layer's data (.h5ad with clusters, groups, deconvolution results; private temporary file removed after sending) | yes (non-lazy layers only) | yes (every layer) | verified (API + Playwright) |
 | Parameters tab: fill opacity, line width, line colour, line opacity, fixed or from data (categories for colours, genes or numeric metadata scaled to a range), optional hover column | yes | yes (map rebuilt at the current view) | verified (API: all attributes; Playwright: line width) |
+| Landing page: hero, tissue preview, affiliations, feature cards, workflow, copy/download citation, source-data paper note, contact, footer, favicon | yes | yes | verified (Playwright) |
+| Workspace header: Guide, GitHub, About (back to the overview; "Resume workspace" returns with the map rebuilt) | yes | yes | verified (Playwright) |
+| "?" help on every tab, linking to the tutorial section | yes | yes (GET /api/help) | verified (API + Playwright) |
+| Bin resolution box on the map: level in use, geometry, native size, fixed/zoom mode, cluster minimum | yes | yes | verified (API + Playwright) |
+| Clear selection per layer | yes | yes | verified (Playwright) |
+| Ruler and viewport copy in µm / full-res px without a spatial transform | yes | yes (scale fallback) | API-tested |
+| Loading screen: tutorial card, example reference note, segmentation runner, readable task names with %, upload checklist and readiness | yes | yes | verified (Playwright, examples); upload checklist API-tested |
+| Job progress: spinner, elapsed time, recent steps | yes | yes | UI wired |
+| Resizable panels | yes (split.js) | yes (drag or arrow keys) | verified (Playwright) |
+| StarDist ticked by default on the loading screen | yes | no (segmentation is opt-in) | deliberate: loads stay fast unless asked |

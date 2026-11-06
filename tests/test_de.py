@@ -5,7 +5,7 @@ import anndata as ad
 import numpy as np
 import pandas as pd
 
-from hd_viewer.board.operations.layer.de import DEAnalysis, DEResult
+from hd_viewer.analysis.de import DEAnalysis, DEResult
 
 
 def log1p_normalized(X, target_sum=1e4):

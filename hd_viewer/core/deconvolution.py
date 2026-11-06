@@ -2,8 +2,8 @@
 
 Runs go through the shared DeconvolutionService (one queue per process); their
 results are published into the sample as numbered runs (`deconv_<run>:<type>`
-columns, `adata.uns['deconvolution_runs']`). The Bokeh UI
-(board.layout.layer.deconvolution) and the HTTP API both use these functions.
+columns, `adata.uns['deconvolution_runs']`). The HTTP API (routers.deconvolution)
+uses these functions.
 """
 import json
 from functools import lru_cache
@@ -21,7 +21,7 @@ PREFIX = settings.DECONV_RESULT_PREFIX
 @lru_cache(maxsize=1)
 def default_service():
     """One queue and runner per viewer process, shared by all layers and sessions."""
-    from ..board.operations.layer.deconvolution import DeconvolutionService
+    from ..analysis.deconvolution import DeconvolutionService
     from ..settings.config import deconvolution_service_kwargs
     return DeconvolutionService(**deconvolution_service_kwargs())
 
@@ -60,7 +60,7 @@ def snapshot_target(sample, method):
 
 def publish_result(sample, result, label_column, reference_path='', reference_name=''):
     """Validate `result` and store it in the sample as a new run; returns the run id."""
-    from ..board.operations.layer.deconvolution import DeconvolutionResult, validate_result
+    from ..analysis.deconvolution import DeconvolutionResult, validate_result
     if not isinstance(result, DeconvolutionResult):
         fractions, genes = result
         result = DeconvolutionResult(fractions.drop(columns='most_abundant', errors='ignore'), genes,

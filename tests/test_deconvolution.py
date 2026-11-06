@@ -1,28 +1,36 @@
+"""Deconvolution of a layer: the single-cell reference (uploads, example paths,
+annotations), NNLS, publishing results into the sample and the per-layer API."""
+import os
 import tempfile
 import time
 import unittest
 from io import BytesIO
-from unittest.mock import PropertyMock, patch
 from pathlib import Path
 from types import SimpleNamespace
+from unittest.mock import patch
 
 import anndata as ad
 import h5py
 import numpy as np
 import pandas as pd
-from bokeh.document import Document
-from bokeh.events import ButtonClick
-from bokeh.models import Button, Select, TextInput
-from bokeh.plotting import figure
 from scipy import sparse
+from fastapi.testclient import TestClient
 
-from hd_viewer.board.operations.layer.deconvolution import deconvolve
+from hd_viewer.analysis.deconvolution import deconvolve
+from hd_viewer.api.sessions import COOKIE
+from hd_viewer.api.views import build_views
+from hd_viewer.core import deconvolution as core
+from hd_viewer.core.pipeline import (LoadConfig, LoadedDataset, LoadPipeline,
+                                     prepare_segmentation_image, read_deconvolution_reference)
+from hd_viewer.core.session import session_upload_dir
+from hd_viewer.startup import datasets
 from hd_viewer.startup.data.singlecell import read_reference
 from hd_viewer.startup.sample import Cells, Spots
-from hd_viewer.board.components.layer import Circles, Patches
-from hd_viewer.startup import StartupController, session_upload_dir
 from tests.test_param_form import make_layer
-from tests.test_startup_uploads import start_upload, upload_file, use_temporary_upload_dir
+from tests.test_startup_uploads import UploadApiTestCase
+
+# tests.test_core_pipeline (hence tests.test_api) imports tenx_reference_bytes from here:
+# import neither of them at module level (tests.test_startup_uploads does not either).
 
 
 def reference():
@@ -50,159 +58,105 @@ def tenx_reference_bytes():
     return contents.getvalue()
 
 
-class ImmediateDoc(Document):
-    def add_next_tick_callback(self, callback):
-        callback()
-
-    def add_periodic_callback(self, callback, period_ms):
-        return callback
-
-    def remove_periodic_callback(self, callback):
-        pass
+def annotated_reference_file(folder, name="reference.h5ad"):
+    """An h5ad reference with `cell_type` and `donor` annotations."""
+    path = Path(folder) / name
+    uploaded = reference()
+    uploaded.obs["donor"] = ["d1", "d1", "d2"]
+    uploaded.write_h5ad(path)
+    return path
 
 
-class DeconvolutionTests(unittest.TestCase):
+class DeconvolutionApiTestCase(UploadApiTestCase):
+    """A session with the local runner (NNLS runs for real)."""
+
+    def setUp(self):
+        super().setUp()
+        environment = patch.dict(os.environ, {"VHD_DECONV_RUNNER": "local"})
+        environment.start()
+        self.addCleanup(environment.stop)
+        core.default_service.cache_clear()
+        self.addCleanup(core.default_service.cache_clear)
+
+    def install(self, samples, ref, base_dir, reference_name="reference.h5ad", label_column="", dataset=None):
+        """Make `samples` ({id: (kind, sample, title)}) the session's loaded layers, as
+        routers.load does once LoadPipeline returns."""
+        session = self.session
+        session.loaded = LoadedDataset(dataset, None, None, None, samples=dict(samples), reference=ref,
+                                       reference_name=reference_name, reference_label_column=label_column,
+                                       base_dir=Path(base_dir))
+        session.views = build_views(session.loaded)
+        return session
+
+    def state(self, layer="bins"):
+        response = self.client.get(f"/api/layers/{layer}/deconvolution")
+        self.assertEqual(response.status_code, 200, response.text)
+        return response.json()
+
+    def run_method(self, layer="bins", method="nnls", label_column="cell_type", params=None, expect="done"):
+        started = self.client.post(f"/api/layers/{layer}/deconvolution",
+                                   json=dict(method=method, label_column=label_column, params=params or {}))
+        self.assertEqual(started.status_code, 202, started.text)
+        for _ in range(1200):
+            state = self.state(layer)
+            if state["job"]["state"] != "running":
+                break
+            time.sleep(.05)
+        self.assertEqual(state["job"]["state"], expect, state["job"])
+        return state
+
+
+class ReferenceUploadTests(DeconvolutionApiTestCase):
     def test_uploaded_files_and_layer_results_use_each_sessions_folder(self):
-        with tempfile.TemporaryDirectory() as folder, \
-                patch("hd_viewer.startup.settings.UPLOAD_DIR", Path(folder)):
-            for session_id in ("first-session", "second-session"):
-                with patch.object(Document, "session_context", new_callable=PropertyMock,
-                                  return_value=SimpleNamespace(id=session_id)):
-                    startup = StartupController(ImmediateDoc())
-                session_dir = session_upload_dir(session_id)
-                self.assertEqual(session_dir.parent, Path(folder))
-                self.assertEqual(startup.SESSION_UPLOAD_DIR, session_dir)
-                self.assertEqual(startup.app.deconvolution_work_dir, session_dir / "deconvolution")
-                self.assertTrue(upload_file(startup.h5_input, "counts.h5", b"counts")["done"])
-                saved = Path(startup._uploaded_path(startup.h5_input))
-                self.assertEqual(saved, session_dir / "expression" / "counts.h5")
-                self.assertEqual(saved.read_bytes(), b"counts")
-                layer, _ = make_layer()
-                startup.app.add_geometry(layer)
-                self.assertEqual(layer.deconvolution_manager.work_dir, session_dir / "deconvolution")
+        clients = [self.client, TestClient(self.client.app)]
+        directories = []
+        for client in clients:
+            self.client = client
+            self.client.get("/api/uploads")
+            session = self.session
+            self.assertEqual(session.directory, session_upload_dir(session.sid))
+            self.assertEqual(session.directory.parent, Path(self.folder.name) / "uploads")
+            self.upload("expression", "counts.h5", b"counts")
+            saved = session.uploads["expression"].path
+            self.assertEqual(saved, session.directory / "expression" / "counts.h5")
+            self.assertEqual(saved.read_bytes(), b"counts")
+            self.upload("positions", "positions.parquet")
+            self.upload("image", "tissue.png")
+            _, _, config = self.accepted()
+            self.assertEqual(config.base_dir, session.directory)
+            # LoadPipeline keeps base_dir; deconvolution results cache under it
+            self.install({"bins": ("bins", make_layer().sample, "Bins")}, reference(), config.base_dir)
+            self.run_method()
+            log = Path(session.views["bins"].sample.adata.uns["deconvolution"]["log_path"])
+            self.assertTrue(log.is_relative_to(session.directory / "deconvolution"))
+            self.assertTrue(log.exists())
+            directories.append(session.directory)
+        self.assertNotEqual(*directories)
 
-    def test_client_session_ids_and_filenames_stay_inside_the_upload_folder(self):
-        with tempfile.TemporaryDirectory() as folder, \
-                patch("hd_viewer.startup.settings.UPLOAD_DIR", Path(folder) / "uploads"):
-            for session_id in ("../../escape", "/absolute/path"):
-                with patch.object(Document, "session_context", new_callable=PropertyMock,
-                                  return_value=SimpleNamespace(id=session_id)):
-                    startup = StartupController(ImmediateDoc())
-                self.assertEqual(startup.SESSION_UPLOAD_DIR.parent, Path(folder) / "uploads")
-                for filename in ("../../outside.h5", "/tmp/outside.h5", "..\\..\\outside.h5"):
-                    self.assertTrue(upload_file(startup.h5_input, filename, b"x")["done"])
-                    saved = Path(startup._uploaded_path(startup.h5_input))
-                    self.assertEqual(saved, startup.SESSION_UPLOAD_DIR / "expression" / "outside.h5")
+    def test_pending_reference_upload_blocks_load_until_it_arrives(self):
+        self.upload_required()
+        self.upload("reference_annotations", "labels.csv", b"barcode,cell_type\na,A\nb,A\nc,B\n")
+        accepted, reply, _ = self.accepted()
+        self.assertFalse(accepted)
+        self.assertIn("not finished uploading", reply["detail"])
+        self.assertEqual(self.status("reference")["status"], "empty")
 
-    def test_pending_reference_upload_keeps_startup_form_usable(self):
-        startup = StartupController(ImmediateDoc())
-        use_temporary_upload_dir(self, startup)
-        upload_file(startup.reference_annotations_input, "labels.csv", b"barcode,cell_type\na,A\n")
-        with patch.object(startup, "restart") as restart, patch.object(startup, "_prepare_data") as prepare:
-            startup.load_data_callback()
-            restart.assert_not_called()
-            prepare.assert_not_called()
-        self.assertFalse(startup.loading)
-        self.assertTrue(startup.load_button.disabled)
-        self.assertFalse(startup.reference_input.disabled)
-        self.assertIn("has not reached the server", startup.status_text.text)
-
-        # Simulate the browser finishing the delayed reference upload chunk by chunk.
-        upload_file(startup.reference_input, "reference.h5", tenx_reference_bytes(), chunk_bytes=1000)
-        self.assertIn("Reference uploaded: reference.h5", startup.reference_upload_status.text)
-        self.assertIsNone(startup._reference_upload_error())
+        # The browser finishes the delayed reference upload chunk by chunk.
+        self.upload("reference", "reference.h5", tenx_reference_bytes(), chunk_bytes=1000)
+        self.assertEqual(self.status("reference")["status"], "complete")
+        accepted, _, config = self.accepted()
+        self.assertTrue(accepted)
+        loaded = read_deconvolution_reference(config.reference_path, config.reference_annotations_path)
+        self.assertEqual(loaded.obs.cell_type.tolist(), ["A", "A", "B"])
 
     def test_selected_reference_without_contents_is_not_silently_skipped(self):
-        startup = StartupController(ImmediateDoc())
-        use_temporary_upload_dir(self, startup)
-        start_upload(startup.reference_input, "reference.h5", 100)
-        with self.assertRaisesRegex(ValueError, "has not reached the server"):
-            startup._prepare_deconvolution_reference()
+        self.upload_required()
+        self.assertEqual(self.start("reference", "reference.h5", 100).status_code, 200)
+        accepted, reply, _ = self.accepted()
+        self.assertFalse(accepted)
+        self.assertIn("not finished uploading", reply["detail"])
 
-    def test_startup_reference_is_read_once_and_reused_by_later_layers(self):
-        startup = StartupController(ImmediateDoc())
-        upload_folder = tempfile.TemporaryDirectory()
-        self.addCleanup(upload_folder.cleanup)
-        startup.SESSION_UPLOAD_DIR = Path(upload_folder.name) / "test-session"
-        self.assertTrue(startup.reference_input_widget.visible)
-        self.assertIn(startup.reference_input.choose_button, startup.layout.references())
-        self.assertIn(startup.reference_input.channel, startup.layout.references())
-        with tempfile.TemporaryDirectory() as folder:
-            path = Path(folder) / "reference.h5"
-            uploaded_reference = reference()
-            uploaded_reference.obs["donor"] = ["d1", "d1", "d2"]
-            uploaded_reference.write_h5ad(path)
-            upload_file(startup.reference_input, path.name, path.read_bytes())
-        for field, name in ((startup.h5_input, "counts.h5"), (startup.positions_input, "positions.parquet"),
-                            (startup.image_input, "tissue.png")):
-            upload_file(field, name, b"unused")
-        # Exercise the actual preparation entry point without loading spatial data.
-        with patch("anndata.read_h5ad", wraps=ad.read_h5ad) as read, \
-             patch("hd_viewer.startup.controller.VisiumHD"), \
-             patch.object(startup, "generate_tiles"), \
-             patch.object(startup, "generate_pseudospots"), \
-             patch.object(startup, "generate_segmentations"), \
-             patch.object(startup, "ensure_b2s"):
-            startup._prepare_data()
-            shared = startup.app.deconvolution_reference
-            self.assertIsNotNone(shared)
-            self.assertEqual(startup.app.deconvolution_work_dir, startup.SESSION_UPLOAD_DIR / 'deconvolution')
-            for _ in range(2):
-                layer, _ = make_layer()
-                startup.app.add_geometry(layer)
-                self.assertIs(layer.deconvolution_manager.reference, shared)
-                self.assertEqual(layer.deconvolution_manager.work_dir, startup.SESSION_UPLOAD_DIR / 'deconvolution')
-                tabs = layer.get_widgets(ImmediateDoc())
-                widgets = next(t.child.children for t in tabs.tabs if t.title == "Deconvolution")
-                run = next(w for w in widgets if isinstance(w, Button) and w.label == "Run deconvolution")
-                labels = next(w for w in widgets if isinstance(w, Select))
-                self.assertFalse(run.disabled)
-                self.assertEqual(labels.value, "cell_type")
-                self.assertEqual(labels.options, ["cell_type", "donor"])
-                self.assertFalse(labels.disabled)
-                self.assertFalse(any(isinstance(w, TextInput) for w in widgets))
-                self.assertEqual([w.label for w in widgets if isinstance(w, Button)], ["Run deconvolution"])
-                self.assertTrue(any("Reference ready: reference.h5" in getattr(w, "text", "")
-                                    for w in widgets))
-                run._trigger_event(ButtonClick(run))
-                deadline = time.monotonic() + 10
-                while run.disabled and time.monotonic() < deadline:
-                    time.sleep(.01)
-                self.assertFalse(run.disabled)
-                self.assertIn("deconvolution", layer.sample.adata.obsm)
-                self.assertEqual(layer.sample.adata.uns["deconvolution"]["reference_name"], "reference.h5")
-                saved_log = Path(layer.sample.adata.uns['deconvolution']['log_path'])
-                self.assertTrue(saved_log.is_relative_to(startup.SESSION_UPLOAD_DIR / 'deconvolution'))
-                self.assertTrue(saved_log.exists())
-            self.assertEqual(read.call_count, 1)
-
-    def test_configured_dataset_uses_same_base_path_for_segmentation_and_deconvolution(self):
-        from hd_viewer.startup import AVAILABLE_DATASETS
-        with tempfile.TemporaryDirectory() as folder:
-            base = Path(folder) / 'dataset'
-            config = dict(image_path=str(base / 'tissue.tif'),
-                          expression_path=str(base / 'binned_outputs' / 'square_008um' / 'counts.h5'),
-                          positions_path=str(base / 'binned_outputs' / 'square_008um' / 'positions.parquet'), bins_size=8)
-            key = next(iter(AVAILABLE_DATASETS))
-            with patch.dict(AVAILABLE_DATASETS, {key: config}):
-                startup = StartupController(ImmediateDoc())
-                startup.data_source.active = 1
-                startup.example_select.value = key
-                with patch('hd_viewer.startup.controller.VisiumHD'), \
-                     patch.object(startup, 'generate_tiles') as tiles, \
-                     patch.object(startup, 'generate_pseudospots'), \
-                     patch.object(startup, 'generate_segmentations') as segmentation, \
-                     patch.object(startup, 'ensure_b2s'):
-                    startup._prepare_data()
-                self.assertEqual(startup.app.deconvolution_work_dir, base / 'deconvolution')
-                tiles.assert_called_once_with(base)
-                segmentation.assert_called_once_with(base)
-                for _ in range(2):
-                    layer, _ = make_layer()
-                    startup.app.add_geometry(layer)
-                    self.assertEqual(layer.deconvolution_manager.work_dir, base / 'deconvolution')
-
-    def test_tenx_h5_annotations_populate_columns_at_startup(self):
+    def test_tenx_h5_annotations_populate_columns(self):
         # Labels must align by barcode, not by annotation row order.
         metadata = pd.DataFrame({"barcode": ["c", "a", "b"], "cell_type": ["B", "A", "A"],
                                  "donor": ["d2", "d1", "d1"]})
@@ -214,22 +168,120 @@ class DeconvolutionTests(unittest.TestCase):
             formats.append((f"{layout}.parquet", buffer.getvalue()))
         for format_name, contents in formats:
             with self.subTest(format=format_name):
-                startup = StartupController(ImmediateDoc())
-                use_temporary_upload_dir(self, startup)
-                self.assertIn(".parquet", startup.reference_annotations_input.accept)
-                upload_file(startup.reference_input, "counts.h5", tenx_reference_bytes())
-                upload_file(startup.reference_annotations_input, f"annotations.{format_name}", contents)
-                startup._prepare_deconvolution_reference()
-                layer, _ = make_layer()
-                startup.app.add_geometry(layer)
-                widgets = layer.deconvolution_manager.get_widgets(ImmediateDoc())
-                labels = next(w for w in widgets if isinstance(w, Select))
-                run = next(w for w in widgets if isinstance(w, Button))
-                self.assertEqual(labels.options, ["cell_type", "donor"])
-                self.assertFalse(labels.disabled)
-                self.assertFalse(run.disabled)
-                self.assertEqual(startup.app.deconvolution_reference.obs.cell_type.tolist(), ["A", "A", "B"])
-                np.testing.assert_allclose(startup.app.deconvolution_reference.X.toarray(), reference().X.toarray())
+                self.assertTrue(self.upload("reference", "counts.h5", tenx_reference_bytes(), 1000).json()["complete"])
+                self.assertTrue(self.upload("reference_annotations", f"annotations.{format_name}", contents,
+                                            1000).json()["complete"])
+                fields = self.session.uploads
+                loaded = read_deconvolution_reference(fields["reference"].path, fields["reference_annotations"].path)
+                self.assertEqual(loaded.obs.cell_type.tolist(), ["A", "A", "B"])
+                np.testing.assert_allclose(loaded.X.toarray(), reference().X.toarray())
+                self.install({"bins": ("bins", make_layer().sample, "Bins")}, loaded, self.session.directory)
+                state = self.state()
+                self.assertEqual(state["unavailable"], "")
+                self.assertEqual(state["columns"], ["cell_type", "donor"])
+                self.assertEqual(state["label_column"], "cell_type")
+                self.assertEqual(self.client.post("/api/layers/bins/deconvolution/check",
+                                                  json=dict(method="nnls", label_column="cell_type")).status_code, 200)
+
+    def test_counts_only_h5_explains_missing_annotations(self):
+        self.install({"bins": ("bins", make_layer().sample, "Bins")}, read_reference(tenx_reference_bytes()),
+                     self.session.directory)
+        state = self.state()
+        self.assertIn("no .obs annotation columns", state["unavailable"])
+        self.assertEqual(state["columns"], [])
+        body = dict(method="nnls", label_column="cell_type")
+        self.assertEqual(self.client.post("/api/layers/bins/deconvolution/check", json=body).status_code, 422)
+        self.assertEqual(self.client.post("/api/layers/bins/deconvolution", json=body).status_code, 422)
+        self.assertEqual(self.state()["job"]["state"], "idle")
+        with self.assertRaisesRegex(ValueError, "missing 2 reference cell barcodes"):
+            read_reference(tenx_reference_bytes(), b"barcode,cell_type\na,A\n")
+        with self.assertRaisesRegex(ValueError, "unique cell barcodes"):
+            read_reference(tenx_reference_bytes(), b"barcode,cell_type\na,A\na,B\n")
+
+    def test_available_on_spots_bins_and_cell_methods(self):
+        bins = make_layer().sample
+        samples = {"bins": ("bins", bins, "Bins"),
+                   "spots": ("spots", Spots(bins.gdf.copy(), bins.adata.copy()), "Spots"),
+                   "cells_a": ("cells", Cells(bins.gdf.copy(), bins.adata.copy()), "Cells · a")}
+        self.install(samples, reference(), self.session.directory)
+        for layer in samples:
+            with self.subTest(layer=layer):
+                state = self.state(layer)
+                self.assertEqual(state["unavailable"], "")
+                self.assertIn("nnls", [method["name"] for method in state["methods"]])
+        self.assertEqual(self.client.get("/api/layers/nope/deconvolution").status_code, 404)
+
+
+class ExampleReferenceLoadTests(DeconvolutionApiTestCase):
+    def test_reference_is_read_once_and_reused_by_every_layer(self):
+        data = Path(self.folder.name) / "data"
+        path = annotated_reference_file(Path(self.folder.name))
+        datasets.AVAILABLE_DATASETS["Tiny"] = dict(datasets.AVAILABLE_DATASETS["Tiny"], reference_path=str(path))
+        with patch("anndata.read_h5ad", wraps=ad.read_h5ad) as read:
+            self.load_example()
+            session = self.session
+            shared = session.loaded.reference
+            self.assertEqual(shared.n_obs, 3)
+            self.assertEqual(session.loaded.reference_name, "reference.h5ad")
+            # A later layer of the same dataset uses the same reference
+            session.loaded.samples["other"] = ("bins", make_layer().sample, "Other")
+            session.views = build_views(session.loaded)
+            for layer in ("bins", "other"):
+                with self.subTest(layer=layer):
+                    state = self.state(layer)
+                    self.assertEqual(state["unavailable"], "")
+                    self.assertEqual(state["reference"], dict(name="reference.h5ad", cells=3, genes=2))
+                    self.assertEqual(state["label_column"], "cell_type")
+                    self.assertEqual(state["columns"], ["cell_type", "donor"])
+                    self.run_method(layer)
+                    uns = session.views[layer].sample.adata.uns["deconvolution"]
+                    self.assertEqual(uns["reference_name"], "reference.h5ad")
+                    log = Path(uns["log_path"])
+                    # Results cache next to the example dataset (its base folder)
+                    self.assertTrue(log.is_relative_to(data / "deconvolution"))
+                    self.assertTrue(log.exists())
+            self.assertIs(session.loaded.reference, shared)
+        self.assertEqual(read.call_count, 1)
+
+
+class LoadPipelineReferenceTests(unittest.TestCase):
+    def test_configured_dataset_uses_same_base_path_for_tiles_segmentation_and_deconvolution(self):
+        with tempfile.TemporaryDirectory() as folder:
+            base = Path(folder) / "dataset"
+            base.mkdir()
+            image = base / "tissue.png"
+            image.write_bytes(b"image")
+            config = LoadConfig.from_example(dict(
+                image_path=str(image), expression_path=str(base / "binned_outputs" / "square_008um" / "counts.h5"),
+                positions_path=str(base / "binned_outputs" / "square_008um" / "positions.parquet"), bins_size=8))
+            self.assertEqual(config.base_dir, base)
+            recorded = []
+            service = SimpleNamespace(prepare_image=lambda img, key, work_dir, bgr: recorded.append(work_dir)
+                                      or work_dir / "image.tif")
+            dataset = SimpleNamespace(img_path=str(image), img=np.zeros((2, 2, 3)), img_format="png",
+                                      bins_size=8, pixels_per_bin=4, image_scale=1.0)
+            prepared = prepare_segmentation_image(service, dataset, config.base_dir)
+            self.assertEqual(recorded, [base / "segmentation"])
+            self.assertEqual(prepared.work_dir, base / "segmentation")
+            self.assertEqual(prepared.um_per_px, 2.0)
+
+    def test_optional_or_invalid_reference(self):
+        from tests.test_core_pipeline import write_dataset
+        with tempfile.TemporaryDirectory() as folder:
+            root = Path(folder)
+            example = write_dataset(root)
+            loaded = LoadPipeline(LoadConfig.from_example(example, pseudospots=False)).run()
+            self.assertIsNone(loaded.reference)
+            self.assertIsNone(loaded.reference_name)
+            self.assertEqual(loaded.base_dir, root)
+
+            bad = root / "bad.h5ad"
+            bad.write_bytes(b"not an h5ad file")
+            config = LoadConfig.from_example(dict(example, reference_path=str(bad)), pseudospots=False)
+            with patch("hd_viewer.core.pipeline.create_tiles") as tiles:
+                with self.assertRaisesRegex(ValueError, "Cannot load single-cell reference bad.h5ad"):
+                    LoadPipeline(config).run()
+                tiles.assert_not_called()
 
     def test_parquet_annotations_validate_barcodes(self):
         for barcodes, message in ((["a"], "missing 2 reference cell barcodes"),
@@ -240,41 +292,8 @@ class DeconvolutionTests(unittest.TestCase):
                 with self.assertRaisesRegex(ValueError, message):
                     read_reference(tenx_reference_bytes(), buffer.getvalue())
 
-    def test_counts_only_h5_explains_missing_annotations(self):
-        layer, _ = make_layer()
-        layer.deconvolution_manager.reference = read_reference(tenx_reference_bytes())
-        widgets = layer.deconvolution_manager.get_widgets(ImmediateDoc())
-        self.assertFalse(any(isinstance(w, TextInput) for w in widgets))
-        self.assertTrue(next(w for w in widgets if isinstance(w, Button)).disabled)
-        self.assertTrue(any("no .obs annotation columns" in getattr(w, "text", "") for w in widgets))
-        with self.assertRaisesRegex(ValueError, "missing 2 reference cell barcodes"):
-            read_reference(tenx_reference_bytes(), b"barcode,cell_type\na,A\n")
-        with self.assertRaisesRegex(ValueError, "unique cell barcodes"):
-            read_reference(tenx_reference_bytes(), b"barcode,cell_type\na,A\na,B\n")
 
-    def test_optional_or_invalid_startup_reference(self):
-        startup = StartupController(ImmediateDoc())
-        startup.app.deconvolution_reference = reference()
-        startup._prepare_deconvolution_reference()
-        self.assertIsNone(startup.app.deconvolution_reference)
-        use_temporary_upload_dir(self, startup)
-        upload_file(startup.reference_input, "bad.h5ad", b"not an h5ad file")
-        with patch.object(startup, "generate_tiles") as tiles:
-            with self.assertRaisesRegex(ValueError, "Cannot load single-cell reference bad.h5ad"):
-                startup._prepare_data()
-            tiles.assert_not_called()
-
-    def test_tab_is_available_on_spots_bins_and_cell_methods(self):
-        bins, _ = make_layer()
-        for component_class, sample_class, alias in ((Circles, Spots, "Spot"), (Patches, Cells, "Cell")):
-            with self.subTest(layer=alias):
-                sample = sample_class(bins.sample.gdf.copy(), bins.sample.adata.copy())
-                args = (1., figure(), sample) if alias == "Spot" else (figure(), sample)
-                layer = component_class(*args, alias=alias)
-                layer.add_parameter(attr="alpha", colname="g0")
-                layer.add_parameter(attr="color", static=True, val="#6baed6")
-                self.assertIn("Deconvolution", [t.title for t in layer.get_widgets(Document()).tabs])
-
+class NNLSTests(unittest.TestCase):
     def test_known_mixtures_dense_sparse_and_empty(self):
         for matrix in (np.array([[30., 10.], [0., 20.], [0., 0.]]),
                        sparse.csr_matrix([[30., 10.], [0., 20.], [0., 0.]])):
@@ -308,76 +327,70 @@ class DeconvolutionTests(unittest.TestCase):
         with self.assertRaisesRegex(ValueError, "indistinguishable"):
             deconvolve(reference(), ref, "cell_type")
 
+
+class PublishedResultTests(unittest.TestCase):
     def test_results_persist_and_bins_average_fractions(self):
-        layer, _ = make_layer()
-        result = deconvolve(layer.sample.adata, reference(), "cell_type")
-        manager = layer.deconvolution_manager
-        manager.apply_result(result, "cell_type")
-        column = manager.columns[0]
-        data = layer.sample.fetch_data(resolution_level="agg:2", colnames=[column, "g0"])
+        view = make_layer()
+        sample = view.sample
+        result = deconvolve(sample.adata, reference(), "cell_type")
+        self.assertEqual(core.publish_result(sample, result, "cell_type"), "1")
+        column = core.runs(sample)["1"]["fraction_columns"][0]
+        data = sample.fetch_data(resolution_level="agg:2", colnames=[column, "g0"])
         self.assertTrue(data[column].between(0, 1).all())
         np.testing.assert_allclose(data[column].iloc[0], result[0].iloc[:2, 0].mean())
-        self.assertEqual(data.g0.sum(), layer.sample.adata.X[:, 0].sum())
-        self.assertIn(column, layer.autocomplete_input.completions)
-        manager.apply_result(result, "cell_type")
-        self.assertNotEqual(column, manager.columns[0])
-        self.assertIn(column, layer.sample.adata.obs)
+        self.assertEqual(data.g0.sum(), sample.adata.X[:, 0].sum())
+        self.assertIn(column, view.column_names("deconv"))
+        self.assertEqual(core.publish_result(sample, result, "cell_type"), "2")
+        self.assertNotEqual(column, core.runs(sample)["2"]["fraction_columns"][0])
+        self.assertIn(column, sample.adata.obs)
         with tempfile.TemporaryDirectory() as folder:
             path = Path(folder) / "results.h5ad"
-            layer.sample.adata.write_h5ad(path)
+            sample.adata.write_h5ad(path)
             restored = ad.read_h5ad(path)
             pd.testing.assert_frame_equal(restored.obsm["deconvolution"], result[0])
             self.assertEqual(restored.uns["deconvolution"]["method"], "nnls")
 
     def test_fraction_display_remains_numeric_with_dominant_type_labels(self):
-        layer, _ = make_layer()
-        manager = layer.deconvolution_manager
-        manager.apply_result(deconvolve(layer.sample.adata, reference(), "cell_type"), "cell_type")
-        self.assertEqual(manager.columns, ["deconv_1:A", "deconv_1:B"])
-        for name in manager.columns:
-            self.assertTrue(pd.api.types.is_float_dtype(layer.sample.adata.obs[name]))
-            self.assertTrue(layer.sample.is_continous(name))
+        view = make_layer()
+        sample = view.sample
+        core.publish_result(sample, deconvolve(sample.adata, reference(), "cell_type"), "cell_type")
+        columns = core.runs(sample)["1"]["fraction_columns"]
+        self.assertEqual(columns, ["deconv_1:A", "deconv_1:B"])
+        for name in columns:
+            self.assertTrue(pd.api.types.is_float_dtype(sample.adata.obs[name]))
+            self.assertTrue(sample.is_continous(name))
         dominant = "deconv_1:most_abundant"
-        self.assertFalse(layer.sample.is_continous(dominant))
-        self.assertNotIn(dominant, layer.sample.adata.uns["mean_obs_columns"])
-        self.assertNotIn(dominant, layer.sample.adata.uns["deconvolution"]["fraction_columns"])
-        self.assertEqual(layer.sample.adata.uns["deconvolution"]["cell_types"], ["A", "B"])
-        layer.show_colname(dominant)
-        self.assertFalse(layer.manager.get_param("color").is_static)
-        layer.show_colname(manager.columns[0])
-        self.assertTrue(layer.manager.get_param("color").is_static)
-        self.assertEqual(layer.manager.get_param("alpha").colname, manager.columns[0])
-        self.assertFalse(layer.manager.get_param("alpha").avoid_scaling)
-        alphas = np.asarray(layer.manager.source.data["alpha"], dtype=float)
+        self.assertFalse(sample.is_continous(dominant))
+        self.assertNotIn(dominant, sample.adata.uns["mean_obs_columns"])
+        self.assertNotIn(dominant, sample.adata.uns["deconvolution"]["fraction_columns"])
+        self.assertEqual(sample.adata.uns["deconvolution"]["cell_types"], ["A", "B"])
+        view.colour_by_column(dominant)
+        self.assertFalse(view.rows.get_param("color").is_static)
+        self.assertEqual(view.colour_by, dict(kind="category", name=dominant))
+        view.colour_by_column(columns[0])
+        self.assertTrue(view.rows.get_param("color").is_static)
+        self.assertEqual(view.rows.get_param("alpha").colname, columns[0])
+        self.assertFalse(view.rows.get_param("alpha").avoid_scaling)
+        alphas = np.asarray(view.rows.sink.data["alpha"], dtype=float)
         self.assertTrue(np.isfinite(alphas).all())
         self.assertGreater(len(np.unique(alphas)), 1)
 
-    def test_tab_run_and_display_without_path_controls(self):
-        layer, _ = make_layer()
-        layer.deconvolution_manager.reference = reference()
-        tabs = layer.get_widgets(ImmediateDoc())
-        panel = next(t.child for t in tabs.tabs if t.title == "Deconvolution")
-        widgets = panel.children
-        self.assertFalse(any(isinstance(w, TextInput) for w in widgets))
-        run, = [w for w in widgets if isinstance(w, Button)]
-        labels = next(w for w in widgets if isinstance(w, Select) and w.title.startswith("Reference cell-type"))
-        display = next(w for w in widgets if isinstance(w, Select) and w.title == "Display cell type")
-        status = widgets[widgets.index(run) + 1]
-        self.assertFalse(run.disabled)
 
-        def wait_for(predicate):
-            deadline = time.monotonic() + 10
-            while not predicate() and time.monotonic() < deadline:
-                time.sleep(.01)
-            self.assertTrue(predicate(), status.text)
-
-        self.assertEqual(labels.value, "cell_type")
-        run._trigger_event(ButtonClick(run))
-        wait_for(lambda: not run.disabled)
-        self.assertIn("Deconvolved", status.text)
-        self.assertFalse(display.disabled)
-        self.assertEqual(layer.manager.get_param("alpha").colname, display.value)
-        self.assertTrue(np.isfinite(layer.manager.source.data["alpha"]).all())
+class RunAndDisplayTests(DeconvolutionApiTestCase):
+    def test_run_then_colour_by_a_fraction(self):
+        session = self.install({"bins": ("bins", make_layer().sample, "Bins")}, reference(), self.session.directory)
+        state = self.state()
+        self.assertEqual(state["runs"], [])
+        state = self.run_method()
+        self.assertIn("Deconvolved 6 observations into 2 cell types", state["job"]["message"])
+        run, = state["runs"]
+        self.assertEqual(run["fraction_columns"], ["deconv_1:A", "deconv_1:B"])
+        self.client.post("/api/layers/bins/viewport", json=dict(seq=1, x0=-1, x1=7, y0=-1, y1=2))
+        response = self.client.patch("/api/layers/bins/style", json=dict(colour_by="deconv_1:A"))
+        self.assertEqual(response.status_code, 200, response.text)
+        view = session.views["bins"]
+        self.assertEqual(view.rows.get_param("alpha").colname, "deconv_1:A")
+        self.assertTrue(np.isfinite(np.asarray(view.rows.sink.data["alpha"], dtype=float)).all())
 
 
 if __name__ == "__main__":

@@ -3,6 +3,7 @@ import { Button, Checkbox, ColorSwatch, Group, NumberInput, Select, Slider, Stac
 import { getJson, sendJson } from "../api/client";
 import { patchFrame, requestViewport } from "../map/layers";
 import { Layer, useApp } from "../store/app";
+import { JobProgress } from "./JobProgress";
 
 interface Options {
   algorithms: string[];
@@ -88,7 +89,8 @@ export function ClusteringPanel({ layer }: { layer: Layer }) {
         <Select label="Linkage" value={params.linkage} onChange={set("linkage")} data={["ward", "complete", "average", "single"]} />}
       <Text size="xs" c="dark.2">Clustering uses expression PCA coordinates. Density methods label outliers as Noise.</Text>
       <Button onClick={run} loading={running} disabled={!options}>Run clustering</Button>
-      {job && job.state !== "idle" && <Text size="xs" c={job.state === "failed" ? "red.4" : "dark.1"}>{job.message}</Text>}
+      <JobProgress job={job} />
+      {job && job.state !== "idle" && job.state !== "running" && <Text size="xs" c={job.state === "failed" ? "red.4" : "dark.1"}>{job.message}</Text>}
       {error && <Text size="xs" c="red.4">{error}</Text>}
 
       {result && result.clusters.length > 0 && (

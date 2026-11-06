@@ -1,5 +1,5 @@
 """Dataset summary and quality control of a layer, without any UI (used by the
-Bokeh Summary panel, board.layout.metadata, and the HTTP API)."""
+HTTP API's Summary panel)."""
 
 
 def general_stats(sample):

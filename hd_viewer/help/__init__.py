@@ -1,3 +1,2 @@
-"""Public help helpers and tutorial links."""
-from .help import (HELP, TUTORIAL_URL, BIOLOGICAL_USE_CASE_URL, TUTORIAL_ANCHORS, TUTORIAL_CARD_HTML,
-                   help_html, help_button, tutorial_link, help_header)
+"""In-app help texts (shown by the React "?" buttons) and tutorial links."""
+from .help import BIOLOGICAL_USE_CASE_URL, HELP, TUTORIAL_ANCHORS, TUTORIAL_URL, help_topics

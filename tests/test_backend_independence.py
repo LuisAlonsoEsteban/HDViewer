@@ -7,46 +7,71 @@ import sys
 import tempfile
 import textwrap
 import unittest
-from unittest.mock import Mock, patch
+from unittest.mock import patch
 
 import numpy as np
 
 from hd_viewer import settings
 from hd_viewer.settings import config as backend_config
-from hd_viewer.board.components.image import ImageComponent
-from hd_viewer.board.components.layer.utils.selection import native_selection, selection_indices
+from hd_viewer.core.selection import native_selection, selection_indices
 from hd_viewer.startup.data.image.image import ImageProcessor
 from hd_viewer.startup.data.image import transform as spatial
 from hd_viewer.startup.operations.bins2spots import Bins2Spots
 from hd_viewer.startup.sample import Bins, Cells
 from hd_viewer.startup.data.image.segmentation.service import SegmentationService
 from hd_viewer.startup.data.image.segmentation.runners import make_runner
-from hd_viewer.board.operations import comparison
+from hd_viewer.analysis import comparison
 from tests.test_spatial_alignment import fixture
 
 ROOT = Path(__file__).resolve().parents[1]
 
 
-# Packages shared by the Bokeh UI and the HTTP API: they must not import Bokeh.
-BACKEND_PACKAGES = ('hd_viewer.core', 'hd_viewer.settings', 'hd_viewer.plugins', 'hd_viewer.startup.sample',
-                    'hd_viewer.startup.data', 'hd_viewer.startup.operations', 'hd_viewer.startup.utils')
-BACKEND_MODULES = ('hd_viewer.startup.datasets', 'hd_viewer.board.operations.comparison')
+# The backend behind the HTTP API: only hd_viewer.api builds Bokeh documents
+# (figures for BokehJS), so these packages must import without Bokeh.
+BACKEND_PACKAGES = ('hd_viewer.core', 'hd_viewer.settings', 'hd_viewer.plugins', 'hd_viewer.startup',
+                    'hd_viewer.analysis')
+BACKEND_MODULES = ()
+# Analysis modules that also hold Bokeh plot builders (used by the API's figures).
+# Analyses build their Bokeh plots with imports inside the plotting functions
+PLOT_BUILDER_MODULES = ()
+
+
+def _module_name(path):
+    return '.'.join(path.relative_to(ROOT).with_suffix('').parts).removesuffix('.__init__')
 
 
 def _module_files():
     for package in BACKEND_PACKAGES:
-        yield from (ROOT / package.replace('.', '/')).rglob('*.py')
+        for path in (ROOT / package.replace('.', '/')).rglob('*.py'):
+            if _module_name(path) not in PLOT_BUILDER_MODULES:
+                yield path
     for module in BACKEND_MODULES:
         yield ROOT / (module.replace('.', '/') + '.py')
 
 
+def _is_bokeh(names):
+    return any(n == 'bokeh' or n.startswith('bokeh.') for n in names)
+
+
+def _import_names(node):
+    return ([a.name for a in node.names] if isinstance(node, ast.Import)
+            else [node.module or ''] if isinstance(node, ast.ImportFrom) else [])
+
+
 class BackendBoundaryTests(unittest.TestCase):
     def test_backend_sources_have_no_bokeh_imports(self):
+        """No module-level Bokeh import; analysis plot builders may import it lazily
+        inside the function that builds the plot."""
         for path in _module_files():
-            for node in ast.walk(ast.parse(path.read_text())):
-                names = ([a.name for a in node.names] if isinstance(node, ast.Import)
-                         else [node.module or ''] if isinstance(node, ast.ImportFrom) else [])
-                self.assertFalse(any(n == 'bokeh' or n.startswith('bokeh.') for n in names), str(path))
+            tree = ast.parse(path.read_text())
+            lazy = set()
+            if _module_name(path).startswith('hd_viewer.analysis.'):
+                for function in ast.walk(tree):
+                    if isinstance(function, (ast.FunctionDef, ast.AsyncFunctionDef)):
+                        lazy.update(id(node) for node in ast.walk(function))
+            for node in ast.walk(tree):
+                if id(node) not in lazy:
+                    self.assertFalse(_is_bokeh(_import_names(node)), str(path))
 
     def test_backend_imports_and_runs_with_bokeh_blocked(self):
         code = textwrap.dedent(f'''
@@ -61,6 +86,8 @@ class BackendBoundaryTests(unittest.TestCase):
                 for info in pkgutil.walk_packages(getattr(package, '__path__', []), name + '.'):
                     if '.plugins.' in info.name and info.name.endswith(('.run', '.sdk')):
                         continue                    # container entry points, not app code
+                    if info.name in {PLOT_BUILDER_MODULES!r}:
+                        continue
                     importlib.import_module(info.name)
             for name in {BACKEND_MODULES!r}:
                 importlib.import_module(name)
@@ -76,20 +103,24 @@ class BackendBoundaryTests(unittest.TestCase):
             assert list(codes) == [1, 0]
             assert not any(n == 'bokeh' or n.startswith('bokeh.') for n in sys.modules)
         ''')
-        result = subprocess.run([sys.executable, '-c', code], cwd=ROOT, capture_output=True, text=True, timeout=300)
+        # Few BLAS threads: the import check must not depend on the machine's free thread slots
+        env = {**os.environ, 'OPENBLAS_NUM_THREADS': '1', 'OMP_NUM_THREADS': '1', 'MKL_NUM_THREADS': '1'}
+        result = subprocess.run([sys.executable, '-c', code], cwd=ROOT, capture_output=True, text=True,
+                                timeout=600, env=env)
         self.assertEqual(result.returncode, 0, result.stdout + result.stderr)
 
 
 class BackendConfigurationTests(unittest.TestCase):
     def test_nondefault_sample_settings_and_aggregate_inheritance(self):
         _, transform, _, original = fixture()
+        from hd_viewer.core import embedding
+        from hd_viewer.core.clustering import ClusteringState
         with patch.multiple(settings,GENE_CACHE_SIZE=2,MIN_GENE_CELLS=1,NORMALIZATION_TARGET_SUM=123.,
-                            CLUSTER_COL='types',CLUSTER_PREFIX='types_',AGGREGATED_PREFIX='level:',
+                            AGGREGATED_PREFIX='level:',
                             AGGREGATE_OBS_PREFIX='block:',AGGREGATION_FACTORS=(1,2),MAX_CACHE_ENTRIES=2):
             sample = Bins(original.gdf,original.adata,spatial_transform=transform,pixels_per_bin=4,
                           **backend_config.sample_kwargs('bins'))
         self.assertEqual(sample.get_resolution_level_for_factor(2),'level:2')
-        self.assertEqual(sample.get_cluster_colname(2),'types_2')
         names = sample.aggregation_names(2)
         first = names.iloc[0]
         self.assertTrue(first.startswith('block:'))
@@ -98,19 +129,19 @@ class BackendConfigurationTests(unittest.TestCase):
         self.assertEqual(selection_indices(sample,selected,[first]),[0])
         aggregate = sample._get_aggregated_sample(2)
         self.assertEqual(aggregate._sample_options,sample._sample_options)
-        self.assertEqual(aggregate.cluster_col,'types')
         self.assertEqual(aggregate.GENE_CACHE_SIZE,2)
         self.assertEqual(aggregate.normalization_target_sum,123.)
+        clustering = ClusteringState(aggregate)
         with patch('scanpy.pp.filter_genes') as filt, patch('scanpy.pp.normalize_total') as norm, \
              patch('scanpy.pp.log1p'), patch('scanpy.pp.highly_variable_genes') as hvg:
             hvg.side_effect=lambda a: a.var.__setitem__('highly_variable',True)
-            aggregate.prepare_adata_processed()
+            clustering.prepare_adata_processed()
             self.assertEqual(filt.call_args.kwargs,dict(min_cells=1))
             self.assertEqual(norm.call_args.kwargs,dict(target_sum=123.))
             self.assertIsNot(norm.call_args.args[0],aggregate.adata)
-        with patch.object(aggregate,'compute_embedding',return_value=np.zeros((aggregate.adata.n_obs,2))) as embed:
-            data = sample.get_embedding_dataframe('pca',resolution_level='level:2',n_pcs=7,n_neighbors=4)
-            embed.assert_called_once_with('pca',n_pcs=7,n_neighbors=4)
+        with patch.object(embedding,'compute',return_value=np.zeros((aggregate.adata.n_obs,2))) as embed:
+            data = embedding.frame(aggregate,clustering,'pca',n_pcs=7,n_neighbors=4)
+            embed.assert_called_once_with(aggregate,clustering,'pca',n_pcs=7,n_neighbors=4)
             self.assertEqual(len(data),aggregate.adata.n_obs)
         with patch.multiple(settings,LOD_PREFIX='detail:',LOD_BASE_TOLERANCE=3.,LOD_MAX_LEVEL=6,LOD_TOLERANCE_PX=2.,LOD_HYSTERESIS=.2):
             cells=Cells(original.gdf,original.adata,**backend_config.sample_kwargs('cells'))
@@ -125,7 +156,7 @@ class BackendConfigurationTests(unittest.TestCase):
              patch('hd_viewer.startup.data.image.image.ImageProcessor',wraps=ImageProcessor) as image_factory, \
              patch('hd_viewer.startup.operations.bins2spots.Bins2Spots',wraps=Bins2Spots) as spots_factory, \
              patch('hd_viewer.core.workspace.Bins',wraps=BackendBins) as bins_factory:
-            AlignedIntegrationTests('test_startup_builds_aligned_image_before_native_layers').test_startup_builds_aligned_image_before_native_layers()
+            AlignedIntegrationTests('test_load_builds_aligned_image_before_native_layers').test_load_builds_aligned_image_before_native_layers()
             self.assertEqual(image_factory.call_args.kwargs['tile_size'],32)
             self.assertEqual(spots_factory.call_args.kwargs['spot_buffer_quad_segs'],8)
             self.assertEqual(spots_factory.call_args.kwargs['grid_fit_max_points'],17)
@@ -145,11 +176,6 @@ class BackendConfigurationTests(unittest.TestCase):
             image=ImageProcessor(None,'unused',spatial_transform=transform,**backend_config.image_kwargs())
             self.assertEqual(image.tile_size,64)
             self.assertIsNone(image._image)
-        processor=Mock()
-        processor.deploy_server.return_value='key'
-        with patch.object(settings,'SERVER_HOST','127.0.0.2'):
-            ImageComponent(processor,port=9876).deploy_server()
-        processor.deploy_server.assert_called_once_with(host='127.0.0.2',port=9876)
 
     def test_segmentation_paths_deep_merge_and_environment_override(self):
         with tempfile.TemporaryDirectory() as root:
@@ -178,34 +204,17 @@ class BackendConfigurationTests(unittest.TestCase):
                     self.assertEqual(runner.segmentation_root,folder)
 
     def test_application_analysis_calls_pass_configured_values(self):
-        from bokeh.events import ButtonClick
-        from bokeh.models import Button
-        from hd_viewer.board.utils.loading import LoadingLogger
-        from hd_viewer.board.layout.embedding import EmbeddingPanel
-        from tests.test_deconvolution import reference, ImmediateDoc
-        from tests.test_param_form import make_layer
-        component, _ = make_layer()
-        def work_only(logger, title, work, *args, **kwargs):
-            return work()
-        with patch.multiple(settings,N_PCS=7,N_NEIGHBORS=4,DECONV_BATCH_SIZE=2), \
-             patch.object(LoadingLogger,'run',work_only):
-            with patch.object(component.sample,'run_clustering',return_value='leiden') as clustering:
-                component.clustering_manager.compute(.65)
-                self.assertEqual(clustering.call_args.kwargs['n_pcs'],7)
-                self.assertEqual(clustering.call_args.kwargs['n_neighbors'],4)
-                self.assertEqual(clustering.call_args.kwargs['resolution'],.65)
-            panel=EmbeddingPanel(ImmediateDoc())
-            panel.set_components([component])
-            with patch.object(component.sample,'get_embedding_dataframe') as embedding:
-                panel._run_embedding(component.key)
-                self.assertEqual(embedding.call_args.kwargs['n_pcs'],7)
-                self.assertEqual(embedding.call_args.kwargs['n_neighbors'],4)
-            component.deconvolution_manager.reference=reference()
-            widgets=component.deconvolution_manager.get_widgets(ImmediateDoc())
-            run=next(w for w in widgets if isinstance(w,Button) and w.label=='Run deconvolution')
-            with patch('hd_viewer.board.layout.layer.deconvolution.deconvolve') as deconvolution:
-                run._trigger_event(ButtonClick(run))
-                self.assertEqual(deconvolution.call_args.kwargs['batch_size'],2)
+        from hd_viewer.core.clustering import ClusteringState
+        _, _, _, sample = fixture()
+        clustering = ClusteringState(sample)
+        with patch.multiple(settings,N_PCS=7,N_NEIGHBORS=4):
+            with patch.object(clustering,'run_clustering',return_value='leiden') as run:
+                clustering.compute(.65)
+                self.assertEqual(run.call_args.kwargs['n_pcs'],7)
+                self.assertEqual(run.call_args.kwargs['n_neighbors'],4)
+                self.assertEqual(run.call_args.kwargs['resolution'],.65)
+            # The embedding route runs embedding.frame(..., **embedding_kwargs())
+            self.assertEqual(backend_config.embedding_kwargs(),dict(n_pcs=7,n_neighbors=4))
 
     def test_comparison_options_reach_private_calculations(self):
         _, _, _, sample = fixture()

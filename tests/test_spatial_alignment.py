@@ -11,9 +11,6 @@ import numpy as np
 import pandas as pd
 import shapely
 from PIL import Image
-from bokeh.document import Document
-from bokeh.models import Circle, Rect, ColumnDataSource
-from bokeh.plotting import figure
 from shapely.geometry import Point, box
 from shapely.affinity import rotate
 
@@ -21,12 +18,8 @@ from hd_viewer.startup.data.image.image import ImageProcessor
 from hd_viewer.startup.data.image.transform import SpatialTransform
 from hd_viewer.startup.operations.bins2spots import Bins2Spots
 from hd_viewer.startup.sample import Bins, Cells, Spots
-from hd_viewer.board.components.layer import Circles, Squares
-from hd_viewer.board.utils.measure import MeasureTool
-from hd_viewer.board.layout.thumbnail import ViewportReadout as ROIReadout
-from hd_viewer.board.operations.layer.de import DEAnalysis
-from hd_viewer.board.layout.layer.roi import ROIManager
-from hd_viewer.board.components.layer.utils.selection import aggregation_names, native_selection, selection_indices
+from hd_viewer.analysis.de import DEAnalysis
+from hd_viewer.core.selection import aggregation_names, native_selection, selection_indices
 
 
 def fixture(angle=23., reflected=False, skew=.4, image_scale=1., n=6, residual=False):
@@ -182,73 +175,52 @@ class AlignedIntegrationTests(unittest.TestCase):
         self.assertEqual(len(partial), 4)
         self.assertAlmostEqual(partial.gene.sum(), sample.adata.X[:, 0].sum()-sample.adata.X[1, 0])
 
-    def test_startup_builds_aligned_image_before_native_layers(self):
-        from hd_viewer.startup import StartupController
-        from tests.test_deconvolution import tenx_reference_bytes
-        from tests.test_roi_manager import ImmediateDoc
-        positions, _, _, _ = fixture()
-        positions = positions.rename(index={'b0':'a', 'b1':'b', 'b6':'c'})
-        positions['index'] = positions.index
+    def test_load_builds_aligned_image_before_native_layers(self):
+        from hd_viewer.api.views import build_views
+        from hd_viewer.core.pipeline import LoadConfig, LoadPipeline
+        from hd_viewer.core.workspace import micrometres_per_unit
+        from tests.test_core_pipeline import write_dataset    # this module's fixture, renamed bins
+        from tests.fixtures import show
         with tempfile.TemporaryDirectory() as folder:
-            root = Path(folder)
-            image = root/'image.png'
-            Image.fromarray(np.full((140,180,3), 180, dtype=np.uint8)).save(image)
-            counts = root/'counts.h5'
-            counts.write_bytes(tenx_reference_bytes())
-            pos_path = root/'positions.parquet'
-            positions.drop(columns='index').rename_axis('barcode').reset_index().to_parquet(pos_path)
-            (root/'scalefactors_json.json').write_text(json.dumps({'spot_diameter_fullres':4}))
-            config = dict(image_path=str(image), expression_path=str(counts),
-                          positions_path=str(pos_path), bins_size=2)
-            with patch.dict('hd_viewer.startup.AVAILABLE_DATASETS', {'Human CRC':config}), \
-                 patch('hd_viewer.startup.data.image.image.ensure_tile_server'):
-                startup = StartupController(ImmediateDoc())
-                startup.data_source.active = 1
-                startup.example_select.value = 'Human CRC'
-                startup.pseudospots_checkbox.active = False
-                startup.tasks = {'tiles':False, 'bins':False}
-                startup.preparing = True
-                with patch.object(startup, 'generate_segmentations'):
-                    startup._prepare_data()
-                self.assertTrue(all(startup.tasks.values()))
-                self.assertEqual(len(startup.app.geometries), 1)
-                layer = startup.app.geometries[0]
-                self.assertIs(layer.sample.spatial_transform, startup.spatial_transform)
-                self.assertEqual(layer.sample.adata.n_obs, 3)
-                self.assertTrue((startup.image_processor.tiles_path/'manifest.json').exists())
-                self.assertIn('padded-v2-', str(startup.image_processor.tiles_path))
-                layer.get_widgets(startup.doc)
-                layer.refresh_glyph()
-                self.assertIsInstance(layer.glyph_renderer.glyph, Rect)
-                self.assertNotIn('xs', layer.manager.source.data)
-                self.assertNotIn('ys', layer.manager.source.data)
-                startup.doc.add_root(startup.app.figure_panel.p)
-                startup.doc.to_json()
-                # Reopen the same example: neither tile reuse nor bin loading
-                # should materialize the original or padded image.
-                with patch('hd_viewer.startup.data.VisiumHD.VisiumHD.read_img', side_effect=AssertionError('Cached example decoded pixels')), \
-                     patch.object(SpatialTransform, 'warp_image', side_effect=AssertionError('Cached example padded pixels')):
-                    reopened = StartupController(ImmediateDoc())
-                    reopened.data_source.active = 1
-                    reopened.example_select.value = 'Human CRC'
-                    reopened.pseudospots_checkbox.active = False
-                    reopened.tasks = {'tiles':False, 'bins':False}
-                    reopened.preparing = True
-                    with patch.object(reopened, 'generate_segmentations'):
-                        reopened._prepare_data()
-                    self.assertTrue(all(reopened.tasks.values()))
-                    self.assertIsNone(reopened.dataset.img)
-                    self.assertIsNone(reopened.image_processor._image)
-                    self.assertEqual(len(reopened.app.geometries), 1)
+            config = LoadConfig.from_example(write_dataset(Path(folder)), pseudospots=False)
+            loaded = LoadPipeline(config).run()
+            self.assertEqual(set(loaded.samples), {'bins'})
+            kind, sample, _ = loaded.samples['bins']
+            self.assertIs(sample.spatial_transform, loaded.transform)
+            self.assertEqual(sample.adata.n_obs, 3)
+            self.assertTrue((loaded.image_processor.tiles_path/'manifest.json').exists())
+            self.assertIn('padded-v2-', str(loaded.image_processor.tiles_path))
+            views = build_views(loaded, micrometres_per_unit(sample))
+            view = views['bins']
+            size = loaded.image_processor.max_dim
+            show(view, 0, size, 0, size)
+            self.assertEqual(len(view.rows.indexes), len(sample.gdf))     # every native bin
+            self.assertEqual(sum(view.rows.is_sequenced), sample.adata.n_obs)
+            self.assertNotIn('xs', view.rows.sink.data)            # rectangles: centres only
+            self.assertNotIn('ys', view.rows.sink.data)
+            self.assertEqual(set(view.rows.glyph_constants), {'width', 'height', 'angle'})
+            # Reopen the same example: neither tile reuse nor bin loading
+            # should materialize the original or padded image.
+            with patch('hd_viewer.startup.data.VisiumHD.VisiumHD.read_img',
+                       side_effect=AssertionError('Cached example decoded pixels')), \
+                 patch.object(SpatialTransform, 'warp_image',
+                              side_effect=AssertionError('Cached example padded pixels')):
+                reopened = LoadPipeline(config).run()
+                self.assertIsNone(reopened.dataset.img)
+                self.assertIsNone(reopened.image_processor._image)
+                self.assertEqual(set(reopened.samples), {'bins'})
+                show(build_views(reopened)['bins'], 0, size, 0, size)
 
-    def test_metric_radii_readout_ruler_and_polygon_layers(self):
+    def test_metric_radii_ruler_and_polygon_layers(self):
+        from types import SimpleNamespace
+        from bokeh.plotting import figure
+        from hd_viewer.api.measure import MeasureTool
+        from tests.fixtures import make_view, show
         _, transform, b2s, sample = fixture(skew=1.4)
-        plot = figure(x_range=(20, 60), y_range=(30, 80))
-        component = Squares(plot, sample, lazy_loading=True, alias='Bin')
-        manager = component.roi_manager
-        readout = ROIReadout(plot)
-        readout.set_transform(transform, .5)
-        manager.coordinate_scale = readout.scale
+        view = make_view(sample)
+        manager = view.rois
+        # As build_views calibrates it for a dataset with .5 µm per full-res pixel
+        manager.coordinate_scale = SimpleNamespace(data=dict(px_x=[1.0], px_y=[1.0], um_per_px=[.5]))
         factors, unit = manager.radius_scale()
         self.assertEqual(unit, 'µm')
         seed = transform.points([70., 75.])
@@ -262,9 +234,7 @@ class AlignedIntegrationTests(unittest.TestCase):
         centers = sample.get_coordinates(sample.gdf.loc[['b0','b35']]).to_numpy()
         expected = shapely.union_all([manager.seed_radius_geometry(*xy,5,*factors) for xy in centers])
         self.assertLess(expected.symmetric_difference(combined).area, 1e-8)
-        corners = transform.points([[20,30],[60,30],[60,80],[20,80]], inverse=True)
-        self.assertEqual(readout.bbox(), tuple(round(v) for v in (*corners.min(axis=0), *corners.max(axis=0))))
-        measure = MeasureTool(plot)
+        measure = MeasureTool(figure(x_range=(20, 60), y_range=(30, 80)))
         measure.set_transform(transform, .5)
         s = measure.scale.data
         metric = np.array([[s['a'][0],s['b'][0]],[s['c'][0],s['d'][0]]])
@@ -287,18 +257,17 @@ class AlignedIntegrationTests(unittest.TestCase):
         self.assertTrue(all(np.isscalar(y) for y in source.y))
         expected_radius = spot_b2s.spatial_transform.pitch * 55. / (2 * spot_b2s.bins_size)
         np.testing.assert_allclose(source.radius, expected_radius)
-        circles = Circles('radius', plot, spots, alias='Spot')
-        circles.manager.fetch_data()
-        circles.add_glyph()
-        self.assertIsInstance(circles.glyph_renderer.glyph, Circle)
-        self.assertEqual(circles.glyph_renderer.glyph.radius, 'radius')
-        component.manager.clear_sources()
-        component.add_glyph()
-        self.assertIsInstance(component.glyph_renderer.glyph, Rect)
-        doc = Document()
-        doc.add_root(plot)
-        doc.validate()
-        doc.to_json()
+        # Spot layers stream circle centres and radii; bins stream rectangle centres
+        spot_view = make_view(spots, kind='spots')
+        show(spot_view, -1e4, 1e4, -1e4, 1e4)
+        self.assertGreater(len(spot_view.rows.indexes), 0)
+        self.assertEqual({'x', 'y', 'radius'} - set(spot_view.rows.sink.data), set())
+        np.testing.assert_allclose(spot_view.rows.sink.data['radius'], expected_radius, rtol=1e-6)
+        self.assertNotIn('xs', spot_view.rows.sink.data)
+        show(view, 20, 60, 30, 80)
+        self.assertGreater(len(view.rows.indexes), 0)
+        self.assertNotIn('xs', view.rows.sink.data)
+        self.assertNotIn('radius', view.rows.sink.data)
 
 
 if __name__ == '__main__':

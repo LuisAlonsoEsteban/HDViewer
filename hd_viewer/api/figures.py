@@ -16,13 +16,14 @@ from bokeh.plotting import figure
 from bokeh.themes import Theme
 from bokeh.transform import transform
 
-from ..board.layout.figure import FigurePanel
+from .. import settings
+from .measure import MeasureTool
 from ..core.parameters import is_color
 from ..core.workspace import micrometres_per_unit
 from ..startup.data.image.image import register_tiles, tile_extension
 
 
-# Dark theme of the Bokeh UI, for figures shown in the panels (charts, QC, embeddings)
+# Dark theme for figures shown in the panels (charts, QC, embeddings)
 THEME = Theme(filename=str(Path(__file__).resolve().parents[1] / "theme.yaml"))
 
 
@@ -102,12 +103,64 @@ def _layer(plot, view):
     return hover
 
 
+# Keeps the image's aspect ratio when the plot is resized or zoomed (one image
+# pixel is square on screen)
+_PRESERVE_ASPECT = """
+    let scheduled = false
+    let observer = null
+    export default ({plot}) => {
+        const schedule = () => {
+            if (scheduled) return
+            scheduled = true
+            requestAnimationFrame(() => {
+                try {
+                    if (plot.document == null) { observer?.disconnect(); return }
+                    const w = plot.inner_width, h = plot.inner_height
+                    const xr = plot.x_range, yr = plot.y_range
+                    const dx = xr.end-xr.start, dy = yr.end-yr.start
+                    if (!(w > 0 && h > 0 && dx > 0 && dy > 0)) return
+                    const units = Math.max(dx/w, dy/h)
+                    const width = units*w, height = units*h
+                    if (Math.abs(width-dx) <= dx*1e-7 && Math.abs(height-dy) <= dy*1e-7) return
+                    const cx = (xr.start+xr.end)/2, cy = (yr.start+yr.end)/2
+                    xr.setv({start:cx-width/2, end:cx+width/2})
+                    yr.setv({start:cy-height/2, end:cy+height/2})
+                } finally { scheduled = false }
+            })
+        }
+        if (observer == null) {
+            const view = Bokeh.index.find_one(plot)
+            if (view != null) {
+                observer = new ResizeObserver(schedule)
+                observer.observe(view.el)
+            }
+        }
+        schedule()
+    }
+"""
+
+
+def base_figure(max_dim):
+    """The empty map: image-sized ranges, pan/zoom tools and the ruler."""
+    plot = figure(sizing_mode="stretch_both", min_height=settings.PLOT_MIN_HEIGHT,
+                  x_range=(0, max_dim), y_range=(0, max_dim),
+                  background_fill_color=settings.PLOT_BACKGROUND_COLOR, tools="pan,wheel_zoom,save,reset")
+    plot.grid.visible = False
+    plot.axis.visible = False
+    plot.toolbar.logo = None
+    plot.toolbar.autohide = False
+    callback = CustomJS(args=dict(plot=plot), code=_PRESERVE_ASPECT)
+    plot.js_on_event("document_ready", callback)
+    for axis in (plot.x_range, plot.y_range):
+        axis.js_on_change("start", callback)
+        axis.js_on_change("end", callback)
+    return plot, MeasureTool(plot)
+
+
 def map_figure(loaded, views, prefix="", view_box=None):
     """The tissue map; `view_box` (x0, x1, y0, y1) keeps the user's view when
     the figure is rebuilt (e.g. after a Parameters tab change)."""
-    panel = FigurePanel()
-    panel.create_figure(loaded.image_processor.max_dim)
-    plot = panel.p
+    plot, measure_tool = base_figure(loaded.image_processor.max_dim)
     if view_box is not None:
         x0, x1, y0, y1 = view_box
         plot.x_range.update(start=x0, end=x1)
@@ -118,8 +171,10 @@ def map_figure(loaded, views, prefix="", view_box=None):
 
     bins = next((view.sample for view in views.values() if view.kind == "bins"), None)
     if bins is not None and loaded.transform is not None:
-        um_per_px = micrometres_per_unit(bins)
-        panel.measure_tool.set_transform(loaded.transform, um_per_px)
+        measure_tool.set_transform(loaded.transform, micrometres_per_unit(bins))
+    elif bins is not None and bins.native_width > 0:
+        # No spatial transform: one native bin spans `bin_size` µm
+        measure_tool.set_scale(bins.bin_size / bins.native_width, bins.bin_size / bins.native_height)
     # The shared figure starts with no active inspector: activate the layers' hover
     plot.toolbar.active_inspect = [_layer(plot, view) for view in views.values()]
     # ROI being drawn (preview before saving). The drawing tools select nothing:
@@ -154,5 +209,4 @@ def thumbnail_figure(loaded, prefix=""):
 
 
 def _tile_threshold():
-    from .. import settings
     return settings.TILE_MEM_THRESHOLD

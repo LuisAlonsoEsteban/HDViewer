@@ -2,6 +2,7 @@ import { useEffect, useRef, useState } from "react";
 import { Autocomplete, Button, Group, SegmentedControl, Select, Stack, Text } from "@mantine/core";
 import { getJson, sendJson } from "../api/client";
 import { bridge } from "../bokeh/bridge";
+import { JobProgress } from "./JobProgress";
 import { useApp } from "../store/app";
 import { BokehFigure } from "./BokehFigure";
 
@@ -114,6 +115,7 @@ export function EmbeddingPanel() {
       </Group>
       <Autocomplete label="Color by" placeholder="Gene or metadata column" data={options} value={query || colourBy}
                     onChange={setQuery} onOptionSubmit={(name) => { setQuery(""); setColourBy(name); }} />
+      <JobProgress job={job} message={false} />
       <Text size="xs" c={job?.state === "failed" || error ? "red.4" : "dark.1"}>
         {error ?? (job && job.state !== "idle" ? job.message : state?.method ? "" : `Select a method and run an embedding for ${title}.`)}
       </Text>

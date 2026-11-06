@@ -86,7 +86,7 @@ def segmentation_kwargs():
 
 
 def deconvolution_service_kwargs():
-    from ..board.operations.layer.deconvolution.service import load_config
+    from ..analysis.deconvolution.service import load_config
     defaults = dict(runner=_settings.DECONVOLUTION_DEFAULT_RUNNER, gpu=_settings.DECONVOLUTION_GPU,
                     threads_per_run=_settings.DEFAULT_THREADS, max_parallel=_settings.DECONVOLUTION_MAX_PARALLEL,
                     timeout_minutes=_settings.DECONVOLUTION_TIMEOUT_MINUTES, memory=_settings.DECONVOLUTION_MEMORY,

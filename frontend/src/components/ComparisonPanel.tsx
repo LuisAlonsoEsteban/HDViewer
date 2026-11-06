@@ -5,6 +5,7 @@ import {
 import { getJson, sendJson } from "../api/client";
 import { bridge } from "../bokeh/bridge";
 import { requestViewport, setStyle } from "../map/layers";
+import { JobProgress } from "./JobProgress";
 import { useApp } from "../store/app";
 import { BokehFigure } from "./BokehFigure";
 
@@ -172,6 +173,7 @@ export function ComparisonPanel() {
       <Button color="green" onClick={compare} loading={running} disabled={(options?.layers.length ?? 0) < 2}>
         Compare samples
       </Button>
+      <JobProgress job={job} message={false} />
       <Text size="xs" c={job?.state === "failed" || message?.error ? "red.4" : "dark.1"}>
         {message?.text ?? (job && job.state !== "idle" ? job.message
           : (options?.layers.length ?? 0) < 2 ? "Load at least two samples to compare them."

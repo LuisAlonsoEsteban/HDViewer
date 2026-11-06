@@ -3,8 +3,7 @@
 `ClusteringState` runs the algorithms (on native or aggregated bins), keeps the
 cluster columns, their ordered labels and assigned colours, which clusters are
 shown, and the marker genes. Its PCA / neighbor caches live on the sample, so
-embeddings reuse them. The Bokeh UI subclasses it (board.layout.layer.clustering)
-and the HTTP API uses it directly.
+embeddings reuse them. The HTTP API holds one per layer view.
 """
 import numpy as np
 import pandas as pd

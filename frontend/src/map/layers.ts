@@ -4,6 +4,7 @@ import { ApiError, frame, getJson, sendJson } from "../api/client";
 import { Frame } from "../api/frames";
 import { bridge } from "../bokeh/bridge";
 import { useApp } from "../store/app";
+import { restoreOutlines } from "./roi";
 
 const versions = new Map<string, number>();
 const inFlight = new Set<string>();
@@ -19,8 +20,13 @@ export function mapPlot(): any {
   return bridge.docs.get("map")?.get_model_by_name("map") ?? null;
 }
 
+function noteBinInfo(frame: Frame): void {
+  if (frame.header.bins) useApp.getState().setBinInfo(frame.header.layer, frame.header.bins);
+}
+
 export async function applyLayerFrame(result: Frame): Promise<void> {
   const layer = result.header.layer;
+  noteBinInfo(result);
   if (result.ops.length && result.header.base !== (versions.get(layer) ?? 0)) {
     const state = await frame("GET", `layers/${encodeURIComponent(layer)}/state`);
     bridge.applyFrame(state);
@@ -70,6 +76,7 @@ export async function sendSelection(layer: string, rows: number[]): Promise<void
 export async function refreshLayer(layer: string): Promise<void> {
   const state = await frame("GET", `layers/${encodeURIComponent(layer)}/state`);
   bridge.applyFrame(state);
+  noteBinInfo(state);
   versions.set(layer, state.header.version);
   await requestViewport(layer);
 }
@@ -95,8 +102,23 @@ export async function rebuildMap(): Promise<void> {
   const item = await getJson(`figures/map?${view}`);
   await bridge.embed(item, host, "map");
   bridge.setImageAlpha(imageAlpha);
+  await resyncLayers();
+}
+
+/** A newly embedded map has empty sources: send every layer's full state again
+ * (frames are deltas against what the previous figure held). */
+export async function resyncLayers(): Promise<void> {
   versions.clear();
-  await Promise.all((useApp.getState().workspace?.layers ?? []).map(({ id: layer }) => refreshLayer(layer)));
+  await Promise.all((useApp.getState().workspace?.layers ?? []).map(async ({ id: layer }) => {
+    await refreshLayer(layer);
+    // The selection lives on the server (native observations): show it again
+    const picked = await getJson<{ row_version: number; rows: number[] }>(
+      `layers/${encodeURIComponent(layer)}/selection`);
+    if (picked.rows.length && picked.row_version === bridge.rowVersion(layer)) {
+      bridge.selectQuietly(bridge.model(layer, "source"), picked.rows);
+    }
+  }));
+  restoreOutlines();
 }
 
 let imageAlpha = 1;

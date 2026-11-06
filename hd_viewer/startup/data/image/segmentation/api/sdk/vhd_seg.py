@@ -1,6 +1,7 @@
 """Helpers for segmentation plugins. Copied into every plugin image next to run.py.
 
-The full contract is described in segmentation/README.md. In short, a plugin:
+The full contract is described in the README.md next to this sdk/ folder and in
+docs/plugins.md at the repository root. In short, a plugin:
 
     job = start()                      # reads params.json, parses --input/--output
     image = job.read_image()           # (H, W, 3) RGB array, original orientation

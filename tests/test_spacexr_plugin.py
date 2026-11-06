@@ -13,8 +13,8 @@ import pandas as pd
 from scipy import sparse
 from scipy.io import mmread
 
-from hd_viewer.board.operations.layer.deconvolution import DeconvolutionService, discover, validate_result
-from hd_viewer.board.operations.layer.deconvolution.api.sdk import vhd_deconv as sdk
+from hd_viewer.analysis.deconvolution import DeconvolutionService, discover, validate_result
+from hd_viewer.analysis.deconvolution.api.sdk import vhd_deconv as sdk
 
 
 PLUGIN = discover()['spacexr']

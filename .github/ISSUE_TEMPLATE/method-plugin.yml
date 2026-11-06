@@ -1,0 +1,49 @@
+name: New method plugin
+description: Propose a segmentation or deconvolution method for VisiumVisualizer
+title: "[Plugin] "
+labels: [plugin]
+body:
+  - type: markdown
+    attributes:
+      value: |
+        Methods are added as plugins: one folder with a manifest and a script, no viewer changes.
+        See the [plugin guide](https://github.com/LuisAlonsoEsteban/VisiumVisualizer/blob/main/docs/plugins.md).
+  - type: dropdown
+    id: kind
+    attributes:
+      label: Kind of plugin
+      options: [Cell segmentation, Cell-type deconvolution]
+    validations:
+      required: true
+  - type: input
+    id: method
+    attributes:
+      label: Method and reference
+      description: Name, paper (DOI) and code repository.
+    validations:
+      required: true
+  - type: textarea
+    id: why
+    attributes:
+      label: Why it is useful for Visium HD data
+      description: What it adds over the bundled methods.
+    validations:
+      required: true
+  - type: textarea
+    id: runtime
+    attributes:
+      label: Runtime and resources
+      description: Container image (if one exists), CPU/GPU, memory and time on a typical slide.
+  - type: input
+    id: licence
+    attributes:
+      label: Licence of the method
+      description: It must allow redistribution in a container image.
+    validations:
+      required: true
+  - type: checkboxes
+    id: plan
+    attributes:
+      label: Contribution
+      options:
+        - label: I plan to open a pull request with the plugin folder.

@@ -9,7 +9,7 @@ test("cluster the layer, hide a cluster and create a group", async ({ page }) =>
   page.on("pageerror", (error) => errors.push(String(error)));
 
   await page.goto("/");
-  await page.getByRole("button", { name: "Launch" }).click();
+  await page.getByRole("button", { name: /Explore your data/ }).click();
   await page.getByRole("combobox", { name: "Example dataset" }).click();
   await page.getByRole("option", { name: DATASET }).click();
   await page.getByLabel("Generate Visium v2 pseudospots (55 µm)").uncheck();

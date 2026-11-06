@@ -9,5 +9,6 @@ router = APIRouter()
 def datasets():
     """Example datasets present on this server."""
     return [dict(id=name, title=name, bins_size=config["bins_size"],
-                 has_reference=bool(config.get("reference_path")))
+                 has_reference=bool(config.get("reference_path")),
+                 has_annotations=bool(config.get("reference_annotations_path")))
             for name, config in AVAILABLE_DATASETS.items()]

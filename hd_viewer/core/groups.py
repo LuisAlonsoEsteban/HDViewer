@@ -3,8 +3,7 @@
 A group is defined by gene/metadata conditions (combined with AND/OR) or by a
 fixed membership (e.g. a region of interest). Memberships are stored in
 ``adata.obs['grp_<name>']`` and the shown groups' labels in
-``adata.obs[GROUPS_COL]``. The Bokeh UI subclasses `GroupsState`
-(board.layout.layer.groups) and the HTTP API uses it directly.
+``adata.obs[GROUPS_COL]``. The HTTP API holds one `GroupsState` per layer view.
 """
 import numpy as np
 import pandas as pd
@@ -181,7 +180,7 @@ class GroupsState:
             self.sample.clear_multiscale_cache()
 
     def _apply_groups_to_adata(self, prepared=None):
-        """Store the groups (the Bokeh UI also recolours its map here)."""
+        """Store the groups (a hook for subclasses that also redraw)."""
         self.store_groups(prepared)
 
     def _rollback(self, name):

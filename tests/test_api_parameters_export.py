@@ -105,7 +105,7 @@ class NonAggregatedSelectionTests(unittest.TestCase):
         """Layers without aggregation (spots, cells) have no aggregate name prefix."""
         from types import SimpleNamespace
         import pandas as pd
-        from hd_viewer.board.components.layer.utils.selection import native_selection, selection_indices
+        from hd_viewer.core.selection import native_selection, selection_indices
         spots = SimpleNamespace(adata=SimpleNamespace(obs_names=pd.Index(["s0", "s1", "s2"])))
         self.assertEqual(native_selection(spots, ["s1", "x"]), {"s1"})
         self.assertEqual(selection_indices(spots, {"s2", "s0"}, ["s0", "s1", "s2"]), [0, 2])
@@ -118,6 +118,7 @@ class SpotsKeepTheirRadiusTests(unittest.TestCase):
         from tests.test_roi_manager import make_layer
         sample = make_layer("spots").sample
         view = LayerView("spots", "spots", sample, "Spots", "#ffffff")
+        self.assertIn("radius", view.full_state()[1][0][1])         # before any fetch
         view.update_viewport(-1, 5, -1, 5, 600, 600)
         self.assertIn("radius", view.rows.sink.data)
         sample.adata.obs["region"] = ["a", "b"] * 8

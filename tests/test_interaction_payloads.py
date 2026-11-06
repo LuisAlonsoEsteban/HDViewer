@@ -4,12 +4,12 @@ from unittest.mock import patch
 
 import numpy as np
 import pandas as pd
-from bokeh.models import AllIndices, BooleanFilter
 
 from hd_viewer import settings
-from hd_viewer.board.source.lazyloader import LazyLoader
-from hd_viewer.board.source.parameter import CategoricalColor, StaticParameter
+from hd_viewer.api import frames
+from hd_viewer.core.encoding import CategoricalColor, StaticParameter
 from hd_viewer.startup.sample.bins import block_mode
+from tests.fixtures import loaded, show
 from tests.test_display_controls import make_layer
 
 
@@ -47,101 +47,96 @@ class ColorCodeTests(unittest.TestCase):
 
 class StreamPayloadTests(unittest.TestCase):
     def test_bins_stream_compact_columns(self):
-        layer = make_layer()
-        data = layer.manager.source.data
+        view = make_layer()
+        data = view.rows.sink.data
         for name in ("width", "height", "angle"):
             self.assertNotIn(name, data)                       # glyph values instead
         for name in ("x", "y", "alpha"):
             self.assertEqual(np.asarray(data[name]).dtype, np.float32, name)
         self.assertEqual(np.asarray(data["color"]).dtype, np.uint8)
-        self.assertEqual(layer.glyph_renderer.glyph.width, layer.sample.native_width)
+        header = view.header([])
+        self.assertEqual(view.rows.glyph_constants["width"], view.sample.native_width)
+        self.assertEqual(header["constants"]["width"], view.sample.native_width)
 
 
 class ViewFilterTests(unittest.TestCase):
     def test_no_mask_when_everything_is_visible_and_binary_mask_otherwise(self):
-        layer = make_layer()
-        layer._view = np.ones(layer.manager.n_geometries, dtype=bool)
-        layer.change_glyph_view()
-        self.assertIsInstance(layer.glyph_renderer.view.filter, AllIndices)
-        mask = np.ones(layer.manager.n_geometries, dtype=bool)
+        view = make_layer()
+        n = view.rows.n_geometries
+        self.assertIsNone(view.visibility())
+        header, _, extra = view.frame_parts([])
+        self.assertFalse(header["filtered"])
+        self.assertIsNone(extra)
+        view.colour_by_column("kind")
+        mask = np.ones(n, dtype=bool)
         mask[:3] = False
-        layer._view = mask
-        layer.change_glyph_view()
-        view_filter = layer.glyph_renderer.view.filter
-        self.assertIsInstance(view_filter, BooleanFilter)
-        self.assertIsInstance(view_filter.booleans, np.ndarray)
-        mask = mask.copy()
-        mask[5] = False
-        layer._view = mask
-        layer.change_glyph_view()
-        self.assertIs(layer.glyph_renderer.view.filter, view_filter)   # mutated, not replaced
-        np.testing.assert_array_equal(view_filter.booleans, mask)
+        view.rows.view_filter = mask
+        visible = view.visibility()
+        self.assertIsInstance(visible, np.ndarray)
+        self.assertEqual(visible.dtype, np.uint8)               # one byte per row
+        np.testing.assert_array_equal(visible, mask)
+        header, ops, extra = view.frame_parts([])
+        self.assertTrue(header["filtered"])
+        np.testing.assert_array_equal(extra["visible"], mask)
+        _, _, decoded = frames.decode(frames.encode(header, ops, extra))
+        np.testing.assert_array_equal(np.asarray(decoded["visible"], dtype=bool), mask)
 
 
 class PruningTests(unittest.TestCase):
     def test_far_rows_are_kept_until_the_budget_is_exceeded(self):
-        layer = make_layer()
-        manager = layer.manager
-        manager._last_fetch_rows = len(manager.indexes)
-        self.assertFalse(manager.needs_pruning())
-        manager._last_fetch_rows = len(manager.indexes) // (settings.PRUNE_ROW_BUDGET + 1)
-        self.assertTrue(manager.needs_pruning())
+        rows = make_layer().rows
+        rows._last_fetch_rows = len(rows.indexes)
+        self.assertFalse(rows.needs_pruning())
+        rows._last_fetch_rows = len(rows.indexes) // (settings.PRUNE_ROW_BUDGET + 1)
+        self.assertTrue(rows.needs_pruning())
 
 
 class HiddenLayerTests(unittest.TestCase):
     def test_hidden_layers_drop_rows_and_skip_loads_until_shown(self):
-        layer = make_layer()
-        loader = LazyLoader(layer.manager, layer.figure)
-        layer.loader = loader
-        loaded = len(layer.manager.indexes)
-        self.assertGreater(loaded, 0)
+        view = make_layer()
+        n_loaded = len(view.rows.indexes)
+        self.assertGreater(n_loaded, 0)
 
-        layer.set_visibility(False)
-        self.assertEqual(len(layer.manager.indexes), 0)
-        self.assertEqual(len(layer.manager.source.data["x"]), 0)
-        with patch.object(layer.sample, "fetch_data", wraps=layer.sample.fetch_data) as fetch:
-            layer.manager.fetch_data()
-            loader.force_reload()
-            layer.show_colname("g1")                           # recolouring a hidden layer
+        view.set_visible(False)
+        self.assertEqual(len(view.rows.indexes), 0)
+        self.assertEqual(len(view.rows.sink.data["x"]), 0)
+        with patch.object(view.sample, "fetch_data", wraps=view.sample.fetch_data) as fetch:
+            view.rows.fetch_data()
+            show(view, -1, 9, -1, 9)
+            view.colour_by_column("g1")                         # recolouring a hidden layer
             fetch.assert_not_called()
 
-        layer.set_visibility(True)
-        self.assertEqual(len(layer.manager.indexes), loaded)
-        np.testing.assert_allclose(np.asarray(layer.manager.source.data["g1"], dtype=float),
-                                   layer.sample.get_value(colname="g1").reindex(layer.manager.indexes).to_numpy(),
+        view.set_visible(True)
+        show(view, -1, 9, -1, 9)                                # the browser reloads its view
+        self.assertEqual(len(view.rows.indexes), n_loaded)
+        np.testing.assert_allclose(np.asarray(view.rows.sink.data["g1"], dtype=float),
+                                   view.sample.get_value(colname="g1").reindex(view.rows.indexes).to_numpy(),
                                    rtol=1e-6)
-
-
-if __name__ == "__main__":
-    unittest.main()
 
 
 class HoverNameTests(unittest.TestCase):
     def test_names_are_not_streamed_and_are_served_on_hover(self):
-        import json
-        from hd_viewer.board.components.layer.utils.hover_names import HoverNames
-        layer = make_layer()
-        manager, names = layer.manager, layer.hover_names
-        self.assertNotIn("obs_name", manager.source.data)
-        self.assertEqual(len(manager.loaded_obs_names), len(manager.source.data["x"]))
-        self.assertEqual(layer.get_hover_tooltips(), HoverNames.TEMPLATE)
-        self.assertIs(layer.hover.formatters["$index"], names.formatter)
-
-        version = names.channel.version
-        self.assertEqual(version, manager.row_version)
-        names.channel.request = json.dumps(dict(seq=1, version=version, rows=[0, 2, 10_000]))
-        response = json.loads(names.channel.response)
-        self.assertEqual(response["rows"], [[0, manager.loaded_obs_names[0]], [2, manager.loaded_obs_names[2]]])
+        view = make_layer()
+        rows = view.rows
+        self.assertNotIn("obs_name", rows.sink.data)
+        self.assertEqual(len(rows.loaded_obs_names), len(rows.sink.data["x"]))
+        self.assertEqual(view.tooltips()[0], ["Barcode", "$index{custom}"])
+        version = rows.row_version
+        self.assertEqual(view.header([])["row_version"], version)
+        self.assertEqual(view.names(version, [0, 2, 10_000]),
+                         [[0, rows.loaded_obs_names[0]], [2, rows.loaded_obs_names[2]]])
 
     def test_row_changes_invalidate_cached_names(self):
-        import json
-        layer = make_layer()
-        manager, names = layer.manager, layer.hover_names
-        before = names.channel.version
-        manager.remove_indcs([manager.indexes[0]])            # positions shift
-        self.assertGreater(names.channel.version, before)
-        names.channel.request = json.dumps(dict(seq=2, version=before, rows=[0]))
-        self.assertEqual(json.loads(names.channel.response)["rows"], [])   # stale request: no answer
-        after = names.channel.version
-        manager.clear_sources()
-        self.assertGreater(names.channel.version, after)
+        view = make_layer()
+        rows = view.rows
+        before = rows.row_version
+        rows.remove_indcs([rows.indexes[0]])                    # positions shift
+        self.assertGreater(rows.row_version, before)
+        self.assertEqual(view.names(before, [0]), [])           # stale request: no answer
+        after = rows.row_version
+        rows.clear_sources()
+        self.assertGreater(rows.row_version, after)
+
+
+if __name__ == "__main__":
+    unittest.main()

@@ -16,6 +16,7 @@ export interface FrameHeader {
   constants: Record<string, number>;
   palette: string[];
   palettes?: Record<string, string[]>;   // Parameters tab colour attributes
+  bins?: import("../store/app").BinInfo | null;   // bins layers: displayed resolution
   tooltips: [string, string][];
   visible: boolean;
   filtered: boolean;

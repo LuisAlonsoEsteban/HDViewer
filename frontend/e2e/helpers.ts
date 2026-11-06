@@ -2,7 +2,7 @@ import { expect, Page } from "@playwright/test";
 
 export async function load(page: Page, dataset: string, { pseudospots = false } = {}) {
   await page.goto("/");
-  await page.getByRole("button", { name: "Launch" }).click();
+  await page.getByRole("button", { name: /Explore your data/ }).click();
   await page.getByRole("combobox", { name: "Example dataset" }).click();
   await page.getByRole("option", { name: dataset }).click();
   await page.getByLabel("Generate Visium v2 pseudospots (55 µm)").setChecked(pseudospots);

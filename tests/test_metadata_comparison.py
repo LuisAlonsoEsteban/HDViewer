@@ -1,19 +1,23 @@
+"""Descriptive comparison of numeric metadata between groups/clusters or against The rest."""
+import json
 import threading
 import unittest
 from unittest.mock import patch
 
-import anndata as ad
 import numpy as np
 import pandas as pd
 from bokeh.document import Document
-from bokeh.events import ButtonClick
-from bokeh.models import Div, HoverTool
+from bokeh.models import HoverTool
 
-from hd_viewer.board.operations.layer.metadata_comparison import compare_metadata, compare_metadata_to_rest, rest_mask, numeric_columns, build_metadata_plot
-from hd_viewer.board.operations.layer.deconvolution import DeconvolutionResult
-# Follow application import order before loading layer UI fixtures.
-import hd_viewer.startup
-from tests.test_roi_manager import make_layer, ImmediateDoc, wait_for
+from hd_viewer.analysis.deconvolution import DeconvolutionResult
+from hd_viewer.analysis.metadata_comparison import (build_metadata_plot, compare_metadata,
+                                                    compare_metadata_to_rest, numeric_columns, rest_mask)
+from hd_viewer.api.routers import metadata as metadata_router
+from hd_viewer.core.deconvolution import publish_result
+from tests.test_roi_manager import Api
+
+T_CELLS = np.linspace(0, 1, 16)
+COLUMNS = ['deconv_1:T cells', 'deconv_1:B cells']
 
 
 class MetadataSummaryTests(unittest.TestCase):
@@ -120,203 +124,211 @@ class MetadataSummaryTests(unittest.TestCase):
         document.to_json()
 
 
-class MetadataTabTests(unittest.TestCase):
+class MetadataApiTests(unittest.TestCase):
+    """The 16-bin grid with one deconvolution run (T cells rising from 0 to 1 over the bins)."""
     def setup_comparison(self):
-        layer = make_layer()
-        names = layer.sample.adata.obs_names
-        fractions = pd.DataFrame({'T cells': np.linspace(0, 1, len(names)),
-                                  'B cells': np.linspace(1, 0, len(names))}, index=names)
-        layer.deconvolution_manager.apply_result(DeconvolutionResult(fractions, ['g0'],
-            metadata={'method': 'nnls', 'params': {}}), 'cell_type')
-        groups = layer.groups_manager
-        groups.add_mask_group('A', np.arange(len(names)) < 8, layer.roi_manager.doc)
-        groups.add_mask_group('B', np.arange(len(names)) >= 8, layer.roi_manager.doc)
-        manager = layer.metadata_comparison_manager
-        manager.get_widgets(ImmediateDoc())
-        manager._checkboxes['groups'].active = [0, 1]
-        return layer, manager
+        api = Api(self)
+        sample = api.view.sample
+        names = sample.adata.obs_names
+        fractions = pd.DataFrame({'T cells': T_CELLS, 'B cells': T_CELLS[::-1]}, index=names)
+        publish_result(sample, DeconvolutionResult(fractions, ['g0'], metadata={'method': 'nnls', 'params': {}}),
+                       'cell_type')
+        self.add_group(api, 'A', np.arange(16) < 8)
+        self.add_group(api, 'B', np.arange(16) >= 8)
+        return api
 
-    def run_comparison(self, manager):
-        manager.run._trigger_event(ButtonClick(manager.run))
-        wait_for(lambda: not manager.logger.running and not manager.run.disabled)
-        self.assertIsNotNone(manager.result, manager.logger.div.text)
+    @staticmethod
+    def add_group(api, name, mask):
+        api.view.groups.add_fixed_group(name, mask)
+        api.view.drop_comparisons(groups_changed=True)     # as the API does on every new group
 
-    def test_separate_tab_preserves_de_and_renders_results_below_map(self):
-        layer, manager = self.setup_comparison()
-        tabs = layer.get_widgets(ImmediateDoc())
-        self.assertIn('DE', [tab.title for tab in tabs.tabs])
-        self.assertIn('Metadata comparison', [tab.title for tab in tabs.tabs])
-        manager._checkboxes['groups'].active = [0, 1]
-        self.assertEqual(manager.preset.value, '1:fraction')
-        self.assertEqual(manager.columns.value, ['deconv_1:T cells', 'deconv_1:B cells'])
-        layer.manager.set_fetch_context(bbox=(0, 1, 0, 1), resolution_level='agg:2')
-        self.run_comparison(manager)
-        result = manager.result.summary.set_index(['group', 'column'])
-        self.assertAlmostEqual(result.loc[('A', 'deconv_1:T cells'), 'value'], np.linspace(0, 1, 16)[:8].mean())
-        self.assertEqual(result.loc[('A', 'deconv_1:T cells'), 'n'], 8)
-        self.assertEqual(len(layer._figure_de_layout.children), 2)
-        chart = layer._figure_de_layout.children[1]
-        self.assertEqual(chart.y_range.factors, ['B cells', 'T cells'])
-        self.assertIs(layer._figure_de_layout._comparison_owner, manager)
-        # DE clearing does not erase a more recent metadata comparison.
-        layer.de_manager._clear_de_results()
-        self.assertEqual(len(layer._figure_de_layout.children), 2)
-        layer.groups_manager.delete_group('A', manager.logger.doc)
-        self.assertIsNone(manager.result)
-        self.assertEqual(layer._figure_de_layout.children, [])
+    @staticmethod
+    def with_clusters(api, labels):
+        clustering = api.view.clustering
+        api.view.sample.adata.obs['labels'] = labels
+        clustering._cluster_columns['leiden'] = clustering.cluster_col = 'labels'
+        clustering._build_cluster_state()
+        clustering._color_map.update({'0': '#123456', '1': '#654321'})
+
+    def compare(self, api, **body):
+        """POST a comparison; returns (response, comparisons computed by the router)."""
+        computed = []
+
+        def recorded(function):
+            def wrapper(*args, **kwargs):
+                result = function(*args, **kwargs)
+                computed.append(result)
+                return result
+            return wrapper
+        body.setdefault('preset', '1:fraction')
+        body.setdefault('columns', COLUMNS)
+        with patch.object(metadata_router, 'compare_metadata', recorded(compare_metadata)), \
+                patch.object(metadata_router, 'compare_metadata_to_rest', recorded(compare_metadata_to_rest)):
+            response = api.post('metadata/compare', json=body)
+        return response, (computed[0] if computed else None)
+
+    def ready(self, api):
+        return api.ok(api.get('metadata/options'))['ready']
+
+    def plots(self, api):
+        return json.dumps(api.ok(api.get('metadata/plots')))
+
+    def test_summaries_use_all_native_observations_and_follow_group_changes(self):
+        api = self.setup_comparison()
+        options = api.ok(api.get('metadata/options'))
+        self.assertEqual(options['default_preset'], '1:fraction')
+        preset = next(p for p in options['presets'] if p['key'] == '1:fraction')
+        self.assertEqual([c['name'] for c in preset['columns']], COLUMNS)
+        self.assertEqual([c['label'] for c in preset['columns']], ['T cells', 'B cells'])
+        # Independent of the displayed aggregation level and viewport
+        api.view.rows.set_fetch_context(bbox=(0, 1, 0, 1), resolution_level='agg:2')
+        api.view.rows.fetch_data()
+        response, result = self.compare(api, groups=['A', 'B'])
+        self.assertEqual(api.ok(response), dict(ready=True, plots=1))
+        summary = result.summary.set_index(['group', 'column'])
+        self.assertAlmostEqual(summary.loc[('A', 'deconv_1:T cells'), 'value'], T_CELLS[:8].mean())
+        self.assertEqual(summary.loc[('A', 'deconv_1:T cells'), 'n'], 8)
+        self.assertIn('"B cells"', self.plots(api))                       # cell-type labels on the axis
+        # A DE result being dropped (re-clustering) does not erase this comparison of groups
+        api.view.drop_comparisons(clusters=True)
+        self.assertTrue(self.ready(api))
+        api.ok(api.delete('groups/A'))
+        self.assertFalse(self.ready(api))
+        self.assertEqual(api.get('metadata/plots').status_code, 404)
 
     def setup_rest_comparison(self):
-        layer, manager = self.setup_comparison()
-        groups = layer.groups_manager
-        for name in list(groups._groups):
-            groups.delete_group(name, manager.logger.doc)
+        api = self.setup_comparison()
+        for name in list(api.view.groups._groups):
+            api.ok(api.delete(f'groups/{name}'))
         for name, start in [('A', 0), ('B', 4), ('Unselected', 8)]:
-            groups.add_mask_group(name, (np.arange(16) >= start) & (np.arange(16) < start + 4), manager.logger.doc)
-        groups._active_groups.discard('Unselected')
-        groups._apply_visibility_mask()
-        manager.include_rest.active = True
-        return layer, manager
+            self.add_group(api, name, (np.arange(16) >= start) & (np.arange(16) < start + 4))
+        self.assertEqual(api.patch('groups/Unselected', json=dict(visible=False)).status_code, 200)
+        return api
 
     def test_rest_uses_hidden_unselected_groups_and_one_plot_per_selected_set(self):
-        layer, manager = self.setup_rest_comparison()
-        manager._checkboxes['groups'].active = [0, 1]
-        self.run_comparison(manager)
-        self.assertEqual(list(manager.result), ['A', 'B'])
-        self.assertEqual(len(layer._figure_de_layout.children), 3)
-        titles = [layer._figure_de_layout.children[index].title.text for index in (1, 2)]
-        self.assertEqual(titles, ['A vs The rest', 'B vs The rest'])
-        for result in manager.result.values():
-            rest = result.summary[result.summary.group == 'The rest']
+        api = self.setup_rest_comparison()
+        response, result = self.compare(api, groups=['A', 'B'], include_rest=True)
+        self.assertEqual(api.ok(response)['plots'], 2)
+        self.assertEqual(list(result), ['A', 'B'])
+        plots = self.plots(api)
+        self.assertIn('A vs The rest', plots)
+        self.assertIn('B vs The rest', plots)
+        for comparison in result.values():
+            rest = comparison.summary[comparison.summary.group == 'The rest']
             self.assertTrue((rest.total == 4).all())
-            self.assertAlmostEqual(rest[rest.column == 'deconv_1:T cells'].value.iloc[0], np.linspace(0, 1, 16)[12:].mean())
+            self.assertAlmostEqual(rest[rest.column == 'deconv_1:T cells'].value.iloc[0], T_CELLS[12:].mean())
         # New unselected groups change the remainder and invalidate saved comparisons.
-        layer.groups_manager.add_mask_group('Extra', np.arange(16) == 12, manager.logger.doc)
-        self.assertIsNone(manager.result)
-        self.assertEqual(layer._figure_de_layout.children, [])
+        roi = api.roi(kind='box', box=[.2, 3.2, .8, 3.8])                  # bin b0_3 (12)
+        api.roi_group(roi)
+        self.assertFalse(self.ready(api))
 
     def test_rest_allows_one_selected_cluster_or_group(self):
-        layer, manager = self.setup_rest_comparison()
-        manager._checkboxes['groups'].active = [0]
-        self.run_comparison(manager)
-        self.assertEqual(list(manager.result), ['A'])
-        self.assertEqual(len(layer._figure_de_layout.children), 2)
-        clustering = layer.clustering_manager
-        clustering._cluster_columns['leiden'] = 'labels'
-        clustering.cluster_col = 'labels'
-        clustering._cluster_labels = ['0', '1']
-        clustering._color_map = {'0': '#123456', '1': '#654321'}
+        api = self.setup_rest_comparison()
+        response, result = self.compare(api, groups=['A'], include_rest=True)
+        self.assertEqual(api.ok(response)['plots'], 1)
+        self.assertEqual(list(result), ['A'])
         # Cluster 1 must not cover every ungrouped observation (12-15), or its rest would be empty
-        layer.sample.adata.obs['labels'] = ['1'] * 8 + ['0'] * 8
-        manager.refresh_clusters()
-        manager._checkboxes['groups'].active = []
-        manager._checkboxes['clusters'].active = [1]
-        self.run_comparison(manager)
-        self.assertEqual(list(manager.result), ['Cluster 1'])
-        self.assertEqual(layer._figure_de_layout.children[1].title.text, 'Cluster 1 vs The rest')
-        document = Document()
-        document.add_root(layer._figure_de_layout)
-        document.to_json()
+        self.with_clusters(api, ['1'] * 8 + ['0'] * 8)
+        response, result = self.compare(api, clusters=['Cluster 1'], include_rest=True)
+        self.assertEqual(api.ok(response)['plots'], 1)
+        self.assertEqual(list(result), ['Cluster 1'])
+        self.assertIn('Cluster 1 vs The rest', self.plots(api))
+        self.assertEqual(api.view.metadata['compared']['chosen'], [('clusters', 'Cluster 1')])
 
-    def test_cluster_vs_rest_excludes_the_cluster_in_the_ui(self):
-        layer, manager = self.setup_rest_comparison()  # groups cover 0-11; 12-15 are ungrouped
-        clustering = layer.clustering_manager
-        clustering._cluster_columns['leiden'] = 'labels'
-        clustering.cluster_col = 'labels'
-        clustering._cluster_labels = ['0', '1']
-        clustering._color_map = {'0': '#123456', '1': '#654321'}
-        layer.sample.adata.obs['labels'] = ['0'] * 14 + ['1'] * 2
-        manager.refresh_clusters()
-        manager._checkboxes['groups'].active = []
-        manager._checkboxes['clusters'].active = [1]
-        self.run_comparison(manager)
-        summary = manager.result['Cluster 1'].summary
+    def test_cluster_vs_rest_excludes_the_cluster(self):
+        api = self.setup_rest_comparison()                 # groups cover 0-11; 12-15 are ungrouped
+        self.with_clusters(api, ['0'] * 14 + ['1'] * 2)
+        response, result = self.compare(api, clusters=['Cluster 1'], include_rest=True)
+        api.ok(response)
+        summary = result['Cluster 1'].summary
         rest = summary[(summary.group == 'The rest') & (summary.column == 'deconv_1:T cells')].iloc[0]
         self.assertEqual(rest.total, 2)
-        self.assertAlmostEqual(rest.value, np.linspace(0, 1, 16)[12:14].mean())
-        # A cluster covering all ungrouped observations leaves an empty rest: clear error, no plot
-        layer.sample.adata.obs['labels'] = ['0'] * 12 + ['1'] * 4
-        manager.refresh_clusters()
-        manager._checkboxes['clusters'].active = [1]
-        manager.run._trigger_event(ButtonClick(manager.run))
-        wait_for(lambda: not manager.logger.running and not manager.run.disabled)
-        self.assertIn('The rest contains no observations', manager.logger.div.text)
-        self.assertIn('Cluster 1', manager.logger.div.text)
-        self.assertIsNone(manager.result)
+        self.assertAlmostEqual(rest.value, T_CELLS[12:14].mean())
+        # A cluster covering all ungrouped observations leaves an empty rest: a clear error
+        api.view.drop_comparisons(clusters=True)                  # as re-clustering does
+        self.assertFalse(self.ready(api))
+        self.with_clusters(api, ['0'] * 12 + ['1'] * 4)
+        response, _ = self.compare(api, clusters=['Cluster 1'], include_rest=True)
+        self.assertEqual(response.status_code, 422)
+        self.assertIn('The rest contains no observations', response.json()['detail'])
+        self.assertIn('Cluster 1', response.json()['detail'])
+        self.assertFalse(self.ready(api))
 
-    def test_empty_rest_reports_error_and_releases_run_button(self):
-        layer, manager = self.setup_comparison()  # A and B already cover every observation.
-        manager.include_rest.active = True
-        manager._checkboxes['groups'].active = [0]
-        manager.run._trigger_event(ButtonClick(manager.run))
-        wait_for(lambda: not manager.logger.running and not manager.run.disabled)
-        self.assertIn('The rest contains no observations', manager.logger.div.text)
-        self.assertIsNone(manager.result)
-        self.assertEqual(layer._figure_de_layout.children, [])
+    def test_empty_rest_reports_error(self):
+        api = self.setup_comparison()                      # A and B already cover every observation.
+        response, _ = self.compare(api, groups=['A'], include_rest=True)
+        self.assertEqual(response.status_code, 422)
+        self.assertIn('The rest contains no observations', response.json()['detail'])
+        self.assertFalse(self.ready(api))
 
-    def test_new_deconvolution_runs_refresh_choices_without_recreating_layer(self):
-        layer, manager = self.setup_comparison()
-        fractions = layer.sample.adata.obsm['deconvolution'].drop(columns='most_abundant')
-        layer.deconvolution_manager.apply_result(DeconvolutionResult(fractions, ['g0'], metadata={'method': 'music'}), 'cell_type')
-        self.assertIn('2:fraction', dict(manager.preset.options))
-        manager.preset.value = '2:fraction'
-        self.assertEqual(manager.columns.value, ['deconv_2:T cells', 'deconv_2:B cells'])
-        manager.preset.value = 'numeric'
-        self.assertIn('deconv_1:T cells', dict(manager.columns.options))
-        self.assertNotIn('deconv_1:most_abundant', dict(manager.columns.options))
+    def test_new_deconvolution_runs_refresh_choices(self):
+        api = self.setup_comparison()
+        sample = api.view.sample
+        fractions = sample.adata.obsm['deconvolution'].drop(columns='most_abundant')
+        publish_result(sample, DeconvolutionResult(fractions, ['g0'], metadata={'method': 'music'}), 'cell_type')
+        options = api.ok(api.get('metadata/options'))
+        presets = {p['key']: p for p in options['presets']}
+        self.assertIn('2:fraction', presets)
+        self.assertEqual(options['default_preset'], '2:fraction')
+        self.assertEqual([c['name'] for c in presets['2:fraction']['columns']],
+                         ['deconv_2:T cells', 'deconv_2:B cells'])
+        numeric = [c['name'] for c in presets['numeric']['columns']]
+        self.assertIn('deconv_1:T cells', numeric)
+        self.assertNotIn('deconv_1:most_abundant', numeric)
 
     def test_three_sets_can_mix_groups_and_clusters_and_reclustering_invalidates(self):
-        layer, manager = self.setup_comparison()
-        clustering = layer.clustering_manager
-        clustering._cluster_columns['leiden'] = 'labels'
-        clustering.cluster_col = 'labels'
-        clustering._cluster_labels = ['0', '1']
-        clustering._color_map = {'0': '#123456', '1': '#654321'}
-        layer.sample.adata.obs['labels'] = ['0'] * 8 + ['1'] * 8
-        manager.refresh_clusters()
-        manager._checkboxes['clusters'].active = [1]
-        self.run_comparison(manager)
-        self.assertEqual(manager.result.groups, ('A', 'B', 'Cluster 1'))
-        means = manager.result.summary.set_index(['group', 'column'])
+        api = self.setup_comparison()
+        self.with_clusters(api, ['0'] * 8 + ['1'] * 8)
+        response, result = self.compare(api, groups=['A', 'B'], clusters=['Cluster 1'])
+        api.ok(response)
+        self.assertEqual(result.groups, ('A', 'B', 'Cluster 1'))
+        means = result.summary.set_index(['group', 'column'])
         self.assertEqual(means.loc[('B', 'deconv_1:T cells'), 'value'],
                          means.loc[('Cluster 1', 'deconv_1:T cells'), 'value'])
-        self.assertEqual(len(layer._figure_de_layout.children[1].renderers), 3)
-        # Invalidating metadata must not erase a subsequently displayed DE result.
-        previous = Div(text='New DE result')
-        layer._figure_de_layout.children = [previous]
-        layer._figure_de_layout._comparison_owner = layer.de_manager
-        manager.refresh_clusters()
-        self.assertIsNone(manager.result)
-        self.assertEqual(layer._figure_de_layout.children, [previous])
+        self.assertIn('#654321', self.plots(api))                      # Cluster 1's colour
+        # Re-clustering invalidates the comparison, but not a DE result of groups only.
+        api.view.de.update(header='DE vs Rest', merged=pd.DataFrame(), compared=('groups', ['A']))
+        api.view.drop_comparisons(clusters=True)
+        self.assertFalse(self.ready(api))
+        self.assertEqual(api.view.de['header'], 'DE vs Rest')
 
-    def test_membership_changes_during_work_discard_results_and_release_button(self):
-        layer, manager = self.setup_comparison()
+    def test_membership_changes_during_work_discard_results(self):
+        api = self.setup_comparison()
         started, release = threading.Event(), threading.Event()
+
         def slow(*args):
             started.set()
             release.wait(5)
             return compare_metadata(*args)
-        with patch('hd_viewer.board.layout.layer.metadata_comparison.compare_metadata', side_effect=slow):
-            manager.run._trigger_event(ButtonClick(manager.run))
+        responses = []
+        with patch.object(metadata_router, 'compare_metadata', side_effect=slow):
+            worker = threading.Thread(target=lambda: responses.append(api.post('metadata/compare', json=dict(
+                groups=['A', 'B'], preset='1:fraction', columns=COLUMNS))))
+            worker.start()
             self.assertTrue(started.wait(5))
-            layer.sample.adata.obs['grp_A'] = np.arange(16) < 4
-            layer.groups_manager._notify_group_change()
+            api.ok(api.delete('groups/A'))
             release.set()
-            wait_for(lambda: not manager.logger.running and not manager.run.disabled)
-        self.assertIsNone(manager.result)
-        self.assertIn('discarded', manager.logger.div.text)
-        self.assertEqual(layer._figure_de_layout.children, [])
+            worker.join(30)
+        self.assertFalse(self.ready(api))
+        self.assertEqual(responses[0].status_code, 409)
 
-    def test_invalid_selection_and_failures_keep_existing_de_output(self):
-        layer, manager = self.setup_comparison()
-        previous = Div(text='Existing DE result')
-        layer._figure_de_layout.children = [previous]
-        layer._figure_de_layout._comparison_owner = layer.de_manager
-        manager._checkboxes['groups'].active = [0]
-        manager.run._trigger_event(ButtonClick(manager.run))
-        self.assertIn('at least two', manager.logger.div.text)
-        manager._checkboxes['groups'].active = [0, 1]
-        with patch('hd_viewer.board.layout.layer.metadata_comparison.compare_metadata', side_effect=ValueError('Invalid metadata')):
-            manager.run._trigger_event(ButtonClick(manager.run))
-            wait_for(lambda: not manager.logger.running and not manager.run.disabled)
-        self.assertIn('Invalid metadata', manager.logger.div.text)
-        self.assertEqual(layer._figure_de_layout.children, [previous])
+    def test_invalid_selection_and_failures_keep_existing_results(self):
+        api = self.setup_comparison()
+        api.view.de.update(header='Existing DE result', compared=('groups', ['A']))
+        response, _ = self.compare(api, groups=['A'])
+        self.assertEqual(response.status_code, 422)
+        self.assertIn('at least two', response.json()['detail'])
+        api.ok(self.compare(api, groups=['A', 'B'])[0])
+        with patch.object(metadata_router, 'compare_metadata', side_effect=ValueError('Invalid metadata')):
+            response = api.post('metadata/compare', json=dict(groups=['A', 'B'], preset='1:fraction', columns=COLUMNS))
+        self.assertEqual(response.status_code, 422)
+        self.assertIn('Invalid metadata', response.json()['detail'])
+        self.assertEqual(api.view.de['header'], 'Existing DE result')
+        self.assertTrue(self.ready(api))                               # the previous comparison stays
+        for body in (dict(statistic='sum'), dict(preset='nope'), dict(columns=['g0'])):
+            with self.subTest(body=body):
+                self.assertEqual(self.compare(api, groups=['A', 'B'], **body)[0].status_code, 422)
+
+
+if __name__ == '__main__':
+    unittest.main()

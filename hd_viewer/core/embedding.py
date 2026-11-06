@@ -2,8 +2,7 @@
 
 Embeddings reuse the clustering state's processed data and its PCA/neighbour
 caches; results are stored in the sample (`adata.obsm`, aligned with the native
-observations). The Bokeh UI (board.layout.embedding) and the HTTP API use these
-functions.
+observations). The HTTP API (routers.embedding) uses these functions.
 """
 from functools import lru_cache
 
