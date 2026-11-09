@@ -40,7 +40,7 @@ export const WORKSPACE = "workspace";        // the `layer` of the comparison's 
 const NONE = "";
 const GENE_ROWS = 200;
 
-/** The Bokeh UI's Comparison panel: coherence of two samples at different resolutions. */
+/** Comparison panel: coherence of two samples at different resolutions. */
 export function ComparisonPanel() {
   const job = useApp((s) => s.jobs[WORKSPACE]?.comparison);
   const version = useApp((s) => s.analysisVersion[WORKSPACE] ?? 0);

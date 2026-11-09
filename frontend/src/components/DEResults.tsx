@@ -17,7 +17,7 @@ interface Page {
 
 const PAGE = 200;
 
-// Same cell styles as the Bokeh UI's DE table
+// Cell styles of the DE results table
 function lfcCell(value: number | null) {
   if (value === null) return { text: "—", colour: "#888" };
   return { text: value.toFixed(2), colour: value >= 0 ? "#4ef1a1" : "#f14e4e" };

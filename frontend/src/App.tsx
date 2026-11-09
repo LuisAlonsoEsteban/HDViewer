@@ -1,5 +1,6 @@
-import { useEffect } from "react";
-import { connectEvents, getJson, LoadStatus } from "./api/client";
+import { useEffect, useState } from "react";
+import { ApiError, connectEvents, getJson, LoadStatus, onCapacity } from "./api/client";
+import { CapacityNotice } from "./components/CapacityNotice";
 import { refreshLayer } from "./map/layers";
 import { Config, useApp, Workspace as WorkspaceData } from "./store/app";
 import { Landing } from "./screens/Landing";
@@ -8,6 +9,21 @@ import { Workspace } from "./screens/Workspace";
 
 export function App() {
   const { screen, setConfig, setLoad, progress, fail, setWorkspace, setScreen } = useApp();
+  // Seconds until the next try when every analysis session on the server is in use
+  const [capacity, setCapacity] = useState<number | null>(null);
+  useEffect(() => onCapacity(setCapacity), []);
+
+  /** A free session? Then start again cleanly (the page sets up its session). */
+  const retrySession = async () => {
+    try {
+      await getJson<LoadStatus>("load");
+      window.location.reload();
+      return true;
+    } catch (exc) {
+      if (!(exc instanceof ApiError && exc.reason === "capacity")) setCapacity(null);
+      return false;
+    }
+  };
 
   useEffect(() => {
     const openWorkspace = async () => {
@@ -22,7 +38,11 @@ export function App() {
     });
     let stop = () => {};
     // GET /api/load creates the session cookie the events socket needs
-    getJson<LoadStatus>("load").then((load) => {
+    getJson<LoadStatus>("load").catch((exc) => {
+      if (!(exc instanceof ApiError && exc.reason === "capacity")) console.error(exc);
+      return null;
+    }).then((load) => {
+      if (!load) return;          // no session yet: the capacity notice retries
       setLoad(load);
       if (load.state === "ready") openWorkspace();
       stop = connectEvents((event) => {
@@ -54,7 +74,8 @@ export function App() {
     return () => { stop(); clearInterval(poll); };
   }, []);
 
-  if (screen === "workspace") return <Workspace />;
-  if (screen === "loading") return <Loading />;
-  return <Landing />;
+  const notice = capacity !== null && <CapacityNotice retryAfter={capacity} onRetry={retrySession} />;
+  if (screen === "workspace") return <>{notice}<Workspace /></>;
+  if (screen === "loading") return <>{notice}<Loading /></>;
+  return <>{notice}<Landing /></>;
 }

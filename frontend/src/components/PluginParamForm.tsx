@@ -13,7 +13,7 @@ export interface Param {
   required?: boolean;
 }
 
-/** Form generated from a plugin manifest's parameters (as the Bokeh UI does);
+/** Form generated from a plugin manifest's parameters;
  * `columns` are the choices of obs_column parameters (e.g. reference annotations). */
 export function PluginParamForm({ params, values, onChange, columns = [], disabled = false }: {
   params: Param[];

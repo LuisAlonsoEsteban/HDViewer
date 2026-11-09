@@ -18,7 +18,7 @@ const LABELS: Record<string, string> = {
   gaussian_mixture: "Gaussian mixture", agglomerative: "Agglomerative",
 };
 
-/** The Bokeh UI's Clustering tab: run an algorithm, then show/hide clusters. */
+/** Clustering tool: run an algorithm, then show/hide clusters. */
 export function ClusteringPanel({ layer }: { layer: Layer }) {
   const job = useApp((s) => s.jobs[layer.id]?.clustering);
   const version = useApp((s) => s.analysisVersion[layer.id] ?? 0);

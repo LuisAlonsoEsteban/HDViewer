@@ -40,7 +40,7 @@ const LABELS: Record<string, string> = {
   line_alpha: "Line opacity",
 };
 
-/** Extra glyph attributes of a layer (the Bokeh UI's Parameters tab): each one
+/** Params tool, the extra glyph attributes of a layer: each one
  * follows a fixed value or a column (colours: categories; others: genes or
  * numeric metadata scaled to a range). */
 export function ParametersPanel({ layer }: { layer: Layer }) {

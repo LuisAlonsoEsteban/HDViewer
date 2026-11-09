@@ -64,7 +64,7 @@ test("parameters tab, image opacity and data download", async ({ page }) => {
   // Download the layer's data
   await page.getByRole("tab", { name: "Display" }).first().click();
   const download = page.waitForEvent("download");
-  await page.getByRole("link", { name: "Download data (.h5ad)" }).first().click();
+  await page.getByRole("link", { name: "Download .h5ad" }).first().click();
   expect((await download).suggestedFilename()).toBe("bins.h5ad");
 
   expect(errors).toEqual([]);

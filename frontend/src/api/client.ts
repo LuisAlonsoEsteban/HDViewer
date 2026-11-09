@@ -3,21 +3,33 @@
 import { decodeFrame, Frame } from "./frames";
 
 export class ApiError extends Error {
-  constructor(public status: number, message: string) {
+  constructor(public status: number, message: string, public reason?: string) {
     super(message);
   }
+}
+
+/** Called when the server has no free analysis session (an expected, temporary
+ * state): the app shows a notice instead of an error. Seconds until a retry. */
+let capacityHandler: ((retryAfter: number) => void) | null = null;
+export function onCapacity(handler: (retryAfter: number) => void): void {
+  capacityHandler = handler;
 }
 
 async function check(response: Response): Promise<Response> {
   if (!response.ok) {
     let message = response.statusText;
+    let reason: string | undefined;
+    let retryAfter = Number(response.headers.get("Retry-After")) || 60;
     try {
       const body = await response.json();
       message = typeof body.detail === "string" ? body.detail : JSON.stringify(body.detail);
+      reason = body.reason;
+      if (typeof body.retry_after === "number") retryAfter = body.retry_after;
     } catch {
       /* not JSON */
     }
-    throw new ApiError(response.status, message);
+    if (response.status === 503 && reason === "capacity") capacityHandler?.(retryAfter);
+    throw new ApiError(response.status, message, reason);
   }
   return response;
 }

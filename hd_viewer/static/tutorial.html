@@ -203,17 +203,19 @@
   <main>
     <section id="app-layout">
       <h2>The screen at a glance</h2>
-      <div class="layout-map" role="img" aria-label="Screen layout: layer controls and overview on the left, map in the center, summary, embeddings and comparison on the right">
-        <div><b>Left</b>One section per layer (Spots, Bins, Cells · method), each with its tabs. Click a
-             section title to fold it. At the bottom: the overview of the slide and the image opacity.</div>
-        <div><b>Center</b>The map: tissue image with the layers on top. Differential-expression and
-             metadata-comparison results open below it.</div>
-        <div><b>Right</b>Summary, Embeddings and Comparison tabs. The button at the top left
+      <div class="layout-map" role="img" aria-label="Screen layout: tools and layers on the left, map in the center, summary, embeddings and comparison on the right">
+        <div><b>Left</b>A rail of tools (Display, Clustering, Groups, ROIs, DE, Deconv., Metadata, Params) and,
+             next to it, the <b>layer list</b> (click a layer to work on it; the eye shows or hides it) and the
+             selected tool for that layer.</div>
+        <div><b>Center</b>The map: tissue image with the layers on top, the overview of the slide (bottom left)
+             and the bin resolution (top right). Differential-expression and metadata-comparison results open
+             below it.</div>
+        <div><b>Right</b>Summary, Embeddings and Comparison. The button at the top right
              (<span class="ui">Summary · embeddings · comparison</span>) shows or hides this panel.</div>
       </div>
       <p>Drag the edges between the panels (and the top edge of the results) to resize them. The
-        <span class="ui">?</span> buttons in every tab explain it and link to the matching section here. Click
-        the name at the top left, or <span class="ui">About</span>, to go back to the overview page;
+        <span class="ui">?</span> button next to each tool's title explains it and links to the matching section
+        here. Click the name at the top left, or <span class="ui">About</span>, to go back to the overview page;
         <span class="ui">Resume workspace</span> there brings you back to your analysis.</p>
     </section>
 
@@ -225,7 +227,8 @@
       <p>The image keeps its original orientation and aspect ratio. Transparent padding supplies the
         square tile canvas, and bin rectangles follow the tissue grid's rotation. Original image files
         and annotation coordinates are preserved.</p>
-      <p><b>Image opacity</b>, at the bottom of the left panel, fades the tissue image so the layers stand out.</p>
+      <p><b>Image opacity</b>, in the overview at the bottom left of the map, fades the tissue image so the layers
+        stand out.</p>
       <p>Differential-expression and metadata-comparison results open below the map; drag their top edge
         to give the map more or less room.</p>
       <p>Cells layers are drawn at every zoom; zoomed out, their outlines are simplified to the detail
@@ -250,7 +253,8 @@
         button next to it clears it.</p>
 
       <h3 id="app-bin-resolution">Bin resolution</h3>
-      <p>The panel at the top right of the map controls how bins are drawn:</p>
+      <p>The box at the top right of the map shows the bin level in use (e.g. <b>BINS · 4 × 4</b>). Click
+        <span class="ui">+</span> to unfold it and control how bins are drawn:</p>
       <ul>
         <li><b>Dynamic · follow zoom</b> (default): zoomed out, bins are summed into larger cells (2 × 2,
             4 × 4, 8 × 8, 12 × 12 bins) so the map stays fast; zooming in shows native bins again.</li>
@@ -266,8 +270,8 @@
 
     <section id="app-overview">
       <h2>Overview and coordinates</h2>
-      <p>The overview (bottom of the left panel) shows the whole slide, with a rectangle marking the region
-        the map is showing. <span class="ui">Copy viewport coordinates</span>, below it, copies the region shown on
+      <p>The overview (bottom left of the map; fold it with <span class="ui">−</span>) shows the whole slide, with a rectangle marking the region
+        the map is showing. <span class="ui">Copy coordinates</span>, below it, copies the region shown on
         the map as <code>x0,y0,x1,y1</code> in full-resolution image pixels (the same system as Space Ranger's
         <code>pxl_col_in_fullres</code> / <code>pxl_row_in_fullres</code>), e.g. to crop the image elsewhere. The
         coordinates refer to the original image, excluding the canvas padding; for a rotated image they
@@ -283,12 +287,12 @@
 
       <h3 id="app-general">Display tab: showing a layer</h3>
       <ul>
-        <li><b>Show …</b>: show or hide the whole layer.</li>
+        <li>The <b>eye</b> next to each layer in the layer list shows or hides the whole layer.</li>
         <li><b>Show not sequenced</b>: show or hide the gray observations without counts.</li>
         <li><b>Opacity</b>: maximum opacity. When coloring by a gene, opacity follows its expression up to
             this value; with categories (clusters, groups) every observation uses it.</li>
         <li><b>Clear selection</b>: deselect the layer's observations on the map and in the embedding.</li>
-        <li><b>Download data (.h5ad)</b>: the layer as an AnnData file with its counts and everything
+        <li><b>Download .h5ad</b>: the layer as an AnnData file with its counts and everything
             computed so far in the session: clusters, groups and deconvolution results.</li>
       </ul>
 
@@ -418,10 +422,16 @@
             and a category name, e.g. <code>deconv_1:most_abundant == Tumor II</code>.
             The added conditions are listed as, e.g., <code>EPCAM &gt; 2</code> <b>AND</b>
             <code>COL1A1 &gt; 0</code>. <span class="ui">Clear</span> starts over.</li>
-        <li>Name the group and click <span class="ui">✓ Create group</span>. To delete one, type its name and
-            click <span class="ui">🗑 Delete group</span>.</li>
-        <li>The <b>Created groups</b> list shows each group with its size and conditions. Tick or untick
-            groups to show or hide them on the map.</li>
+        <li>Name the group and click <span class="ui">Create group</span>.</li>
+        <li>The <b>Created groups</b> list shows each group with its size, colour and, for combined groups,
+            how it was made. Tick or untick groups to show or hide them on the map; <span class="ui">✕</span>
+            deletes a group.</li>
+        <li><b>Combine groups</b> makes a new group from existing ones: the <b>intersection</b> (A ∩ B, in both),
+            <b>union</b> (A ∪ B, in either), <b>difference</b> (A − B, in A but not in B), or the <b>complement</b>
+            of one group (not A, every sequenced observation outside it). Tick <i>Take the opposite set</i> to
+            keep everything outside an intersection, union or difference, e.g. not (A ∩ B). The number of
+            observations is shown before you create it. The new group keeps its members even if A or B change
+            or are deleted later, and can be used like any group in DE, ROIs and Metadata comparison.</li>
       </ol>
       <p>An observation in several groups is drawn with the group created last. Hiding a group on the map
         does not affect differential expression.</p>

@@ -12,7 +12,7 @@ const fmt = (value: number | null, digits = 2) =>
 export function BinInfoOverlay({ layer }: { layer: Layer }) {
   const info = useApp((s) => s.binInfo[layer.id]);
   const updateLayer = useApp((s) => s.updateLayer);
-  const [open, setOpen] = useState(true);
+  const [open, setOpen] = useState(false);       // folded: the title line shows the level in use
   const [error, setError] = useState<string | null>(null);
   if (!info || !layer.visible) return null;
 

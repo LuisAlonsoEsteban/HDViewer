@@ -10,7 +10,7 @@ interface State { method: string | null; n: number; version: number; methods: Re
 
 const embeddingSource = () => bridge.docs.get("embedding")?.get_model_by_name("embedding:source") ?? null;
 
-/** The Bokeh UI's Embeddings panel: PCA / UMAP / t-SNE of a layer, coloured by
+/** Embeddings panel: PCA / UMAP / t-SNE of a layer, coloured by
  * any column; selections are shared with the map. */
 export function EmbeddingPanel() {
   const layers = useApp((s) => s.workspace?.layers ?? []);

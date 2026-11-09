@@ -76,6 +76,8 @@ interface State {
   fail(message: string): void;
   setWorkspace(workspace: Workspace): void;
   updateLayer(id: string, changes: Partial<Layer>): void;
+  activeLayer: string | null;               // the layer the tool panel works on
+  setActiveLayer(id: string): void;
   binInfo: Record<string, BinInfo>;
   setBinInfo(layer: string, info: BinInfo): void;
 }
@@ -110,7 +112,12 @@ export const useApp = create<State>((set) => ({
       load: { ...state.load, tasks: { ...(state.load.tasks ?? {}), [task]: { pct, status } } },
     })),
   fail: (message) => set((state) => ({ failures: [...state.failures, message] })),
-  setWorkspace: (workspace) => set({ workspace }),
+  setWorkspace: (workspace) => set((state) => ({
+    workspace,
+    activeLayer: workspace.layers.some((l) => l.id === state.activeLayer) ? state.activeLayer : workspace.layers[0]?.id ?? null,
+  })),
+  activeLayer: null,
+  setActiveLayer: (id) => set({ activeLayer: id }),
   updateLayer: (id, changes) =>
     set((state) => state.workspace ? {
       workspace: { ...state.workspace, layers: state.workspace.layers.map((l) => (l.id === id ? { ...l, ...changes } : l)) },

@@ -231,6 +231,40 @@ def delete_group(layer_id: str, name: str, session=Depends(current_session)):
         return _groups(view)
 
 
+class CombineRequest(BaseModel):
+    operation: str                      # intersection | union | difference | complement
+    first: str
+    second: str | None = None           # not used by complement
+    opposite: bool = False              # take the complement of the result
+    name: str = ""                      # default: the operation, e.g. "A ∩ B"
+    preview: bool = False               # only count the result
+
+
+@router.post("/layers/{layer_id}/groups/combine")
+def combine_groups(layer_id: str, body: CombineRequest, session=Depends(current_session)):
+    """A new group from a set operation on two groups (or the complement of one).
+    Its membership is fixed when it is created."""
+    view = _view(session, layer_id)
+    groups = view.groups
+    with view.lock:
+        try:
+            mask, description = groups.combine(body.operation, body.first, body.second, body.opposite)
+        except ValueError as exc:
+            raise HTTPException(422, str(exc))
+        size = int(mask.sum())
+        if body.preview:
+            return dict(size=size, description=description, total=int(mask.size))
+        if not size:
+            raise HTTPException(422, f"{description} is empty: no observation belongs to it.")
+        name = body.name.strip()
+        if name and name in groups._groups:
+            raise HTTPException(422, f"Group '{name}' already exists.")
+        created = groups.add_fixed_group(name or description, mask, description=description)
+        view.drop_comparisons(groups_changed=True)
+        _show_groups(view)
+        return dict(**_groups(view), group=created, size=size)
+
+
 @router.post("/layers/{layer_id}/groups/show")
 def show_groups(layer_id: str, session=Depends(current_session)):
     view = _view(session, layer_id)

@@ -20,6 +20,7 @@ PACKAGE = Path(__file__).resolve().parents[1]
 DIST = Path(os.environ.get("VHD_FRONTEND_DIST", Path(__file__).resolve().parent / "dist"))
 BOKEHJS = Path(bokeh.__file__).resolve().parent / "server" / "static" / "js"
 SWEEP_SECONDS = 30
+CAPACITY_RETRY_SECONDS = 60      # when every session is in use, the browser retries after this
 
 
 def create_app(registry=None, sweep_seconds=SWEEP_SECONDS):
@@ -45,9 +46,14 @@ def create_app(registry=None, sweep_seconds=SWEEP_SECONDS):
     app.state.sessions = registry
 
     @app.exception_handler(TooManySessions)
-    async def busy(request, exc):
-        return JSONResponse({"detail": "The server is busy; please try again in a few minutes."},
-                            status_code=503, headers={"Retry-After": "120"})
+    async def at_capacity(request, exc):
+        """Every analysis session is in use: an expected, temporary state (not an
+        error). The browser shows a notice and retries after `retry_after` seconds."""
+        return JSONResponse(
+            {"detail": ("All analysis sessions on this server are in use right now. Sessions free up as "
+                        "other visitors finish, so please try again in a couple of minutes."),
+             "reason": "capacity", "retry_after": CAPACITY_RETRY_SECONDS},
+            status_code=503, headers={"Retry-After": str(CAPACITY_RETRY_SECONDS)})
 
     for router in (config, datasets, plugins, events, tiles, uploads, load, layers, analysis, regions, de,
                    deconvolution, metadata, embedding, summary, comparison):

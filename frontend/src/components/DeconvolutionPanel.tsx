@@ -33,7 +33,7 @@ interface State {
   runs: Run[];
 }
 
-/** The Bokeh UI's Deconvolution tab: run a method against the single-cell
+/** Deconvolution tool: run a method against the single-cell
  * reference, then colour the layer by a cell type of a saved run. */
 export function DeconvolutionPanel({ layer }: { layer: Layer }) {
   const job = useApp((s) => s.jobs[layer.id]?.deconvolution);

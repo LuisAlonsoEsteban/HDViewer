@@ -19,7 +19,7 @@ interface Options {
   ready: boolean;
 }
 
-/** The Bokeh UI's Metadata comparison tab: summaries of numeric metadata (e.g.
+/** Metadata comparison tool: summaries of numeric metadata (e.g.
  * deconvolution fractions) per group/cluster; the charts open below the map. */
 export function MetadataPanel({ layer }: { layer: Layer }) {
   const version = useApp((s) => s.analysisVersion[layer.id] ?? 0);

@@ -11,7 +11,8 @@ from pathlib import Path
 
 from bokeh.embed import json_item
 from bokeh.models import (BooleanFilter, BoxAnnotation, BoxSelectTool, CDSView, ColumnDataSource, CustomJS,
-                          CustomJSHover, HoverTool, LassoSelectTool, LinearColorMapper, TapTool, WMTSTileSource)
+                          CustomJSHover, HoverTool, InlineStyleSheet, LassoSelectTool, LinearColorMapper, TapTool,
+                          WMTSTileSource)
 from bokeh.plotting import figure
 from bokeh.themes import Theme
 from bokeh.transform import transform
@@ -140,6 +141,15 @@ _PRESERVE_ASPECT = """
 """
 
 
+TOOLBAR_CSS = """
+:host { background: rgba(20, 37, 31, 0.92); border-radius: 8px; padding: 4px 2px; }
+.bk-tool-icon { filter: invert(88%) sepia(8%) saturate(300%) hue-rotate(95deg); }
+.bk-tool-button:hover { background-color: rgba(94, 224, 194, 0.16); }
+.bk-tool-button.bk-active { background-color: rgba(94, 224, 194, 0.22); }
+.bk-divider { border-color: #2f5a49; }
+"""
+
+
 def base_figure(max_dim):
     """The empty map: image-sized ranges, pan/zoom tools and the ruler."""
     plot = figure(sizing_mode="stretch_both", min_height=settings.PLOT_MIN_HEIGHT,
@@ -149,6 +159,11 @@ def base_figure(max_dim):
     plot.axis.visible = False
     plot.toolbar.logo = None
     plot.toolbar.autohide = False
+    # One dark surface around the image (no white frame); light toolbar icons on it
+    plot.border_fill_color = settings.PLOT_BACKGROUND_COLOR
+    plot.outline_line_color = None
+    plot.min_border = 0
+    plot.toolbar.stylesheets = [InlineStyleSheet(css=TOOLBAR_CSS)]
     callback = CustomJS(args=dict(plot=plot), code=_PRESERVE_ASPECT)
     plot.js_on_event("document_ready", callback)
     for axis in (plot.x_range, plot.y_range):
@@ -201,10 +216,13 @@ def thumbnail_figure(loaded, prefix=""):
     plot.grid.visible = False
     plot.axis.visible = False
     plot.background_fill_color = None
+    plot.border_fill_color = None
+    plot.outline_line_color = None
+    plot.min_border = 0
     url = tile_template(processor, prefix)
     plot.image_url(url=[url.replace("{Z}", "0").replace("{X}", "0").replace("{Y}", "0")], x=0, y=size, w=size, h=size)
     plot.add_layout(BoxAnnotation(name="viewport_box", left=0, right=size, bottom=0, top=size,
-                                  fill_alpha=0.1, fill_color="black", line_width=2, line_color="black"))
+                                  fill_alpha=0.12, fill_color="#5ee0c2", line_width=2, line_color="#5ee0c2"))
     return json_item(plot, "thumbnail")
 
 

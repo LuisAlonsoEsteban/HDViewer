@@ -47,12 +47,15 @@ test("landing page, loading details, help, bin overlay, resume and resizing", as
 
   // Help popover of a tab
   await page.getByRole("button", { name: "Help: Showing a layer" }).first().click();
-  await expect(page.getByRole("link", { name: /Read more in the tutorial/ })).toHaveAttribute("href", /tutorial\.html#app-general$/);
+  await expect(page.getByRole("link", { name: /Read more in the tutorial/ }).first()).toHaveAttribute("href", /tutorial\.html#app-general$/);
+  await expect(page.getByRole("link", { name: /Read more in the tutorial/ }).nth(1)).toHaveAttribute("href", /tutorial\.html#app-color$/);
   await page.keyboard.press("Escape");
 
   // Bin resolution overlay: the level in use, and a fixed native level
   const overlay = page.getByTestId("bin-info-bins");
   await expect(overlay).toContainText(/BINS · \d+ × \d+/);
+  await expect(overlay).not.toContainText("Resolution Zoom-driven");        // starts folded to its title
+  await overlay.getByRole("button", { name: "Expand bin resolution" }).click();
   await expect(overlay).toContainText("Resolution Zoom-driven");
   await overlay.getByRole("combobox", { name: "Bin resolution" }).click();
   await page.getByRole("option", { name: "Fixed · raw/native" }).click();

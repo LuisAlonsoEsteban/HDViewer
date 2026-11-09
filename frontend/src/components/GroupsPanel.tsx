@@ -1,16 +1,19 @@
 import { useEffect, useState } from "react";
 import {
-  ActionIcon, Autocomplete, Button, Checkbox, ColorInput, Group, Select, Stack, Text, TextInput,
+  ActionIcon, Autocomplete, Button, Checkbox, ColorInput, Group, SegmentedControl, Select, Stack, Text, TextInput,
 } from "@mantine/core";
 import { getJson, sendJson } from "../api/client";
 import { patchFrame, refreshLayer } from "../map/layers";
 import { Layer, useApp } from "../store/app";
 
-interface GroupInfo { name: string; colour: string; size: number; visible: boolean; conditions: string[][] }
+interface GroupInfo {
+  name: string; colour: string; size: number; visible: boolean; conditions: string[][];
+  description: string | null;     // how a combined group was made, e.g. "A ∩ B"
+}
 interface Groups { groups: GroupInfo[]; operators: string[]; shown: boolean }
 interface Condition { column: string; op: string; value: string; logic: string }
 
-/** The Bokeh UI's Groups tab: build conditions, create groups, show/hide them. */
+/** Groups tool: build conditions, create groups, show/hide them. */
 export function GroupsPanel({ layer }: { layer: Layer }) {
   const version = useApp((s) => s.analysisVersion[layer.id] ?? 0);
   const analysesChanged = useApp((s) => s.analysesChanged);   // DE and ROI tabs list the groups
@@ -99,13 +102,110 @@ export function GroupsPanel({ layer }: { layer: Layer }) {
           {state.groups.map((group) => (
             <Group key={group.name} gap="xs" wrap="nowrap">
               <Checkbox checked={group.visible} onChange={(e) => display(group.name, { visible: e.currentTarget.checked })}
-                        label={<Text size="sm" c={group.colour} fw={600}>{group.name} <Text span size="xs" c="dark.2">({group.size})</Text></Text>} />
+                        label={<Text size="sm" c={group.colour} fw={600}>{group.name} <Text span size="xs" c="dark.2">({group.size})</Text></Text>}
+                        description={group.description && group.description !== group.name ? group.description : undefined}
+                        style={{ flex: 1, minWidth: 0 }} />
               <ColorInput size="xs" w={110} value={group.colour} onChangeEnd={(colour) => display(group.name, { colour })} />
               <ActionIcon variant="subtle" color="red" aria-label={`Delete ${group.name}`} onClick={() => remove(group.name)}>✕</ActionIcon>
             </Group>
           ))}
         </Stack>
       )}
+
+      {state && state.groups.length > 0 && (
+        <CombineGroups base={base} groups={state.groups.map((g) => g.name)}
+                       onCreated={async (next) => {
+                         setState(next);
+                         await refreshLayer(layer.id);
+                         analysesChanged(layer.id);
+                       }} />
+      )}
+    </Stack>
+  );
+}
+
+const OPERATIONS = [
+  { value: "intersection", label: "A ∩ B", help: "In both groups" },
+  { value: "union", label: "A ∪ B", help: "In either group" },
+  { value: "difference", label: "A − B", help: "In A but not in B" },
+  { value: "complement", label: "not A", help: "Every sequenced observation not in A" },
+];
+
+/** A new group from a set operation on existing groups, or the opposite set. */
+function CombineGroups({ base, groups, onCreated }: {
+  base: string; groups: string[]; onCreated(state: Groups): Promise<void>;
+}) {
+  const [operation, setOperation] = useState("intersection");
+  const [first, setFirst] = useState<string | null>(groups[0] ?? null);
+  const [second, setSecond] = useState<string | null>(groups[1] ?? null);
+  const [opposite, setOpposite] = useState(false);
+  const [name, setName] = useState("");
+  const [preview, setPreview] = useState<{ size: number; description: string; total: number } | null>(null);
+  const [message, setMessage] = useState<{ text: string; error: boolean } | null>(null);
+  const [busy, setBusy] = useState(false);
+  const unary = operation === "complement";
+  const body = { operation, first, second: unary ? null : second, opposite: !unary && opposite };
+  const ready = Boolean(first && (unary || (second && second !== first)));
+
+  // Keep the choices valid as groups are created and deleted
+  useEffect(() => {
+    if (!first || !groups.includes(first)) setFirst(groups[0] ?? null);
+    if (!second || !groups.includes(second)) setSecond(groups.find((g) => g !== first) ?? null);
+  }, [groups.join("|")]);
+
+  useEffect(() => {
+    setPreview(null);
+    if (!ready) return;
+    const timer = setTimeout(() => {
+      sendJson<{ size: number; description: string; total: number }>("POST", `${base}/groups/combine`, { ...body, preview: true })
+        .then(setPreview).catch(() => setPreview(null));
+    }, 150);
+    return () => clearTimeout(timer);
+  }, [base, operation, first, second, opposite, ready]);
+
+  const create = async () => {
+    setBusy(true);
+    setMessage(null);
+    try {
+      const reply = await sendJson<Groups & { group: string; size: number }>("POST", `${base}/groups/combine`, { ...body, name });
+      setMessage({ text: `Group '${reply.group}' created (${reply.size.toLocaleString()} observations).`, error: false });
+      setName("");
+      await onCreated(reply);
+    } catch (exc: any) {
+      setMessage({ text: exc.message, error: true });
+    } finally {
+      setBusy(false);
+    }
+  };
+
+  return (
+    <Stack gap={8} data-testid="combine-groups">
+      <Text fw={600} size="sm">Combine groups</Text>
+      <SegmentedControl size="xs" value={operation} onChange={setOperation} fullWidth
+                        data={OPERATIONS.map(({ value, label }) => ({ value, label }))} aria-label="Set operation" />
+      <Text size="xs" c="dimmed">{OPERATIONS.find((o) => o.value === operation)?.help}</Text>
+      <Group grow align="end">
+        <Select size="xs" label="A" data={groups} value={first} onChange={setFirst} allowDeselect={false} />
+        {!unary && (
+          <Select size="xs" label="B" data={groups.filter((g) => g !== first)} value={second} onChange={setSecond}
+                  allowDeselect={false} />
+        )}
+      </Group>
+      {!unary && (
+        <Checkbox size="xs" label="Take the opposite set (everything outside the result)" checked={opposite}
+                  onChange={(e) => setOpposite(e.currentTarget.checked)} />
+      )}
+      <TextInput size="xs" label="Name (optional)" placeholder={preview?.description ?? "e.g. A ∩ B"} value={name}
+                 onChange={(e) => setName(e.currentTarget.value)} />
+      {preview && (
+        <Text size="xs" c={preview.size ? "dark.1" : "yellow.4"} role="status">
+          <b>{preview.description}</b>: {preview.size.toLocaleString()} of {preview.total.toLocaleString()} observations
+          {preview.size ? "" : " (empty)"}
+        </Text>
+      )}
+      <Button size="xs" onClick={create} loading={busy} disabled={!ready || !preview?.size}>Create combined group</Button>
+      {message && <Text size="xs" c={message.error ? "red.4" : "teal.3"}>{message.text}</Text>}
+      <Text size="xs" c="dimmed">The new group keeps its members even if A or B change later.</Text>
     </Stack>
   );
 }

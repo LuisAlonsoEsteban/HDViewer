@@ -27,10 +27,6 @@ class ColorCodes:
         palette = list(palette)
         if self.palette != palette:
             self.palette = palette
-            self._palette_changed()
-
-    def _palette_changed(self):
-        """Hook for renderers that mirror the palette (e.g. a Bokeh colour mapper)."""
 
     def decode(self, codes):
         """Hex colours of `codes` (for the server side and tests)."""

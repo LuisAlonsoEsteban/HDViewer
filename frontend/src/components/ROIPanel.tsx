@@ -31,7 +31,7 @@ const KIND_LABELS: Record<string, string> = {
   box: "bounding box", lasso: "lasso", point: "seed + radius", barcode: "barcode + radius", group: "group + radius",
 };
 
-/** The Bokeh UI's ROI tab: draw regions, then group, select or focus them. */
+/** ROIs tool: draw regions, then group, select or focus them. */
 export function ROIPanel({ layer }: { layer: Layer }) {
   const config = useApp((s) => s.config);
   const version = useApp((s) => s.analysisVersion[layer.id] ?? 0);

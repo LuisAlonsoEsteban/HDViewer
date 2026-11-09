@@ -10,7 +10,7 @@ import pandas as pd
 from hd_viewer import settings
 from hd_viewer.core.clustering import ClusteringState
 from hd_viewer.core.parameters import attr_spec
-from hd_viewer.settings.config import deconvolution_kwargs, image_kwargs, sample_kwargs
+from hd_viewer.settings.config import image_kwargs, sample_kwargs
 from hd_viewer.startup.data.image.segmentation import plugins
 from hd_viewer.startup.sample import Bins, Cells
 from hd_viewer.startup.sample._sample import Sample
@@ -23,7 +23,6 @@ class SettingsTests(unittest.TestCase):
         self.assertEqual(Cells.LOD_MAX_LEVEL, settings.LOD_MAX_LEVEL)
         self.assertEqual(plugins.SDK_DIR, settings.SDK_DIR)
         self.assertEqual(image_kwargs()['tile_size'], settings.TILE_SIZE)
-        self.assertEqual(deconvolution_kwargs()['batch_size'], settings.DECONV_BATCH_SIZE)
 
     def test_viewport_settings_reach_the_layer_view(self):
         for offset in (settings.OFFSET, 1.5):

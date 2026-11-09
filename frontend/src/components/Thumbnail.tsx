@@ -51,9 +51,12 @@ export function Thumbnail() {
   };
 
   return (
-    <Stack gap="xs">
-      <div ref={host} style={{ maxWidth: 200, margin: "0 auto", width: "100%" }} />
-      <Button size="xs" variant="default" onClick={copy}>{copied ? "Copied" : "Copy viewport coordinates"}</Button>
+    <Stack gap={6}>
+      <div ref={host} style={{ maxWidth: 150, margin: "0 auto", width: "100%" }} />
+      <Button size="compact-xs" variant="default" onClick={copy} aria-label="Copy viewport coordinates"
+              title="Copy the visible region as x0,y0,x1,y1 in full-resolution image pixels">
+        {copied ? "Copied" : "Copy coordinates"}
+      </Button>
     </Stack>
   );
 }

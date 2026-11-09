@@ -8,8 +8,7 @@ per-level glyph constants. It writes every change through a *sink*:
 - the HTTP API uses `RecordingSink`, whose recorded operations are sent to the
   browser and applied there to the BokehJS data source.
 
-Subclasses customise the hooks (`_show_not_sequenced`, `_after_update`,
-`_after_style_change`, `_on_rows_changed`, `_on_context_change`).
+Subclasses may override `_show_not_sequenced` (whether not-sequenced rows are drawn).
 """
 import numpy as np
 import pandas as pd
@@ -169,18 +168,6 @@ class LayerRows(ParameterSet):
     def _show_not_sequenced(self):
         return True
 
-    def _after_update(self):
-        """Rows or styles changed (e.g. reapply visibility masks)."""
-
-    def _after_style_change(self):
-        """A style parameter changed without touching rows."""
-
-    def _on_rows_changed(self):
-        """Row positions changed: cached row names are stale."""
-
-    def _on_context_change(self):
-        """View, level or loaded rows were reset."""
-
     # -- state -------------------------------------------------------------
 
     @property
@@ -193,7 +180,6 @@ class LayerRows(ParameterSet):
 
     def _rows_changed(self):
         self.row_version += 1
-        self._on_rows_changed()
 
     def set_active(self, active):
         """Hidden layers drop their rows (freeing the browser) and skip loads;
@@ -224,7 +210,6 @@ class LayerRows(ParameterSet):
         self._obs_names = np.empty(0, dtype=object)
         self._rows_changed()
         self.view_filter = np.empty(0, dtype=bool)
-        self._on_context_change()
 
     # -- parameters ----------------------------------------------------------
 
@@ -312,7 +297,6 @@ class LayerRows(ParameterSet):
             self.clear_sources()
             self.fetch_data()
             return
-        self._after_style_change()
 
     def _refresh_loaded_parameters(self, previous_level, refetch=False):
         """Update values/style without retransmitting the loaded geometry.
@@ -374,24 +358,7 @@ class LayerRows(ParameterSet):
         if not self._show_not_sequenced() and len(self.is_sequenced) == len(self.indexes):
             self.view_filter = np.asarray(self.is_sequenced, dtype=bool)
         self._generation += 1
-        self._on_context_change()
-        self._after_update()
         return True
-
-    def get_nan_vector(self):
-        names = pd.Series(self.loaded_obs_names, dtype=object)
-        sequenced = names.isin(self.sample.adata.obs_names)
-        # Aggregated bins use display names rather than native observation names.
-        prefix = getattr(self.sample, 'aggregate_obs_prefix', None)
-        if prefix is not None:
-            summaries = names.dropna().astype(str)
-            summaries = summaries[summaries.str.startswith(prefix)]
-            suffixes = summaries.str.rsplit(':', n=1).str[-1]
-            factors = pd.to_numeric(suffixes[suffixes.str.isdigit()].unique()).astype(int)
-            for factor in factors:
-                if factor in self.sample.AGGREGATION_FACTORS:
-                    sequenced |= names.isin(self.sample.aggregation_names(factor).dropna())
-        return ~sequenced.to_numpy(dtype=bool)
 
     # -- view context --------------------------------------------------------
 
@@ -422,7 +389,6 @@ class LayerRows(ParameterSet):
         self.fixed_aggregation_factor = factor
         if self.effective_resolution_level != previous_level:
             self.clear_sources()
-        self._on_context_change()
 
     def set_fetch_context(self, bbox=None, resolution_level=None, **fetch_kwargs):
         previous_level = self.effective_resolution_level
@@ -436,7 +402,6 @@ class LayerRows(ParameterSet):
         if resolution_changed or extra_changed:
             self.clear_sources()
 
-        self._on_context_change()
         return resolution_changed or extra_changed
 
     # -- loading ---------------------------------------------------------------
@@ -528,7 +493,6 @@ class LayerRows(ParameterSet):
         self.view_filter = np.concatenate((self.view_filter, new_visible))
         self.is_sequenced += new_is_sequenced
 
-        self._after_update()
 
     # -- pruning -----------------------------------------------------------------
 
@@ -553,14 +517,6 @@ class LayerRows(ParameterSet):
         self._rows_changed()
 
         self.indexes = np.asarray(self.indexes, dtype=object)[keep_mask].tolist()
-        self._after_update()
-
-    def remove_data(self, bbox):
-        fetch_kwargs = dict(self.fetch_kwargs)
-        if self.effective_resolution_level is not None:
-            fetch_kwargs["resolution_level"] = self.effective_resolution_level
-        fetched_data = self._fetch(dict(bbox=bbox, **fetch_kwargs))
-        self.remove_indcs(fetched_data['obs_name'].to_numpy())
 
     @staticmethod
     def _centers(values):

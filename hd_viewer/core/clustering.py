@@ -37,13 +37,8 @@ class ClusteringState:
         self._markers_col: str | None = None
 
     @property
-    def _base_sample(self):
-        """The layer's sample (aggregated samples are derived from it)."""
-        return self._sample
-
-    @property
     def sample(self):
-        return self._bound_sample if self._bound_sample is not None else self._base_sample
+        return self._bound_sample if self._bound_sample is not None else self._sample
 
     @property
     def adata(self):
@@ -116,7 +111,7 @@ class ClusteringState:
         return None
 
     def _get_active_analysis_sample(self):
-        sample = self._base_sample
+        sample = self._sample
         active_col = self._active_cluster_col
         if active_col is None:
             return sample
@@ -128,7 +123,7 @@ class ClusteringState:
     @property
     def is_clustered(self) -> bool:
         return (
-            any(column in self._base_sample.adata.obs.columns for column in self._cluster_columns.values())
+            any(column in self._sample.adata.obs.columns for column in self._cluster_columns.values())
             and len(self._cluster_labels) > 0
         )
 
@@ -228,7 +223,7 @@ class ClusteringState:
                        compute_markers=False, resolution_level=None, *, algorithm="leiden",
                        **algorithm_options):
         """Run clustering and handle bins aggregation in the manager layer."""
-        sample = self._base_sample
+        sample = self._sample
 
         if hasattr(sample, "get_aggregation_factor"):
             factor = sample.get_aggregation_factor(resolution_level)
@@ -359,7 +354,7 @@ class ClusteringState:
         if active_cluster_col is None:
             return
 
-        obs = self._base_sample.adata.obs
+        obs = self._sample.adata.obs
         if active_cluster_col not in obs.columns:
             return
 
@@ -386,7 +381,7 @@ class ClusteringState:
         return summary
 
     def _count_spots(self, label: str) -> int:
-        obs = self._base_sample.adata.obs
+        obs = self._sample.adata.obs
         active_cluster_col = self._active_cluster_col
         if active_cluster_col is None or active_cluster_col not in obs.columns:
             return 0

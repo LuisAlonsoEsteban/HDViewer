@@ -53,10 +53,6 @@ def embedding_kwargs():
     return dict(n_pcs=_settings.N_PCS, n_neighbors=_settings.N_NEIGHBORS)
 
 
-def deconvolution_kwargs():
-    return dict(batch_size=_settings.DECONV_BATCH_SIZE)
-
-
 def comparison_kwargs():
     return dict(min_coverage=_settings.COMPARISON_MIN_COVERAGE, predicate=_settings.COMPARISON_PREDICATE,
                 n_hvg=_settings.COMPARISON_N_HVG, n_top_svg=_settings.COMPARISON_TOP_SPATIAL_GENES,

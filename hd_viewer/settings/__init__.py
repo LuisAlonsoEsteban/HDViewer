@@ -80,7 +80,6 @@ NORMALIZATION_TARGET_SUM = 1e4
 
 # Deconvolution
 DECONV_RESULT_PREFIX = "deconv_"
-DECONV_BATCH_SIZE = 256
 
 # Groups and differential expression
 GROUPS_COL = "custom_groups"
@@ -136,7 +135,7 @@ SEGMENTATION_PIDS_LIMIT = 4096
 
 # Map appearance and panel layout
 PLOT_MIN_HEIGHT = 180
-PLOT_BACKGROUND_COLOR = "#14251f"
+PLOT_BACKGROUND_COLOR = "#0f1d17"
 RULER_COLOR = "#ffd166"
 
 # Layer colours and drawing parameter defaults

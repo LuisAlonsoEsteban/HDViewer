@@ -31,7 +31,7 @@ export function SetList({ title, sets, chosen, toggle, hint }:
   );
 }
 
-/** The Bokeh UI's DE tab: compare groups and/or clusters; results open below the map. */
+/** DE tool: compare groups and/or clusters; results open below the map. */
 export function DEPanel({ layer }: { layer: Layer }) {
   const job = useApp((s) => s.jobs[layer.id]?.de);
   const version = useApp((s) => s.analysisVersion[layer.id] ?? 0);

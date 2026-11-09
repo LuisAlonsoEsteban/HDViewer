@@ -1,5 +1,5 @@
 import { useEffect, useState } from "react";
-import { ActionIcon, Anchor, Group, Popover, Text, Title } from "@mantine/core";
+import { ActionIcon, Anchor, Group, Popover, Stack, Text, Title } from "@mantine/core";
 import { getJson } from "../api/client";
 
 interface Topic {
@@ -18,26 +18,33 @@ function loadTopics() {
   return topics;
 }
 
-/** "?" button explaining `topic` (the old interface's help popovers). */
-export function HelpButton({ topic }: { topic: string }) {
-  const [entry, setEntry] = useState<Topic | null>(null);
+/** "?" button explaining `topic` (or several `topics` in one popover). */
+export function HelpButton({ topic, topics }: { topic?: string; topics?: string[] }) {
+  const keys = topics ?? (topic ? [topic] : []);
+  const [entries, setEntries] = useState<Topic[]>([]);
   useEffect(() => {
-    loadTopics().then((all) => setEntry(all[topic] ?? null));
-  }, [topic]);
-  if (!entry) return null;
+    loadTopics().then((all) => setEntries(keys.map((key) => all[key]).filter(Boolean)));
+  }, [keys.join("|")]);
+  if (!entries.length) return null;
   return (
-    <Popover width={340} position="right-start" withArrow shadow="md">
+    <Popover width={360} position="right-start" withArrow shadow="md">
       <Popover.Target>
-        <ActionIcon size="xs" radius="xl" variant="default" aria-label={`Help: ${entry.title}`}>?</ActionIcon>
+        <ActionIcon size="sm" radius="xl" variant="default" aria-label={`Help: ${entries.map((e) => e.title).join(" · ")}`}>?</ActionIcon>
       </Popover.Target>
       <Popover.Dropdown>
-        <Title order={6} mb={4}>{entry.title}</Title>
-        <Text size="xs" component="div" className="help-body" dangerouslySetInnerHTML={{ __html: entry.html }} />
-        {entry.tutorial && (
-          <Anchor size="xs" href={entry.tutorial} target="_blank" rel="noopener" mt={6} display="block">
-            Read more in the tutorial →
-          </Anchor>
-        )}
+        <Stack gap="sm">
+          {entries.map((entry) => (
+            <div key={entry.title}>
+              <Title order={6} mb={4}>{entry.title}</Title>
+              <Text size="xs" component="div" className="help-body" dangerouslySetInnerHTML={{ __html: entry.html }} />
+              {entry.tutorial && (
+                <Anchor size="xs" href={entry.tutorial} target="_blank" rel="noopener" mt={6} display="block">
+                  Read more in the tutorial →
+                </Anchor>
+              )}
+            </div>
+          ))}
+        </Stack>
       </Popover.Dropdown>
     </Popover>
   );

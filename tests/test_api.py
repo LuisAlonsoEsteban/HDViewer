@@ -155,6 +155,21 @@ class WorkspaceTests(ApiTestCase):
 
 
 class SessionTests(ApiTestCase):
+    def test_a_full_server_answers_with_a_capacity_notice_not_an_error(self):
+        self.registry.max_sessions = 1
+        self.assertEqual(self.client.get("/api/load").status_code, 200)       # takes the only session
+        visitor = TestClient(self.client.app)
+        response = visitor.get("/api/load")
+        self.assertEqual(response.status_code, 503)
+        body = response.json()
+        self.assertEqual(body["reason"], "capacity")
+        self.assertGreater(body["retry_after"], 0)
+        self.assertEqual(response.headers["Retry-After"], str(body["retry_after"]))
+        self.assertIn("in use", body["detail"])
+        self.assertEqual(self.client.get("/api/load").status_code, 200)       # existing session unaffected
+        self.registry.close(self.client.cookies[COOKIE])                      # a place frees up
+        self.assertEqual(visitor.get("/api/load").status_code, 200)
+
     def test_sessions_are_private_and_closed_sessions_are_removed(self):
         self.load_example()
         other = TestClient(self.client.app)

@@ -44,5 +44,28 @@ test("cluster the layer, hide a cluster and create a group", async ({ page }) =>
   await expect(page.getByText("Group 'Choroid plexus' created.")).toBeVisible({ timeout: 120_000 });
   await expect(page.getByRole("checkbox", { name: /Choroid plexus/ })).toBeChecked();
 
+  // A second group, then combined groups: the difference and a complement
+  await page.getByRole("textbox", { name: "Value" }).fill("5");
+  await page.getByRole("button", { name: "Add condition" }).click();
+  await page.getByRole("textbox", { name: "Group name" }).fill("High Ttr");
+  await page.getByRole("button", { name: "Create group" }).click();
+  await expect(page.getByText("Group 'High Ttr' created.")).toBeVisible({ timeout: 120_000 });
+
+  const combine = page.getByTestId("combine-groups");
+  await expect(combine.getByRole("combobox", { name: "A", exact: true })).toHaveValue("Choroid plexus");
+  await expect(combine.getByRole("combobox", { name: "B", exact: true })).toHaveValue("High Ttr");
+  await combine.getByRole("radio", { name: "A − B" }).check({ force: true });
+  await expect(combine.getByRole("status")).toContainText(/Choroid plexus − High Ttr: [\d,]+ of [\d,]+ observations/);
+  await combine.getByRole("button", { name: "Create combined group" }).click();
+  await expect(combine.getByText(/Group 'Choroid plexus − High Ttr' created/)).toBeVisible({ timeout: 60_000 });
+  await expect(page.getByRole("checkbox", { name: /Choroid plexus − High Ttr/ })).toBeChecked();
+
+  await combine.getByRole("radio", { name: "not A" }).check({ force: true });
+  await expect(combine.getByRole("combobox", { name: "B", exact: true })).toHaveCount(0);
+  await combine.getByRole("textbox", { name: "Name (optional)" }).fill("Outside the plexus");
+  await combine.getByRole("button", { name: "Create combined group" }).click();
+  await expect(page.getByRole("checkbox", { name: /Outside the plexus/ })).toBeChecked({ timeout: 60_000 });
+  await expect(page.getByText("not Choroid plexus")).toBeVisible();      // how it was made
+
   expect(errors.filter((e) => !/favicon/.test(e))).toEqual([]);
 });

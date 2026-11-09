@@ -1,6 +1,6 @@
 import { createTheme } from "@mantine/core";
 
-// Colours of the Bokeh UI (hd_viewer/static/css/app.css, widgets.css)
+// Workspace colours (dark greens, shared with the landing page's palette)
 export const theme = createTheme({
   primaryColor: "teal",
   fontFamily: '"Aptos", "Segoe UI", system-ui, sans-serif',

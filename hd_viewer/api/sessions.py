@@ -20,7 +20,7 @@ from ..core.session import cleanup_session, session_upload_dir
 COOKIE = "hdv_sid"
 GRACE_SECONDS = 60
 DEFAULT_TTL = int(os.environ.get("VHD_SESSION_TTL", 1800))
-MAX_SESSIONS = int(os.environ.get("VHD_MAX_SESSIONS", 50))
+MAX_SESSIONS = int(os.environ.get("VHD_MAX_SESSIONS", 1))
 
 
 class TooManySessions(Exception):

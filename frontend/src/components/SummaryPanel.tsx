@@ -17,7 +17,7 @@ interface Stats {
 }
 interface Marker { cluster: string; gene: string; score: number; pval: number | null; logfc: number }
 
-/** The Bokeh UI's Summary panel: dataset table, then QC and marker genes per layer. */
+/** Summary panel: dataset table, then QC and marker genes per layer. */
 export function SummaryPanel() {
   const layers = useApp((s) => s.workspace?.layers ?? []);
   const versions = useApp((s) => s.analysisVersion);

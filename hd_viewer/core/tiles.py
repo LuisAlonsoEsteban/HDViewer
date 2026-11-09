@@ -1,4 +1,4 @@
-"""Tile lookup shared by every server that serves image tiles (Flask, FastAPI).
+"""Tile lookup for the image tiles route of the HTTP API.
 
 Tile URLs are /<key>/<zoom>/<x>/<y>[.<ext>]; keys are content-versioned
 (see startup.data.image.image.register_tiles), so a found tile never changes.

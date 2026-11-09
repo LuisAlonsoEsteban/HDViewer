@@ -124,7 +124,11 @@ HELP = {
         AND/OR). Categorical columns accept <code>==</code> and a category name.
         Build the conditions, name the group and create it.<br>
         An observation in several groups is drawn with the group created last. Tick or untick groups to
-        show or hide them; this does not change differential expression."""),
+        show or hide them; this does not change differential expression.<br>
+        <b>Combine groups</b> makes a new group from two existing ones: their <b>intersection</b> (A ∩ B),
+        <b>union</b> (A ∪ B) or <b>difference</b> (A − B), or the <b>complement</b> of one (not A: every
+        sequenced observation outside it). <i>Take the opposite set</i> keeps everything outside the result.
+        The size is shown before creating it, and its members stay fixed if A or B change later."""),
     "de": ("Differential expression", """
         Finds the genes that differ between groups and/or clusters (Wilcoxon test on log1p library-size-normalized counts).
         <ul>

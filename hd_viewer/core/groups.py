@@ -16,6 +16,10 @@ GROUPS_COL = settings.GROUPS_COL
 GROUP_PALETTE = settings.GROUP_PALETTE
 
 
+# Set operations between groups and their symbols (complement: "not A")
+SET_OPERATIONS = {"intersection": "∩", "union": "∪", "difference": "−", "complement": "not"}
+
+
 class GroupsState:
     def __init__(self, sample=None):
         self._sample = sample
@@ -23,7 +27,7 @@ class GroupsState:
         self._active_groups: set = set()
         self._fixed_masks = {}
         self._group_origins = {}
-        self._change_listeners = []
+        self._descriptions = {}       # group -> how it was made (e.g. "A ∩ B"), for set-operation groups
         self._color_map: dict = {}
         # Bumped whenever group masks are (re)written: the active-groups label
         # column only needs rebuilding when masks or the active set change
@@ -31,30 +35,8 @@ class GroupsState:
         self._groups_col_signature = None
 
     @property
-    def _base_sample(self):
-        return self._sample
-
-    @property
     def sample(self):
-        return self._base_sample
-
-    @property
-    def has_groups(self) -> bool:
-        return GROUPS_COL in self.sample.adata.obs.columns and len(self._groups) > 0
-
-    # -- listeners -------------------------------------------------------------
-
-    def add_change_listener(self, callback):
-        if callback not in self._change_listeners:
-            self._change_listeners.append(callback)
-
-    def remove_change_listener(self, callback):
-        if callback in self._change_listeners:
-            self._change_listeners.remove(callback)
-
-    def _notify_group_change(self):
-        for callback in list(self._change_listeners):
-            callback()
+        return self._sample
 
     # -- conditions ------------------------------------------------------------
 
@@ -179,12 +161,9 @@ class GroupsState:
         if hasattr(self.sample, 'clear_multiscale_cache'):
             self.sample.clear_multiscale_cache()
 
-    def _apply_groups_to_adata(self, prepared=None):
-        """Store the groups (a hook for subclasses that also redraw)."""
-        self.store_groups(prepared)
-
     def _rollback(self, name):
         self._groups.pop(name, None)
+        self._descriptions.pop(name, None)
         self._fixed_masks.pop(name, None)
         self._group_origins.pop(name, None)
         self._active_groups.discard(name)
@@ -207,14 +186,13 @@ class GroupsState:
         self._groups[name] = conditions
         self._active_groups.add(name)
         try:
-            self._apply_groups_to_adata(prepared)
+            self.store_groups(prepared)
         except Exception:
             self._rollback(name)
             raise
-        self._notify_group_change()
         return name
 
-    def add_fixed_group(self, name, mask, origin_roi_id=None, prepared=None):
+    def add_fixed_group(self, name, mask, origin_roi_id=None, prepared=None, description=None):
         """A group with a fixed membership (e.g. a ROI); returns its unique name."""
         mask = np.asarray(mask, dtype=bool)
         if mask.shape != (self.sample.adata.n_obs,) or not mask.any():
@@ -228,9 +206,11 @@ class GroupsState:
         self._fixed_masks[name] = pd.Series(mask.copy(), index=self.sample.adata.obs_names.copy())
         self._groups[name] = []
         self._group_origins[name] = origin_roi_id
+        if description:
+            self._descriptions[name] = description
         self._active_groups.add(name)
         try:
-            self._apply_groups_to_adata(prepared)
+            self.store_groups(prepared)
         except Exception:
             self._rollback(name)
             raise
@@ -243,11 +223,46 @@ class GroupsState:
         self._mask_version += 1
         self._fixed_masks.pop(name, None)
         self._group_origins.pop(name, None)
+        self._descriptions.pop(name, None)
         self._active_groups.discard(name)
         self.sample.adata.obs.drop(columns=[f"{settings.GROUP_MASK_PREFIX}{name}"], errors="ignore", inplace=True)
         if hasattr(self.sample, 'clear_multiscale_cache'):
             self.sample.clear_multiscale_cache()
         return bool(self._groups)
+
+    # -- set operations ----------------------------------------------------------
+
+    def membership(self, name):
+        """Boolean membership of a group over the sample's observations."""
+        key = f"{settings.GROUP_MASK_PREFIX}{name}"
+        obs = self.sample.adata.obs
+        if name not in self._groups or key not in obs:
+            raise ValueError(f"Unknown group: {name}")
+        return obs[key].astype(bool).to_numpy()
+
+    def combine(self, operation, first, second=None, opposite=False):
+        """(mask, description) of a set operation on existing groups.
+
+        `operation` is one of SET_OPERATIONS: the intersection, union or difference
+        (first minus second) of two groups, or the complement of one group.
+        `opposite` takes the complement of the result. Complements are taken within
+        the sample's observations (the sequenced ones), as group memberships are.
+        """
+        if operation not in SET_OPERATIONS:
+            raise ValueError(f"Choose one of: {', '.join(SET_OPERATIONS)}.")
+        a = self.membership(first)
+        if operation == "complement":
+            return ~a, f"not {first}"
+        if second is None:
+            raise ValueError("Choose a second group.")
+        if second == first:
+            raise ValueError("Choose two different groups.")
+        b = self.membership(second)
+        mask = {"intersection": a & b, "union": a | b, "difference": a & ~b}[operation]
+        description = f"{first} {SET_OPERATIONS[operation]} {second}"
+        if opposite:
+            return ~mask, f"not ({description})"
+        return mask, description
 
     def members(self, name):
         key = f"{settings.GROUP_MASK_PREFIX}{name}"
@@ -255,16 +270,6 @@ class GroupsState:
         if key not in obs:
             return set()
         return set(self.sample.adata.obs_names[obs[key].astype(bool)])
-
-    def _rebuild_custom_groups_col(self):
-        adata = self.sample.adata
-        self._mask_version += 1
-        col = pd.Series(None, index=adata.obs.index, dtype=object)
-        for gname in self._groups:
-            col_key = f"{settings.GROUP_MASK_PREFIX}{gname}"
-            if col_key in adata.obs.columns:
-                col[adata.obs[col_key].astype(bool)] = gname
-        adata.obs[GROUPS_COL] = col.astype('category')
 
     def refresh_active_labels(self):
         """``adata.obs[GROUPS_COL]`` holds the shown groups only (rebuilt only when
@@ -296,5 +301,6 @@ class GroupsState:
     def group_summary(self):
         return [dict(name=name, colour=self._color_map.get(name, "#cccccc"), size=self._count_spots_bool(name),
                      visible=name in self._active_groups, origin=self._group_origins.get(name),
+                     description=self._descriptions.get(name),
                      conditions=[list(condition) for condition in conditions])
                 for name, conditions in self._groups.items()]
