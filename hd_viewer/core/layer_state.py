@@ -8,7 +8,8 @@ per-level glyph constants. It writes every change through a *sink*:
 - the HTTP API uses `RecordingSink`, whose recorded operations are sent to the
   browser and applied there to the BokehJS data source.
 
-Subclasses may override `_show_not_sequenced` (whether not-sequenced rows are drawn).
+Layers hold only sequenced geometries (core.workspace drops the others); rows
+with a missing value (e.g. a metadata column) are styled with `not_sequenced_val`.
 """
 import numpy as np
 import pandas as pd
@@ -164,9 +165,6 @@ class LayerRows(ParameterSet):
 
     def _set(self, name, values):
         self.sink.set(name, values)
-
-    def _show_not_sequenced(self):
-        return True
 
     # -- state -------------------------------------------------------------
 
@@ -355,8 +353,6 @@ class LayerRows(ParameterSet):
             for name, value in updates.items():
                 self._set_column(name, value)
         self.view_filter = np.ones(len(self.indexes), dtype=bool)
-        if not self._show_not_sequenced() and len(self.is_sequenced) == len(self.indexes):
-            self.view_filter = np.asarray(self.is_sequenced, dtype=bool)
         self._generation += 1
         return True
 
@@ -487,10 +483,7 @@ class LayerRows(ParameterSet):
         self._obs_names = np.concatenate((self._obs_names, names))
 
         self.indexes.extend(new_data.index.tolist())
-        new_visible = np.ones(new_data.shape[0], dtype=bool)
-        if not self._show_not_sequenced() and len(new_is_sequenced) == new_data.shape[0]:
-            new_visible = np.asarray(new_is_sequenced, dtype=bool)
-        self.view_filter = np.concatenate((self.view_filter, new_visible))
+        self.view_filter = np.concatenate((self.view_filter, np.ones(new_data.shape[0], dtype=bool)))
         self.is_sequenced += new_is_sequenced
 
 

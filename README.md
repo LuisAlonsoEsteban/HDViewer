@@ -167,8 +167,8 @@ deconvolution, as RCTD on a full slide takes about 8 hours) and, with Docker, in
 memory (`memory`: 32g and 64g) and processes (`pids_limit`). Set these in the two
 `config.yaml` files above; an empty value disables a limit. Apptainer applies
 `apptainer.memory` only on hosts with cgroups v2 delegation. Runs belong to the
-browser session that started them: closing the tab cancels them, unless another
-session is waiting for the same result. If a run fails, users see a short message
+browser session that started them: closing the tab, or **Cancel** in the
+Deconv. tab, stops them, unless another session is waiting for the same result. If a run fails, users see a short message
 with a run id; its log is kept as `<run id>/run.log` under the dataset's
 `segmentation/` or `deconvolution/` folder.
 

@@ -28,19 +28,12 @@ KIND_DEFAULTS = {
 }
 
 
-class ViewRows(LayerRows):
-    show_not_sequenced = True
-
-    def _show_not_sequenced(self):
-        return self.show_not_sequenced
-
-
 class LayerView:
     def __init__(self, layer_id, kind, sample, title, colour):
         self.id, self.kind, self.title = layer_id, kind, title
         self.sample = sample
         self.lock = threading.RLock()
-        self.rows = ViewRows(sample)
+        self.rows = LayerRows(sample)
         self.visible = True
         self.colour = colour
         self.alpha_max = 1.0
@@ -59,6 +52,7 @@ class LayerView:
                        running=None, compared=None)      # (source, names) being / last compared
         self.job = dict(name=None, state="idle", message="")      # clustering or DE (they exclude each other)
         self.deconvolution_job = dict(name="deconvolution", state="idle", message="")   # may take hours
+        self.deconvolution_run = None   # the running deconvolution's handle (api.routers.deconvolution)
         # Last metadata comparison (Bokeh json_item); `generation` changes with groups and clusters,
         # so a comparison computed meanwhile is discarded
         self.metadata = dict(item=None, compared=None, generation=0)
@@ -84,7 +78,7 @@ class LayerView:
     def describe(self):
         return dict(id=self.id, kind=self.kind, title=self.title, visible=self.visible,
                     colour=self.colour, alpha=self.alpha_max, colour_by=self.colour_by,
-                    scale=self.sample.expression_scale, show_not_sequenced=self.rows.show_not_sequenced,
+                    scale=self.sample.expression_scale,
                     hover_colour=KIND_DEFAULTS[self.kind]["hover"],
                     aggregation_factors=list(getattr(self.sample, "AGGREGATION_FACTORS", ())),
                     fixed_aggregation=self.rows.fixed_aggregation_factor)
@@ -184,7 +178,7 @@ class LayerView:
                     factors=[int(f) for f in getattr(sample, "AGGREGATION_FACTORS", ())])
 
     def visibility(self):
-        """Rows to draw: the not-sequenced rule plus the shown clusters or groups."""
+        """Rows to draw: those of the shown clusters or groups (None: every row)."""
         rows = self.rows
         mask = np.asarray(rows.view_filter, dtype=bool)
         kind, column = self.colour_by.get("kind"), self.colour_by.get("name")
@@ -192,12 +186,9 @@ class LayerView:
         if kind in ("clusters", "groups") and labels is not None and len(labels) == len(mask):
             labels = pd.Series(labels, dtype=object)
             if kind == "clusters":
-                shown = self.clustering.visible_mask(labels, rows.show_not_sequenced)
+                shown = self.clustering.visible_mask(labels)
             else:
                 shown = labels.isin(self.groups._active_groups).to_numpy()
-                if len(rows.is_sequenced) == len(mask):
-                    unsequenced = ~np.asarray(rows.is_sequenced, dtype=bool)
-                    shown[unsequenced] = rows.show_not_sequenced
             mask = mask & shown
         return None if mask.all() else mask.astype(np.uint8)
 
@@ -273,15 +264,6 @@ class LayerView:
         self.rows.set_aggregation_factor(factor)
         self._static_bbox = None
         return self.rows.sink.take()
-
-    def set_show_not_sequenced(self, show):
-        rows = self.rows
-        rows.show_not_sequenced = show
-        mask = np.ones(len(rows.indexes), dtype=bool)
-        if not show and len(rows.is_sequenced) == len(rows.indexes):
-            mask = np.asarray(rows.is_sequenced, dtype=bool)
-        rows.view_filter = mask
-        return rows.sink.take()
 
     def set_colour(self, colour):
         self.colour = colour

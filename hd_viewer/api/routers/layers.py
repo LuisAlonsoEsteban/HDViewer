@@ -125,7 +125,6 @@ class StyleRequest(BaseModel):
     scale: str | None = None              # counts | normalized | log1p
     colour: str | None = None             # hex colour for continuous values
     alpha: float | None = None            # maximum opacity
-    show_not_sequenced: bool | None = None
     aggregation: int | None = None        # bins: fixed factor; 0 follows the zoom
 
 
@@ -145,8 +144,6 @@ def style(layer_id: str, body: StyleRequest, session=Depends(current_session)):
                 ops += view.set_colour(body.colour)
             if body.alpha is not None:
                 ops += view.set_alpha(min(max(body.alpha, 0.0), 1.0))
-            if body.show_not_sequenced is not None:
-                ops += view.set_show_not_sequenced(body.show_not_sequenced)
             if body.aggregation is not None:
                 ops += view.set_aggregation(body.aggregation or None)
         except KeyError as exc:

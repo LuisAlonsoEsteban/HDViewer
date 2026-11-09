@@ -8,10 +8,7 @@ interface Stats {
   id: string;
   title: string;
   kind: string;
-  total: number;
-  sequenced: number;
-  not_sequenced: number;
-  pct_sequenced: number;
+  observations: number;
   mean_umis: number;
   umis_per_um2: number;
 }
@@ -40,21 +37,18 @@ export function SummaryPanel() {
   return (
     <Stack gap="sm">
       <Text fw={600} size="sm">Dataset summary</Text>
-      <Table.ScrollContainer minWidth={420}>
+      <Table.ScrollContainer minWidth={320}>
         <Table fz="xs" striped>
           <Table.Thead>
             <Table.Tr>
-              {["Sample", "Total", "Sequenced", "Not seq", "% Seq", "Mean UMIs", "UMIs/µm²"].map((h) => <Table.Th key={h}>{h}</Table.Th>)}
+              {["Sample", "Observations", "Mean UMIs", "UMIs/µm²"].map((h) => <Table.Th key={h}>{h}</Table.Th>)}
             </Table.Tr>
           </Table.Thead>
           <Table.Tbody>
             {(stats ?? []).map((s) => (
               <Table.Tr key={s.id}>
                 <Table.Td fw={600}>{s.title}</Table.Td>
-                <Table.Td>{s.total.toLocaleString()}</Table.Td>
-                <Table.Td>{s.sequenced.toLocaleString()}</Table.Td>
-                <Table.Td>{s.not_sequenced.toLocaleString()}</Table.Td>
-                <Table.Td>{s.pct_sequenced}%</Table.Td>
+                <Table.Td>{s.observations.toLocaleString()}</Table.Td>
                 <Table.Td>{s.mean_umis}</Table.Td>
                 <Table.Td>{s.umis_per_um2}</Table.Td>
               </Table.Tr>

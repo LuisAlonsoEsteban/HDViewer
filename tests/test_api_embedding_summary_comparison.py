@@ -77,7 +77,8 @@ class EmbeddingAndSummaryTests(APITestCase):
 
     def test_summary_qc_and_markers(self):
         stats, = self.client.get("/api/summary").json()["layers"]
-        self.assertEqual((stats["id"], stats["total"], stats["sequenced"]), ("bins", 180, 180))
+        self.assertEqual((stats["id"], stats["observations"]), ("bins", 180))
+        self.assertNotIn("not_sequenced", stats)
         self.assertAlmostEqual(stats["mean_umis"], round(float(self.sample.adata.X.sum(axis=1).mean()), 1))
         item = self.client.get("/api/layers/bins/qc").json()
         self.assertEqual((item["shown"], item["total"]), (180, 180))

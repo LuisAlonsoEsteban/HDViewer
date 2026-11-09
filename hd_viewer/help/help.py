@@ -46,8 +46,8 @@ HELP = {
 
     # ------------------------------------------------------------- layer tabs
     "general": ("Showing a layer", """
-        <b>Show</b> or hide the whole layer, and the <b>not-sequenced</b> observations (those without
-        counts).<br>
+        Show or hide the whole layer with the eye in the layer list. Only observations with counts are
+        loaded: bins, spots and cells without counts are left out.<br>
         <b>Opacity</b>: maximum opacity. When coloring by a gene, opacity follows its expression up to
         this value; with categories (clusters, groups) every observation uses it.<br>
         <b>Clear selection</b> deselects the layer's observations; <b>Download data</b> saves the layer as an
@@ -85,7 +85,7 @@ HELP = {
         NNLS estimates expression mixture fractions rather than calibrated cell counts.
         spacexr (RCTD) needs raw integer counts; set <b>RCTD mode</b> (doublet by default, full or multi)
         and <b>Minimum target UMIs</b> (default 100), plus normalization cutoffs and reference filters.
-        It can take hours on a whole 8 µm sample.
+        It can take hours on a whole 8 µm sample. <b>Cancel</b> stops a running deconvolution; no result is saved.
         cell2location needs an expected number of cells per location and offers posterior mean abundance
         as well as relative fractions. MuSiC requires a donor/sample column with multiple subjects.
         CIBERSORTx generates a signature from the reference; it is offered only where the server operator has

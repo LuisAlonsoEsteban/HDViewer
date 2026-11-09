@@ -114,7 +114,8 @@ class WorkspaceTests(ApiTestCase):
                                     json=dict(seq=1, x0=0, x1=size, y0=0, y1=size, width=600, height=600))
         self.assertEqual(response.headers["content-type"], "application/octet-stream")
         header, ops, _ = frames.decode(response.content)
-        self.assertEqual((header["base"], header["version"], header["rows"]), (0, 1, 36))  # 3 sequenced
+        # Only sequenced bins are loaded: 3 of the 36 tissue positions have counts
+        self.assertEqual((header["base"], header["version"], header["rows"]), (0, 1, 3))
         appended = [op for op in ops if op[0] == "append"][0][1]
         self.assertEqual(appended["x"].dtype, np.float32)
         self.assertIn("width", header["constants"])
@@ -131,7 +132,7 @@ class WorkspaceTests(ApiTestCase):
         version = header["row_version"]
         named = dict(self.client.post("/api/layers/bins/names",
                                       json=dict(row_version=version, rows=list(range(36)))).json()["rows"])
-        self.assertEqual(len(named), 36)
+        self.assertEqual(sorted(named.values()), ["a", "b", "c"])          # only sequenced rows exist
         self.assertEqual(self.client.post("/api/layers/bins/names", json=dict(row_version=-1, rows=[0])).json()["rows"], [])
         sequenced = next(row for row, name in named.items() if name in ("a", "b", "c"))
         self.assertEqual(self.client.post("/api/layers/bins/selection",
@@ -140,7 +141,7 @@ class WorkspaceTests(ApiTestCase):
 
         full, ops, _ = frames.decode(self.client.get("/api/layers/bins/state").content)
         self.assertEqual(ops[0][0], "replace")
-        self.assertEqual(len(ops[0][1]["x"]), 36)
+        self.assertEqual(len(ops[0][1]["x"]), 3)
 
     def test_tiles_are_cached_forever_and_misses_never(self):
         self.load_example()

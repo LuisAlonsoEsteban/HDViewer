@@ -5,6 +5,7 @@ cell types, each with its own block of 20 strongly expressed genes; the referenc
 one profile per type. NNLS runs for real with the local runner."""
 import json
 import os
+import sys
 import tempfile
 import time
 import unittest
@@ -108,6 +109,46 @@ class DeconvolutionAndMetadataTests(unittest.TestCase):
         self.assertEqual(self.client.patch("/api/layers/bins/style", json=dict(colour_by="deconv_1:B")).status_code, 200)
         self.assertTrue(list((self.base / "deconvolution" / "square_016um" / "bins" / "nnls").iterdir()))
         self.assertEqual(self.deconvolve()["runs"][1]["id"], "2")             # cached result, new run
+
+    def test_cancelling_kills_the_run_and_keeps_no_result(self):
+        service = deconvolution.default_service()
+        started, finished = [], []
+        real_run = service.runner.run
+
+        def slow(plugin, input_dir, output_dir, on_progress, log_path):
+            started.append(log_path)
+            try:
+                with open(log_path, "w") as log:
+                    service.runner._stream([sys.executable, "-c", "import time; print('go', flush=True); time.sleep(120)"],
+                                           None, log, on_progress)
+            finally:
+                finished.append(time.monotonic())
+
+        with patch.object(service.runner, "run", slow):
+            self.assertEqual(self.client.post("/api/layers/bins/deconvolution/cancel").status_code, 409)
+            self.assertEqual(self.client.post("/api/layers/bins/deconvolution",
+                                              json=dict(method="nnls", label_column="cell_type")).status_code, 202)
+            for _ in range(600):
+                if started:
+                    break
+                time.sleep(.05)
+            self.assertTrue(started, "the plugin never started")
+            time.sleep(.5)                                                     # the process is running
+            cancelled = self.client.post("/api/layers/bins/deconvolution/cancel")
+            self.assertEqual(cancelled.status_code, 200, cancelled.text)
+            self.assertEqual(cancelled.json()["state"], "cancelled")
+            for _ in range(200):
+                if finished:
+                    break
+                time.sleep(.05)
+            self.assertTrue(finished, "the plugin process was not killed")
+            time.sleep(.3)                                                     # the worker thread unwinds
+            state = self.client.get("/api/layers/bins/deconvolution").json()
+            self.assertEqual(state["job"]["state"], "cancelled")              # not overwritten as failed
+            self.assertEqual(state["runs"], [])
+            self.assertIn("cancelled by the user", Path(started[0]).read_text())
+        self.assertIs(service.runner.run.__func__, real_run.__func__)
+        self.assertEqual(self.deconvolve()["runs"][0]["id"], "1")              # a new run works afterwards
 
     def test_metadata_comparison_of_fractions_between_groups_and_against_the_rest(self):
         options = self.client.get("/api/layers/bins/metadata/options").json()

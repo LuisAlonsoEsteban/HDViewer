@@ -79,7 +79,7 @@ export type ServerEvent =
   | { type: "progress"; task: string; pct: number; status: string }
   | { type: "failed"; task: string | null; message: string; fatal: boolean }
   | { type: "ready" }
-  | { type: "job"; layer: string; name: string; state: "running" | "done" | "failed"; message: string }
+  | { type: "job"; layer: string; name: string; state: "running" | "done" | "failed" | "cancelled"; message: string }
   | { type: "layer_stale"; layer: string }
   | { type: "ping" };
 

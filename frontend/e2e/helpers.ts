@@ -27,5 +27,12 @@ export async function roiGroup(page: Page, name: string, dx: number) {
   await page.getByRole("button", { name: "Save ROI" }).click();
   await expect(page.getByText(new RegExp(`^${name}: [\\d,]+ observations$`))).toBeVisible({ timeout: 60_000 });
   await page.getByTestId("roi").filter({ hasText: name }).getByRole("button", { name: "Create group" }).click();
-  await expect(page.getByText(`Created group: ROI: ${name}`)).toBeVisible();
+  await expect(page.getByText(`Created group: ROI: ${name}`)).toBeVisible({ timeout: 60_000 });
+}
+
+/** Turn on the map's hover tooltips (off by default) with the toolbar button. */
+export async function enableHover(page: Page): Promise<void> {
+  await page.locator(".map-host .bk-tool-icon-hover").first().click();
+  await expect.poll(() => page.evaluate(() =>
+    (window as any).hdv.docs.get("map").get_model_by_name("bins:hover").active)).toBe(true);
 }

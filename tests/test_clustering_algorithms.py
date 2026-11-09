@@ -135,10 +135,8 @@ class ClusteringAlgorithmTests(unittest.TestCase):
         self.assertEqual(clustering._cluster_labels, ['0', 'Noise'])
         clustering._active_clusters = {'Noise'}
         self.assertEqual(clustering.visible_mask(obs['dbscan_1']).sum(), 1)
-        # A not-sequenced row (no label) follows the not-sequenced switch
+        # A row without a cluster label (left out of the clustering) stays visible
         self.assertEqual(clustering.visible_mask([None, 'Noise', '0']).tolist(), [True, True, False])
-        self.assertEqual(clustering.visible_mask([None, 'Noise'], show_not_sequenced=False).tolist(),
-                         [False, True])
 
         view.update_viewport(-1, 181, -1, 2, 900, 900)
         view.colour_by_categories('dbscan_1', clustering._color_map, 'clusters')

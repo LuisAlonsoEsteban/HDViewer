@@ -133,6 +133,7 @@ class Bridge {
 
   async embed(item: any, element: HTMLElement, key: string): Promise<Document> {
     const previous = this.roots.get(key);
+    const hovering = this.hoverStates(key);          // the user's hover on/off survives a rebuild
     try {
       if (previous?.element === element) previous.view?.remove();   // re-embedded in place
     } catch {
@@ -144,7 +145,21 @@ class Bridge {
     this.roots.set(key, { view, element });
     const doc: Document = view?.model?.document ?? window.Bokeh.documents?.[window.Bokeh.documents.length - 1];
     this.docs.set(key, doc);
+    for (const tool of this.hoverTools(key)) {
+      if (hovering.has(tool.name)) tool.active = hovering.get(tool.name);
+    }
     return doc;
+  }
+
+  /** The figure's named hover tools (`<layer>:hover`, `embedding:hover`). */
+  private hoverTools(key: string): Model[] {
+    const doc: any = this.docs.get(key);
+    if (!doc) return [];
+    return [...doc.all_models].filter((m: any) => typeof m.name === "string" && m.name.endsWith(":hover"));
+  }
+
+  private hoverStates(key: string): Map<string, boolean> {
+    return new Map(this.hoverTools(key).map((tool: any) => [tool.name, !!tool.active]));
   }
 
   /** Opacity of the tissue image (tile or single-image renderer of the map). */

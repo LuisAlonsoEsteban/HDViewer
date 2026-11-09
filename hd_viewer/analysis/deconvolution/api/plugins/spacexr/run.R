@@ -1,6 +1,6 @@
 suppressPackageStartupMessages({library(Matrix); library(spacexr); library(jsonlite)})
 if (!all(c('Reference', 'SpatialRNA', 'create.RCTD', 'run.RCTD') %in% getNamespaceExports('spacexr'))) {
-    stop('This plugin needs the dmcable/spacexr GitHub API. Install it with remotes::install_github("dmcable/spacexr").')
+    stop('This plugin needs the GitHub spacexr API (dmcable/spacexr, or jpromeror/spacexr with the Visium HD speed-ups), not the Bioconductor package.')
 }
 folder <- commandArgs(trailingOnly=TRUE)[[1]]
 spec <- fromJSON(file.path(folder, 'spec.json'))
@@ -67,7 +67,8 @@ predictions <- lapply(seq_along(barcodes), function(i) {
         row <- results$results_df[barcode, , drop=FALSE]
         list(spot_class=unbox(as.character(row$spot_class)),
              first_type=unbox(as.character(row$first_type)),
-             second_type=unbox(as.character(row$second_type)),
+             # The faster spacexr of pull request 206 names this column scond_type
+             second_type=unbox(as.character(if ('second_type' %in% names(row)) row$second_type else row$scond_type)),
              weights=as.numeric(results$weights_doublet[barcode, ]))
     } else if (p$doublet_mode == 'full') {
         list(types=colnames(results$weights), weights=as.numeric(results$weights[barcode, ]))

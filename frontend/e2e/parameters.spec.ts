@@ -1,5 +1,5 @@
 import { expect, Page, test } from "@playwright/test";
-import { load } from "./helpers";
+import { enableHover, load } from "./helpers";
 
 const DATASET = process.env.HDV_DATASET ?? "Mouse brain (16um)";
 
@@ -15,6 +15,7 @@ const map = (page: Page) => page.evaluate(() => {
     lineWidth: JSON.stringify(renderer.glyph.line_width),
     rows: (source.data.line_width ?? []).length,
     imageAlpha: tiles ? tiles.alpha : single?.glyph.global_alpha,
+    hover: doc.get_model_by_name("bins:hover").active,
   };
 });
 
@@ -34,12 +35,13 @@ test("parameters tab, image opacity and data download", async ({ page }) => {
   await page.mouse.move(box.x + box.width / 2, box.y + box.height / 2);
   await page.mouse.wheel(0, -300);
   await page.waitForTimeout(500);
+  await enableHover(page);                       // the user's hover choice survives the rebuild
   const before = await map(page);
 
   // Line width fixed at 3: the figure is rebuilt with a per-row column
   await page.getByRole("tab", { name: "Params" }).first().click();
   const width = page.getByTestId("parameter-line_width");
-  await width.getByRole("textbox", { name: "Value" }).fill("3");
+  await width.getByRole("textbox", { name: "Value", exact: true }).fill("3");
   const rebuilt = page.waitForResponse((r) => r.url().includes("/figures/map?") && r.ok());
   await width.getByRole("button", { name: "Apply" }).click();
   await rebuilt;
@@ -49,6 +51,7 @@ test("parameters tab, image opacity and data download", async ({ page }) => {
   expect(after.lineWidth).toContain("line_width");
   expect(after.x0).toBeCloseTo(before.x0, 3);
   expect(after.x1).toBeCloseTo(before.x1, 3);
+  expect(after.hover).toBe(true);
 
   // Reset brings back the default glyph
   await width.getByRole("button", { name: "Reset" }).click();

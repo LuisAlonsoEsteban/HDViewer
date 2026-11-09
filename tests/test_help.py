@@ -34,7 +34,7 @@ def frontend_topics():
     for path in FRONTEND.rglob("*.tsx"):
         text = path.read_text()
         topics = re.findall(r'topic="([a-z_]+)"', text)
-        for group in re.findall(r"topics=\{\[([^\]]*)\]\}", text):
+        for group in re.findall(r"topics(?:=\{|: )\[([^\]]*)\]", text):     # JSX prop or tool list
             topics += re.findall(r'"([a-z_]+)"', group)
         if topics:
             used[path.name] = topics
@@ -88,11 +88,11 @@ class HelpTests(unittest.TestCase):
         self.assertEqual(set(every) - set(HELP), set())          # no button without a text
         self.assertEqual(set(HELP) - set(every), set())          # no text without a button
         self.assertIn("bin_resolution", used["BinInfoOverlay.tsx"])
+        # Every tool of the workspace rail names its help topics (shown by the panel heading)
         workspace = (FRONTEND / "screens" / "Workspace.tsx").read_text()
-        panels = [panel for panel in re.findall(r"<Tabs\.Panel\b[^>]*>(.*)", workspace) if "layer={layer}" in panel]
-        self.assertGreaterEqual(len(panels), 8)                  # the per-layer tabs
-        for panel in panels:
-            self.assertIn("<PanelHelp topics=", panel)
+        tools = re.findall(r'\{ value: "(\w+)", label: "[^"]+", title: "[^"]+", topics: \[("[a-z_]+"(?:, "[a-z_]+")*)\]', workspace)
+        self.assertGreaterEqual(len(tools), 8)
+        self.assertIn("<HelpButton topics={current.topics} />", workspace)
 
 
 if __name__ == "__main__":

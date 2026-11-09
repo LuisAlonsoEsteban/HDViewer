@@ -144,8 +144,8 @@ function AttributeEditor({ layer, entry, onChanged, onError }: {
           </>
         )}
         {color
-          ? <ColorInput size="xs" label="Not sequenced" value={String(notSequenced)} onChange={setNotSequenced} />
-          : <NumberInput size="xs" label="Not sequenced" value={notSequenced} onChange={setNotSequenced}
+          ? <ColorInput size="xs" label="Missing value" value={String(notSequenced)} onChange={setNotSequenced} />
+          : <NumberInput size="xs" label="Missing value" value={notSequenced} onChange={setNotSequenced}
                          min={spec.low} max={spec.high} step={0.1} decimalScale={2} />}
         <Group gap="xs">
           <Button size="compact-xs" onClick={apply} loading={busy} disabled={mode === "data" && !column}>Apply</Button>

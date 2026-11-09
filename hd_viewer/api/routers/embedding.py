@@ -131,6 +131,7 @@ def embedding_figure(layer_id: str, colour_by: str = "", session=Depends(current
                                  code=f"return window.hdv ? window.hdv.hoverName({key!r}, value) : ''")}))
     plot.xaxis.axis_label, plot.yaxis.axis_label = f"{label} 1", f"{label} 2"
     plot.toolbar.logo = None
+    plot.toolbar.active_inspect = []          # hover off by default, as on the map
     source.selected.js_on_change("indices", emit("embedding-selection", f"{{layer: {layer_id!r}, indices: cb_obj.indices}}"))
     item = json_item(plot, "embedding", theme=THEME)
     item["version"] = version

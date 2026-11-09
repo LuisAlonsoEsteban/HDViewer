@@ -222,7 +222,8 @@
     <section id="app-map">
       <h2>The map</h2>
       <p>The tissue image is drawn with your layers on top. <b>Scroll</b> to zoom and <b>drag</b> to pan.
-        Only the visible region is loaded, so new areas fill in as you move. <b>Hover</b> an observation to see its
+        Only the visible region is loaded, so new areas fill in as you move. Hover tooltips are off by default: turn
+        them on with the <b>hover</b> button of the plot toolbar, then <b>hover</b> an observation to see its
         values: the gene shown, and its group and cluster when there are any.</p>
       <p>The image keeps its original orientation and aspect ratio. Transparent padding supplies the
         square tile canvas, and bin rectangles follow the tissue grid's rotation. Original image files
@@ -282,13 +283,14 @@
       <h2>Layers</h2>
       <p>Each representation of the sample is a layer: <b>Spots</b> (pseudospots), <b>Bins</b> and one
         <b>Cells</b> layer per segmentation method. Every layer has the same tabs: Display, Clustering,
-        Groups, ROIs, DE, Deconv., Metadata and Params. An <b>observation</b> is one spot, bin or cell. Not-sequenced observations (inside the tissue
-        but without counts) are drawn in gray.</p>
+        Groups, ROIs, DE, Deconv., Metadata and Params. An <b>observation</b> is one spot, bin or cell
+        with counts: bins, pseudospots and cells without any counts (e.g. bins outside the tissue) are left
+        out when the data loads, which keeps the map fast. An observation whose shown value is missing (e.g.
+        an empty metadata entry) is drawn in gray.</p>
 
       <h3 id="app-general">Display tab: showing a layer</h3>
       <ul>
         <li>The <b>eye</b> next to each layer in the layer list shows or hides the whole layer.</li>
-        <li><b>Show not sequenced</b>: show or hide the gray observations without counts.</li>
         <li><b>Opacity</b>: maximum opacity. When coloring by a gene, opacity follows its expression up to
             this value; with categories (clusters, groups) every observation uses it.</li>
         <li><b>Clear selection</b>: deselect the layer's observations on the map and in the embedding.</li>
@@ -362,6 +364,8 @@
       <b>Maximum reference cells per type</b> (default 10,000) and <b>Minimum reference cells per type</b> (default 25).
       Rejected observations and uncertain doublets remain unassigned. RCTD fits the whole layer and can take hours
       on large layers.
+      While a method runs, <span class="ui">Cancel</span> next to <span class="ui">Run deconvolution</span> stops it
+      and keeps no result; the tab is free for another run at once.
       cell2location requires an expected cell count per location and offers posterior mean abundance alongside relative fractions.
       MuSiC requires a donor/sample annotation containing multiple subjects. CIBERSORTx generates a signature from the
       uploaded reference; it can be offered only when the server operator has installed it and supplied their own
@@ -489,7 +493,7 @@
       <p>Extra drawing parameters of the layer: <b>fill opacity</b>, <b>line width</b>, <b>line colour</b> and
         <b>line opacity</b>. Color and opacity themselves are set in the Display tab.</p>
       <ul>
-        <li><b>Fixed</b>: one value for all observations, plus a value for not-sequenced ones.</li>
+        <li><b>Fixed</b>: one value for all observations, plus a value for those whose data is missing.</li>
         <li><b>From data</b>: a gene or numeric column scaled between <b>Min</b> and <b>Max</b>; for colours,
             a categorical column (one colour per category). Optionally show the column on hover.</li>
         <li><span class="ui">Apply</span> redraws the map at the same view; <span class="ui">Reset</span> returns the
@@ -500,8 +504,8 @@
     <section id="app-summary">
       <h2>Summary panel</h2>
       <p>The <b>Summary</b> tab of the right panel.</p>
-      <p><b>General Info</b> compares the layers: number of observations, sequenced and not, % sequenced,
-        mean UMIs (counts) per observation and UMIs per µm². Each layer then has:</p>
+      <p>The table compares the layers: number of observations, mean UMIs (counts) per observation and
+        UMIs per µm². Each layer then has:</p>
       <ul>
         <li><b>QC</b>: distributions of % mitochondrial reads and genes per observation, and UMIs against
             % mitochondrial reads and against genes.</li>
@@ -519,7 +523,7 @@
       <p><span class="ui">Color by</span> colors the points by a gene or a metadata column. Genes use a
         color gradient on the layer's <b>Expression values</b> scale; clusters and groups keep the colors
         assigned to them, and other categories get one color each. When a clustering finishes, the embedding
-        switches to the new clusters. Hover a point to see its value.</p>
+        switches to the new clusters. Turn on hover in the plot toolbar, then hover a point to see its value.</p>
     </section>
 
     <section id="app-comparison">
@@ -587,8 +591,7 @@
         <tr><th>Term</th><th>Meaning</th></tr>
         <tr><td>Bin</td><td>Square capture area of Visium HD (2, 8 or 16 µm), the unit of the data.</td></tr>
         <tr><td>Pseudospot</td><td>55 µm Visium-like spot built from bins.</td></tr>
-        <tr><td>Observation</td><td>One spot, bin or cell.</td></tr>
-        <tr><td>Not sequenced</td><td>An observation inside the tissue without counts.</td></tr>
+        <tr><td>Observation</td><td>One spot, bin or cell with counts. Geometries without counts are not loaded.</td></tr>
         <tr><td>Aggregation level</td><td>Bins summed into larger cells (2 × 2 … 12 × 12) for display, clustering
             or DE.</td></tr>
         <tr><td>UMI</td><td>A counted RNA molecule; "counts".</td></tr>

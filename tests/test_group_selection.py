@@ -9,44 +9,32 @@ from tests.test_roi_manager import KINDS, Api, make_layer
 
 
 class GroupSelectionTests(unittest.TestCase):
-    def test_group_visibility_respects_the_not_sequenced_switch(self):
+    def test_group_visibility_shows_only_the_shown_groups(self):
         for kind in KINDS:
             with self.subTest(kind=kind):
                 view = make_layer(kind)
                 groups = view.groups
                 obs_names = view.sample.adata.obs_names
                 first, last = obs_names[0], obs_names[-1]
-                view.set_show_not_sequenced(False)
                 name = groups.add_fixed_group('A', obs_names == first)
                 groups.refresh_active_labels()
                 view.colour_by_categories(GROUPS_COL, groups._color_map, 'groups')
 
-                def assert_visible(show_unsequenced, show_group=True):
-                    names = loaded(view)
-                    visible = view.visibility()
-                    self.assertIsNotNone(visible)
-                    visible = visible.astype(bool)
-                    self.assertEqual(visible[names.index(first)], show_group)
-                    self.assertFalse(visible[names.index(last)])
-                    missing = np.flatnonzero(~np.asarray(view.rows.is_sequenced, dtype=bool))
-                    self.assertEqual(len(missing), 1)
-                    self.assertEqual(visible[missing[0]], show_unsequenced)
+                def visible():
+                    mask = view.visibility()
+                    self.assertIsNotNone(mask)
+                    return dict(zip(loaded(view), mask.astype(bool)))
 
-                assert_visible(False)
-                view.set_show_not_sequenced(True)
-                assert_visible(True)
-                view.rows.clear_sources()                   # reloaded rows keep the rule
+                shown = visible()
+                self.assertTrue(shown[first])
+                self.assertFalse(shown[last])
+                self.assertEqual(sum(shown.values()), 1)            # only the shown group's member
+                view.rows.clear_sources()                           # reloaded rows keep the rule
                 view.rows.fetch_data()
-                assert_visible(True)
-                view.set_show_not_sequenced(False)
-                assert_visible(False)
-                view.rows.clear_sources()
-                view.rows.fetch_data()
-                assert_visible(False)
+                self.assertEqual(sum(visible().values()), 1)
                 groups._active_groups.discard(name)
                 groups.refresh_active_labels()
-                view.set_show_not_sequenced(True)
-                assert_visible(True, show_group=False)
+                self.assertEqual(sum(visible().values()), 0)
 
     def test_clear_selection(self):
         api = Api(self)

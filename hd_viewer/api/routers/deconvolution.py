@@ -4,6 +4,8 @@ Methods are plugins run by the shared service (core.deconvolution); a run is a
 background job (events `job` with name "deconvolution", separate from
 clustering/DE since it may take hours) whose result becomes `deconv_<run>:<type>`
 columns, shown with the layer's usual colour-by (PATCH style colour_by).
+POST .../deconvolution/cancel stops it: the session withdraws from the shared
+run, whose process is killed unless another session awaits the same run.
 """
 import threading
 import traceback
@@ -12,6 +14,7 @@ from fastapi import APIRouter, Depends, HTTPException
 from pydantic import BaseModel, Field
 
 from ...core import deconvolution as core
+from ...plugins.jobs import JOBS
 from . import current_session
 from .layers import _loaded, _view
 from .plugins import describe
@@ -116,6 +119,8 @@ def run(layer_id: str, body: RunRequest, session=Depends(current_session)):
         if view.deconvolution_job["state"] == "running":
             raise HTTPException(409, "A deconvolution is already running on this layer.")
         view.deconvolution_job = dict(name="deconvolution", state="running", message=f"Deconvolution ({plugin.title})")
+        # This run's handle: its shared job (once joined) and whether it was cancelled
+        handle = view.deconvolution_run = dict(job=None, cancelled=False)
     # Cells deconvolve at the dataset's bin size, other layers at their own
     sample = view.sample
     dataset_size = getattr(getattr(loaded, "dataset", None), "bins_size", None)
@@ -125,24 +130,65 @@ def run(layer_id: str, body: RunRequest, session=Depends(current_session)):
     work_dir = None if base_dir is None else base_dir / "deconvolution"
     target = core.snapshot_target(sample, body.method)
 
+    def current():
+        """A cancelled run (or one replaced since) no longer reports or publishes."""
+        return view.deconvolution_run is handle and not handle["cancelled"]
+
     def publish(**changes):
-        view.deconvolution_job.update(changes)
-        session.publish(dict(type="job", layer=layer_id, **view.deconvolution_job))
+        with view.lock:
+            if not current():
+                return
+            view.deconvolution_job.update(changes)
+            job = dict(view.deconvolution_job)
+        session.publish(dict(type="job", layer=layer_id, **job))
+
+    def joined(job):
+        with view.lock:
+            handle["job"] = job
+            cancelled = handle["cancelled"]
+        if cancelled:               # cancelled while the inputs were being prepared
+            JOBS.withdraw(job, session.sid)
 
     def work():
         try:
             result = service.run(body.method, target, reference, body.label_column, params, work_dir=work_dir,
-                                 cache_namespace=namespace, owner=session.sid,
+                                 cache_namespace=namespace, owner=session.sid, on_job=joined,
                                  on_progress=lambda fraction, message: publish(message=str(message)))
             with view.lock:
+                if not current():
+                    return
                 run_id = core.publish_result(sample, result, body.label_column,
                                              reference_name=getattr(loaded, "reference_name", "") or "")
             publish(state="done", run=run_id,
                     message=f"Deconvolved {len(result.fractions):,} observations into "
                             f"{len(result.fractions.columns)} cell types")
         except Exception as exc:
-            traceback.print_exc()
+            if current():
+                traceback.print_exc()
             publish(state="failed", message=str(exc))
 
+    # Shown (with Cancel) at once: preparing the inputs of a large reference takes minutes
+    publish()
     threading.Thread(target=work, daemon=True, name=f"deconvolution-{layer_id}").start()
     return view.deconvolution_job
+
+
+@router.post("/layers/{layer_id}/deconvolution/cancel")
+def cancel(layer_id: str, session=Depends(current_session)):
+    """Stop this layer's running deconvolution. The panel is free at once; the
+    process is killed in the background (kept running only while another
+    session awaits the identical run, whose result is then cached)."""
+    view = _view(session, layer_id)
+    with view.lock:
+        handle = getattr(view, "deconvolution_run", None)
+        if view.deconvolution_job["state"] != "running" or handle is None:
+            raise HTTPException(409, "No deconvolution is running on this layer.")
+        handle["cancelled"] = True
+        job = handle["job"]
+        view.deconvolution_job = dict(name="deconvolution", state="cancelled",
+                                      message="Deconvolution cancelled. No result was saved.")
+        state = dict(view.deconvolution_job)
+    if job is not None:
+        JOBS.withdraw(job, session.sid)
+    session.publish(dict(type="job", layer=layer_id, **state))
+    return state

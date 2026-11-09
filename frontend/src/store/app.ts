@@ -20,7 +20,6 @@ export interface Layer {
   alpha: number;
   colour_by: { kind: string; name?: string };
   scale: string;
-  show_not_sequenced: boolean;
   aggregation_factors: number[];
   fixed_aggregation: number | null;
 }
@@ -48,7 +47,7 @@ export interface BinInfo {
 
 export interface Job {
   name: string | null;
-  state: "idle" | "running" | "done" | "failed";
+  state: "idle" | "running" | "done" | "failed" | "cancelled";
   message: string;
   started?: number;      // ms since epoch, when the browser saw the run start
   log?: string[];        // recent step messages of the run (newest last)

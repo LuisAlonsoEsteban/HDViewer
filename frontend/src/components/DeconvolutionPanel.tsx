@@ -1,8 +1,8 @@
 import { useEffect, useRef, useState } from "react";
-import { Anchor, Button, Select, Stack, Text } from "@mantine/core";
+import { Anchor, Button, Group, Select, Stack, Text } from "@mantine/core";
 import { getJson, sendJson } from "../api/client";
 import { requestViewport, setStyle } from "../map/layers";
-import { Layer, useApp } from "../store/app";
+import { Job, Layer, useApp } from "../store/app";
 import { JobProgress } from "./JobProgress";
 import { Param, PluginParamForm } from "./PluginParamForm";
 
@@ -39,6 +39,7 @@ export function DeconvolutionPanel({ layer }: { layer: Layer }) {
   const job = useApp((s) => s.jobs[layer.id]?.deconvolution);
   const version = useApp((s) => s.analysisVersion[layer.id] ?? 0);
   const updateLayer = useApp((s) => s.updateLayer);
+  const setJob = useApp((s) => s.setJob);
   const [state, setState] = useState<State>();
   const [label, setLabel] = useState<string | null>(null);
   const [method, setMethod] = useState<string | null>(null);
@@ -90,9 +91,23 @@ export function DeconvolutionPanel({ layer }: { layer: Layer }) {
   const start = async () => {
     setError(null);
     try {
-      await sendJson("POST", base, { method, label_column: label, params });
+      const started = await sendJson<Job>("POST", base, { method, label_column: label, params });
+      setJob(layer.id, started);         // running (and cancellable) before the first progress event
     } catch (exc: any) {
       setError(exc.message);
+    }
+  };
+
+  const [cancelling, setCancelling] = useState(false);
+  const cancel = async () => {
+    setError(null);
+    setCancelling(true);
+    try {
+      await sendJson("POST", `${base}/cancel`, {});
+    } catch (exc: any) {
+      setError(exc.message);
+    } finally {
+      setCancelling(false);
     }
   };
 
@@ -136,9 +151,14 @@ export function DeconvolutionPanel({ layer }: { layer: Layer }) {
                          onChange={(next) => setValues((v) => ({ ...v, [plugin.name]: next }))} />
       )}
       {reason && <Text size="xs" c="yellow.5">{reason}</Text>}
-      <Button color="green" onClick={start} loading={running} disabled={!!reason || !plugin || !label}>
-        Run deconvolution
-      </Button>
+      <Group gap="xs" grow>
+        <Button color="green" onClick={start} loading={running} disabled={!!reason || !plugin || !label}>
+          Run deconvolution
+        </Button>
+        {running && (
+          <Button variant="default" color="red" onClick={cancel} loading={cancelling}>Cancel</Button>
+        )}
+      </Group>
       <JobProgress job={job} message={false} />
       <Text size="xs" c={job?.state === "failed" || error ? "red.4" : "dark.1"} style={{ whiteSpace: "pre-wrap" }}>
         {error ?? (job && job.state !== "idle" ? job.message

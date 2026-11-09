@@ -160,9 +160,10 @@ class DeconvolutionService:
         return resolved, list(dict.fromkeys(columns))
 
     def run(self, name, target, reference, label_column, params=None, on_progress=None, *, work_dir=None,
-            cache_namespace=None, owner=None):
+            cache_namespace=None, owner=None, on_job=None):
         """Concurrent identical requests share one run, cancelled once no `owner`
-        (browser session) awaits it."""
+        (browser session) awaits it. `on_job(job)` receives the shared job, so the
+        caller can withdraw from it (JOBS.withdraw) when the user cancels."""
         progress = on_progress or (lambda fraction, message: None)
         # Dataset-specific storage without mutating the shared service/queue.
         work_dir = self.work_dir if work_dir is None else Path(work_dir)
@@ -215,6 +216,8 @@ class DeconvolutionService:
         shared = target.var_names.intersection(reference.var_names, sort=False)
         nonempty = np.asarray(target[:, shared].X.sum(axis=1)).ravel() > 0
         with JOBS.join(('deconvolution', str(destination.resolve())), owner) as job:
+            if on_job is not None:
+                on_job(job)
             if job.lock.locked():
                 progress(0, 'Waiting for the same deconvolution started by another session')
             with job.lock:
@@ -256,12 +259,14 @@ class DeconvolutionService:
                     try:
                         progress(0, 'Writing target counts for the plugin')
                         target[nonempty].copy().write_h5ad(input_dir / 'target.h5ad')
+                        job.check()
                         progress(0, 'Writing single-cell reference for the plugin')
                         reference.write_h5ad(input_dir / 'reference.h5ad')
                         (input_dir / 'params.json').write_text(json.dumps(dict(params=resolved, label_column=label_column)))
                         if artifacts.exists():
                             progress(0, 'Preparing cached reference artifacts')
                             shutil.copytree(artifacts, input_dir / 'reference_artifacts')
+                        job.check()
                         if not nonempty.any():
                             result = DeconvolutionResult(pd.DataFrame(np.nan, index=target.obs_names, columns=types), [])
                             if name == 'cell2location':
@@ -309,7 +314,8 @@ class DeconvolutionService:
                         # Inputs are full copies of the data (GBs): keep only the log
                         for folder in (input_dir, output_dir):
                             shutil.rmtree(folder, ignore_errors=True)
-                        print(f'[deconvolution] {plugin.title} failed, log: {work / "run.log"}')
+                        outcome = 'was cancelled' if isinstance(exc, Cancelled) else 'failed'
+                        print(f'[deconvolution] {plugin.title} {outcome}, log: {work / "run.log"}')
                         if not isinstance(exc, Exception) or isinstance(exc, Cancelled):
                             raise
                         # The browser gets no server paths: the run id finds the log

@@ -45,3 +45,23 @@ test("deconvolve with NNLS, show a cell type and compare fractions between group
 
   expect(errors.filter((e) => !/favicon/.test(e))).toEqual([]);
 });
+
+test("cancel a running deconvolution", async ({ page }) => {
+  test.setTimeout(900_000);
+  await load(page, DATASET);
+  await page.getByRole("tab", { name: "Deconv." }).click();
+  await expect(page.getByText(/^Reference ready: /)).toBeVisible({ timeout: 60_000 });
+  const run = page.getByRole("button", { name: "Run deconvolution" });
+  await expect(run).toBeEnabled({ timeout: 30_000 });
+  // An unusual batch size is not cached in the dataset folder, so the run is still going when cancelled
+  await page.getByRole("textbox", { name: "Observations per batch" }).fill("7");
+  await expect(run).toBeEnabled({ timeout: 30_000 });
+  await run.click();
+  const cancel = page.getByRole("button", { name: "Cancel", exact: true });
+  await expect(cancel).toBeVisible({ timeout: 60_000 });
+  await page.waitForTimeout(3_000);                  // past the input export, into the plugin process
+  await cancel.click();
+  await expect(page.getByText("Deconvolution cancelled. No result was saved.")).toBeVisible({ timeout: 60_000 });
+  await expect(cancel).toBeHidden();
+  await expect(run).toBeEnabled();
+});

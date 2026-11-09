@@ -63,7 +63,7 @@ registry namespace as segmentation:
 - `ghcr.io/luisalonsoesteban/visium-deconv-nnls:0.1.0`
 - `ghcr.io/luisalonsoesteban/visium-deconv-cell2location:0.1.0`
 - `ghcr.io/luisalonsoesteban/visium-deconv-music:0.1.0`
-- `ghcr.io/luisalonsoesteban/visium-deconv-spacexr:0.1.0`
+- `ghcr.io/luisalonsoesteban/visium-deconv-spacexr:0.2.0`
 
 Docker uses an existing local image or pulls the manifest image. As with segmentation,
 a bundled Dockerfile remains a fallback if pulling fails. Apptainer uses a configured
@@ -85,7 +85,7 @@ To build an image manually, run from this API directory:
 
 ```bash
 docker build -t ghcr.io/luisalonsoesteban/visium-deconv-music:0.1.0 -f plugins/music/Dockerfile .
-docker build -t ghcr.io/luisalonsoesteban/visium-deconv-spacexr:0.1.0 -f plugins/spacexr/Dockerfile .
+docker build -t ghcr.io/luisalonsoesteban/visium-deconv-spacexr:0.2.0 -f plugins/spacexr/Dockerfile .
 ```
 
 ### spacexr (RCTD)
@@ -93,14 +93,19 @@ docker build -t ghcr.io/luisalonsoesteban/visium-deconv-spacexr:0.1.0 -f plugins
 The adapter follows the upstream [RCTD vignette](https://raw.githack.com/dmcable/spacexr/master/vignettes/spatial-transcriptomics.html):
 construct `Reference` and `SpatialRNA`, then call `create.RCTD` and `run.RCTD`.
 Local execution needs `Rscript` on PATH (or `VHD_SPACEXR_RSCRIPT`), `Matrix`,
-`jsonlite`, and the **GitHub** `dmcable/spacexr` package with this API. The
-Bioconductor package has a different API. Install into the R library visible to
-that Rscript, for example:
+`jsonlite`, and the **GitHub** spacexr package with this API. The
+Bioconductor package has a different API. The image installs the Visium HD
+speed-ups of [dmcable/spacexr#206](https://github.com/dmcable/spacexr/pull/206)
+(not yet merged upstream): doublet mode runs its workers with foreach/doParallel
+and gathers results vectorized; full and multi modes are unchanged. Install the
+same version into the R library visible to that Rscript:
 
 ```r
 install.packages(c("remotes", "jsonlite"), repos="https://cloud.r-project.org")
-remotes::install_github("dmcable/spacexr", build_vignettes=FALSE, upgrade="never")
+remotes::install_github("jpromeror/spacexr@33d375cc5d7b7b5db97ee5cc1d3dd32b682afc9e", build_vignettes=FALSE, upgrade="never")
 ```
+
+The upstream `dmcable/spacexr` package also works, with the original runtime.
 
 No donor/sample column is required. `.X` must contain untransformed integer
 counts; fractional or normalized expression fails validation. The default

@@ -190,8 +190,11 @@ def map_figure(loaded, views, prefix="", view_box=None):
     elif bins is not None and bins.native_width > 0:
         # No spatial transform: one native bin spans `bin_size` µm
         measure_tool.set_scale(bins.bin_size / bins.native_width, bins.bin_size / bins.native_height)
-    # The shared figure starts with no active inspector: activate the layers' hover
-    plot.toolbar.active_inspect = [_layer(plot, view) for view in views.values()]
+    for view in views.values():
+        _layer(plot, view)
+    # Hover tooltips start off (each one queries the server): the toolbar's
+    # hover button turns them on, and the browser keeps that choice on rebuilds
+    plot.toolbar.active_inspect = []
     # ROI being drawn (preview before saving). The drawing tools select nothing:
     # the browser arms one, reads the `geometry` / `tap` event and disarms it.
     draft = ColumnDataSource(dict(xs=[], ys=[]), name="draft")

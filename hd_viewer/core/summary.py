@@ -3,17 +3,13 @@ HTTP API's Summary panel)."""
 
 
 def general_stats(sample):
-    """Observation counts, sequencing rate and UMIs of a sample."""
+    """Observations (all sequenced: layers hold no geometry without counts) and UMIs of a sample."""
     adata = sample.adata
-    total = sample.n_geometries
-    not_sequenced = sample.n_not_sequenced
-    sequenced = total - not_sequenced
     mean_umis = 0.0
     if adata is not None and "total_counts" in adata.obs.columns:
         mean_umis = round(float(adata.obs["total_counts"].mean()), 1)
     area = sample.get_unit_area_um2()
-    return dict(total=int(total), sequenced=int(sequenced), not_sequenced=int(not_sequenced),
-                pct_sequenced=round(100 * sequenced / total, 1) if total > 0 else 0,
+    return dict(observations=int(adata.n_obs) if adata is not None else 0,
                 mean_umis=mean_umis, umis_per_um2=round(float(mean_umis / area if area > 0 else 0), 1))
 
 

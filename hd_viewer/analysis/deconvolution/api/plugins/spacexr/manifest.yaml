@@ -1,6 +1,6 @@
 name: spacexr
-version: 0.1.0
-image: ghcr.io/luisalonsoesteban/visium-deconv-spacexr:0.1.0
+version: 0.2.0
+image: ghcr.io/luisalonsoesteban/visium-deconv-spacexr:0.2.0
 title: spacexr (RCTD)
 description: Robust Cell Type Decomposition with platform-effect normalization. Requires
   raw integer counts and at least two reference cell types. Fits the whole layer;

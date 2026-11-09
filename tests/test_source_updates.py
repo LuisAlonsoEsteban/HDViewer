@@ -6,7 +6,6 @@ from types import SimpleNamespace
 import numpy as np
 import pandas as pd
 
-from hd_viewer.api.views import ViewRows
 from hd_viewer.core.encoding import CategoricalColor, Scaler, StaticParameter
 from hd_viewer.core.layer_state import LayerRows, source_columns
 
@@ -185,9 +184,8 @@ class SourceUpdateTests(unittest.TestCase):
 
     def test_pruning_resynchronizes_selection_and_visibility(self):
         from tests.fixtures import loaded, make_view, show
-        view = make_view(n=4, not_sequenced=2)
+        view = make_view(n=4)
         show(view, -1, 5, -1, 5)
-        view.set_show_not_sequenced(False)
         names = list(loaded(view))
         view.select(view.rows.row_version, [names.index('b1_1'), names.index('b2_2')])
         version = view.rows.row_version
@@ -196,20 +194,9 @@ class SourceUpdateTests(unittest.TestCase):
         names = list(loaded(view))
         self.assertEqual(view.selected_positions(), [names.index('b2_2')])
         self.assertEqual(len(view.rows.view_filter), len(names))
-        mask = view.visibility()
-        self.assertEqual(len(mask), len(names))
-        hidden = [name for name, shown in zip(names, mask) if not shown]
-        self.assertEqual(len(hidden), 2)                           # the two not-sequenced rows
-        self.assertTrue(pd.isna(hidden).all())                     # (no native name)
+        self.assertIsNone(view.visibility())                       # every remaining row is drawn
         with self.assertRaises(ValueError):
             view.select(version, [0])                              # positions of pruned rows
-
-    def test_hidden_unsequenced_mask_is_rebuilt_on_gene_switch(self):
-        manager, _, _ = make_manager(rows_class=ViewRows)
-        manager.show_not_sequenced = False
-        manager.view_filter = np.array([True, False, True, True])
-        manager.update_colname('gene', 'other')
-        self.assertEqual(list(manager.view_filter), [True] * 4)
 
     def test_static_only_layers(self):
         sample = Sample()

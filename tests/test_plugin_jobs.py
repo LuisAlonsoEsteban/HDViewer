@@ -209,6 +209,31 @@ class JobTableTests(unittest.TestCase):
         with table.join('key', 'c') as job:
             self.assertFalse(job.cancelled.is_set())
 
+    def test_withdrawing_stops_the_run_only_when_nobody_else_awaits_it(self):
+        table, kills = JobTable(), []
+        with table.join('key', 'a') as job, table.join('key', 'b'):
+            job.on_cancel(lambda: kills.append(job.reason))
+            self.assertFalse(table.withdraw(job, 'a'))          # b still awaits the shared run
+            self.assertFalse(job.cancelled.is_set())
+            self.assertFalse(table.withdraw(job, 'stranger'))   # not one of its owners
+            self.assertTrue(table.withdraw(job, 'b'))
+            self.assertEqual(kills, ['cancelled by the user'])
+            with self.assertRaisesRegex(Cancelled, 'cancelled by the user'):
+                job.check()
+        # Withdrawing from a job does not close the session: it can start it again
+        with table.join('key', 'a') as again:
+            self.assertIsNot(again, job)
+            self.assertFalse(again.cancelled.is_set())
+
+    def test_rejoining_after_withdrawing_counts_as_awaiting_again(self):
+        table = JobTable()
+        with table.join('key', 'a') as job, table.join('key', 'b'):
+            table.withdraw(job, 'a')
+            with table.join('key', 'a') as same:
+                self.assertIs(same, job)
+                self.assertEqual(table.cancel_owner('b'), 0)     # a awaits it again
+                self.assertFalse(job.cancelled.is_set())
+
     def test_queued_job_leaves_the_queue_when_cancelled(self):
         table, slots = JobTable(), threading.Semaphore(1)
         slots.acquire()  # another run holds the only slot

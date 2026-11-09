@@ -1,4 +1,5 @@
 import { expect, test } from "@playwright/test";
+import { enableHover } from "./helpers";
 
 const DATASET = process.env.HDV_DATASET ?? "Mouse brain (16um)";
 
@@ -23,6 +24,11 @@ test("load an example, browse the map, hover and recolour", async ({ page }) => 
     const doc = (window as any).hdv.docs.get("map");
     return doc?.get_model_by_name("bins:source")?.data?.x?.length ?? 0;
   })).toBeGreaterThan(100);
+
+  // Hover is off by default; the toolbar button turns it on
+  expect(await page.evaluate(() =>
+    (window as any).hdv.docs.get("map").get_model_by_name("bins:hover").active)).toBe(false);
+  await enableHover(page);
 
   // Hover a loaded bin: the tooltip asks the server for its barcode
   const target = await page.evaluate(() => {

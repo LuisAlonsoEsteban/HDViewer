@@ -464,11 +464,10 @@ class ClusteringState:
                      markers=[gene for gene, *_ in markers.get(label, [])])
                 for label in self._cluster_labels]
 
-    def visible_mask(self, labels, show_not_sequenced=True):
-        """Rows whose cluster (in `labels`, aligned to the displayed rows) is shown."""
+    def visible_mask(self, labels):
+        """Rows whose cluster (in `labels`, aligned to the displayed rows) is shown;
+        rows without a cluster label (left out of the clustering) stay visible."""
         labels = pd.Series(labels, dtype=object)
-        visible = labels.astype(str).isin(self._active_clusters)
-        if show_not_sequenced:
-            visible |= labels.isna()
+        visible = labels.astype(str).isin(self._active_clusters) | labels.isna()
         return np.asarray(visible, dtype=bool)
 

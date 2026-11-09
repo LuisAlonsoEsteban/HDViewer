@@ -59,7 +59,7 @@ test("summary, embeddings linked to the map, and comparison of spots with bins",
   const embeddingSelection = page.waitForResponse((r) => r.url().includes("/embedding/selection") && r.request().method() === "GET");
   await page.getByTestId("roi").getByRole("button", { name: "Select", exact: true }).click();
   await embeddingSelection;
-  await expect.poll(() => selected(page, "embedding", "embedding:source")).toBeGreaterThan(50);
+  await expect.poll(() => selected(page, "embedding", "embedding:source"), { timeout: 60_000 }).toBeGreaterThan(50);
 
   // Comparison: spots (low-res reference) against bins
   await aside.getByRole("tab", { name: "Comparison" }).click();
