@@ -1,126 +1,106 @@
+"""ROIs seeded by the bins of a group: a radius around each bin, optionally minus the group."""
 import threading
 import unittest
 from unittest.mock import patch
 
-from bokeh.document import Document
-from bokeh.events import ButtonClick
-from shapely.geometry import Polygon, box
-from shapely import union_all
-import numpy as np
 import anndata as ad
 import geopandas as gpd
+import numpy as np
 import pandas as pd
+from shapely import union_all
+from shapely.geometry import MultiPolygon, Polygon, box
 
 from hd_viewer import settings
+from hd_viewer.core.roi import ROIGeometry
 from hd_viewer.startup.sample import Bins
+from tests.test_roi_manager import Api, make_layer
 
-from hd_viewer.board.layout.layer.roi import ROI
-from tests.test_roi_manager import ImmediateDoc, make_layer, wait_for
-
-
-def create_seed_group(layer, names, name='Seeds'):
-    return layer.groups_manager.add_mask_group(name, layer.sample.adata.obs_names.isin(names),
-                                               layer.roi_manager.doc)
+B1_1 = 5            # native index of bin b1_1
 
 
-def fire_preview(manager):
-    if manager._preview_timeout is not None:
-        manager._preview_timeout.callback()
-    wait_for(lambda: not manager.logger.running and manager._pending_preview is None)
+def create_seed_group(view, names, name='Seeds'):
+    return view.groups.add_fixed_group(name, view.sample.adata.obs_names.isin(names))
 
 
-class GroupRadiusROITests(unittest.TestCase):
+def group_shape(group, radius, exclude_group=False, **extra):
+    return dict(kind='group', group=group, radius=radius, exclude_group=exclude_group, **extra)
+
+
+def outline(xs, ys):
+    """Geometry of a multi_polygons outline (as sent to the browser)."""
+    polygons = [Polygon(list(zip(rings_x[0], rings_y[0])),
+                        [list(zip(hx, hy)) for hx, hy in zip(rings_x[1:], rings_y[1:])])
+                for rings_x, rings_y in zip(xs, ys)]
+    return polygons[0] if len(polygons) == 1 else MultiPolygon(polygons)
+
+
+class GroupRadiusGeometryTests(unittest.TestCase):
     def test_complex_overlay_is_bounded_and_keeps_exact_geometry_and_membership(self):
-        layer = make_layer()
-        manager = layer.roi_manager
-        group = create_seed_group(layer, ['b1_1'])
+        api = Api(self)
+        rois = api.view.rois
+        group = create_seed_group(api.view, ['b1_1'])
         with patch.object(settings, 'ROI_OVERLAY_MAX_VERTICES', 32), \
              patch.object(settings, 'ROI_OVERLAY_MAX_SIZE', 96):
-            manager.radius.value = 1.2
-            manager.method.value = 'radius'
-            manager.seed_source.value = 'group'
-            manager.seed_group.value = group
-            manager.group_region.value = 'minus_group'
-            fire_preview(manager)
-            exact = manager.radius_geometry(1.5, 1.5, 1.2).difference(box(1, 1, 2, 2))
-            self.assertLess(manager.draft.symmetric_difference(exact).area, 1e-10)
-            self.assertEqual(manager.source.data['xs'], [])
-            image = manager.raster_source.data['image'][0]
+            geometry, count = rois.compute_group_radius(group, 1.2, (1., 1.), exclude_group=True)
+            self.assertEqual(count, 1)
+            exact = rois.radius_geometry(1.5, 1.5, 1.2).difference(box(1, 1, 2, 2))
+            self.assertLess(geometry.symmetric_difference(exact).area, 1e-10)
+            overlay = rois._prepare_overlay(geometry)
+            self.assertIsNone(overlay.xs)
+            image = overlay.image('#ff0000')
             self.assertEqual(image.dtype, np.uint32)
             self.assertLessEqual(image.nbytes, 96 * 96 * 4)
             rgba = image.view(np.uint8).reshape((*image.shape, 4))
-            data = manager.raster_source.data
+            x0, y0, x1, y1 = overlay.bounds
+
             def alpha_at(x, y):
-                ix = int((x - data['x'][0]) / data['dw'][0] * image.shape[1])
-                iy = int((y - data['y'][0]) / data['dh'][0] * image.shape[0])
+                ix = int((x - x0) / (x1 - x0) * image.shape[1])
+                iy = int((y - y0) / (y1 - y0) * image.shape[0])
                 return rgba[iy, ix, 3]
             self.assertEqual(alpha_at(1.5, 1.5), 0)  # Source-group hole stays transparent.
             self.assertGreater(alpha_at(1.5, 2.2), 0)
-            expected_membership = manager.compute_membership(exact)
-            expected_membership[5] = False
-            draft_geometry = manager.draft
-            manager.save_roi()
-            wait_for(lambda: not manager.logger.running)
-            roi = manager.rois[0]
-            self.assertIs(roi.geometry, draft_geometry)
-            np.testing.assert_array_equal(roi.mask, expected_membership)
-            # Saving, hiding and showing reuse already prepared display data.
-            with patch.object(manager, '_prepare_overlay', side_effect=AssertionError('overlay recomputed')):
-                manager._toggle_outline(roi, False)
-                self.assertEqual(manager.raster_source.data['image'], [])
-                manager._toggle_outline(roi, True)
-                self.assertEqual(len(manager.raster_source.data['image']), 1)
-            document = Document()
-            document.add_root(layer.figure)
-            document.to_json()
-            manager.set_visible(False)
-            self.assertFalse(manager.raster_renderer.visible)
-            manager.dispose()
-            self.assertNotIn(manager.raster_renderer, layer.figure.renderers)
-            self.assertFalse(manager._overlay_cache)
+
+            # Through the API: the outline sent is bounded, the saved shape and membership exact
+            preview = api.ok(api.post('rois/preview', json=group_shape(group, 1.2, True)))
+            sent = sum(len(ring) for rings in preview['xs'] for ring in rings)
+            self.assertLessEqual(sent, 32)
+            saved = api.roi(**group_shape(group, 1.2, True))
+        roi = rois.rois[0]
+        self.assertLess(roi.geometry.symmetric_difference(exact).area, 1e-10)
+        expected_membership = rois.compute_membership(exact)
+        expected_membership[B1_1] = False
+        np.testing.assert_array_equal(roi.mask, expected_membership)
+        self.assertEqual(saved['count'], int(expected_membership.sum()))
 
     def test_raster_dimensions_cannot_exceed_budget_from_float_roundoff(self):
-        from hd_viewer.board.layout.layer.roi import ROIManager
         with patch.object(settings, 'ROI_OVERLAY_MAX_VERTICES', 1):
-            overlay = ROIManager._prepare_overlay(box(-.9, -.9, 189.9, 189.9))
+            overlay = ROIGeometry._prepare_overlay(box(-.9, -.9, 189.9, 189.9))
         self.assertLessEqual(max(overlay.raster.shape), settings.ROI_OVERLAY_MAX_SIZE)
 
-    def test_display_preparation_runs_in_preview_worker_and_can_cancel(self):
-        layer = make_layer()
-        manager = layer.roi_manager
-        group = create_seed_group(layer, ['b1_1'])
-        owner = threading.get_ident()
-        calls = []
-        prepare = manager._prepare_overlay
-        def in_worker(*args):
-            calls.append(threading.get_ident())
-            return prepare(*args)
-        manager._prepare_overlay = in_worker
-        manager.radius.value = 1.2
-        manager.method.value = 'radius'
-        manager.seed_source.value = 'group'
-        manager.seed_group.value = group
-        fire_preview(manager)
-        self.assertTrue(calls)
-        self.assertTrue(all(thread != owner for thread in calls))
+    def test_display_preparation_and_group_radius_can_be_cancelled(self):
+        view = make_layer()
+        group = create_seed_group(view, ['b1_1'])
+        geometry, _ = view.rois.compute_group_radius(group, 1.2, (1., 1.))
         with self.assertRaises(InterruptedError):
-            prepare(manager.draft, lambda: True)
+            ROIGeometry._prepare_overlay(geometry, lambda: True)
+        for exclude in (False, True):
+            with self.subTest(exclude=exclude), self.assertRaises(InterruptedError):
+                view.rois.compute_group_radius(group, 1.2, (1., 1.), cancelled=lambda: True, exclude_group=exclude)
 
     def test_source_group_union_is_reused_for_radius_changes_and_invalidated_for_membership(self):
-        layer = make_layer()
-        manager = layer.roi_manager
-        group = create_seed_group(layer, ['b1_1'])
-        manager.compute_group_radius(group, 1.2, (1., 1.), exclude_group=True)
-        cached = manager._group_union_cache[3]
-        manager.compute_group_radius(group, 1.5, (1., 1.), exclude_group=True)
-        self.assertIs(manager._group_union_cache[3], cached)
-        layer.sample.adata.obs[f'grp_{group}'] = layer.sample.adata.obs_names == 'b3_3'
-        manager.compute_group_radius(group, 1.5, (1., 1.), exclude_group=True)
-        self.assertIsNot(manager._group_union_cache[3], cached)
-        self.assertTrue(manager._group_union_cache[3].equals(box(3, 3, 4, 4)))
+        view = make_layer()
+        rois = view.rois
+        group = create_seed_group(view, ['b1_1'])
+        rois.compute_group_radius(group, 1.2, (1., 1.), exclude_group=True)
+        cached = rois._group_union_cache[3]
+        rois.compute_group_radius(group, 1.5, (1., 1.), exclude_group=True)
+        self.assertIs(rois._group_union_cache[3], cached)
+        view.sample.adata.obs[f'grp_{group}'] = view.sample.adata.obs_names == 'b3_3'
+        rois.compute_group_radius(group, 1.5, (1., 1.), exclude_group=True)
+        self.assertIsNot(rois._group_union_cache[3], cached)
+        self.assertTrue(rois._group_union_cache[3].equals(box(3, 3, 4, 4)))
 
     def test_large_group_uses_every_seed_across_union_batches(self):
-        layer = make_layer()
         n = 23
         names = [f'b{x}_{y}' for y in range(n) for x in range(n)]
         gdf = gpd.GeoDataFrame({'index': names}, index=names,
@@ -128,273 +108,210 @@ class GroupRadiusROITests(unittest.TestCase):
         data = ad.AnnData(np.ones((len(names), 1)), obs=pd.DataFrame(index=names),
                           var=pd.DataFrame(index=['g0']))
         data.obs['grp_All'] = True
-        layer.manager.sample = Bins(gdf, data, pixels_per_bin=1, bin_size=2)
-        shape, count = layer.roi_manager.compute_group_radius('All', .8, (1., 1.))
+        rois = ROIGeometry(Bins(gdf, data, pixels_per_bin=1, bin_size=2))
+        shape, count = rois.compute_group_radius('All', .8, (1., 1.))
         self.assertEqual(count, 529)
         self.assertTrue(shape.is_valid)
         np.testing.assert_allclose(shape.bounds, [-.3, -.3, 23.3, 23.3])
-        self.assertTrue(layer.roi_manager.compute_membership(shape).all())
-
-    def test_all_group_bins_create_one_roi_even_outside_viewport_and_at_aggregate_level(self):
-        layer = make_layer()
-        manager = layer.roi_manager
-        group = create_seed_group(layer, ['b0_0', 'b3_3'])
-        # Hide the group and load an aggregated viewport away from one seed.
-        layer.groups_manager._active_groups.clear()
-        layer.groups_manager._apply_visibility_mask()
-        layer.manager.set_fetch_context(bbox=(0, 1, 0, 1), resolution_level='agg:2')
-        layer.manager.fetch_data()
-        manager.radius.value = .2
-        manager.method.value = 'radius'
-        manager.seed_source.value = 'group'
-        manager.seed_group.value = group
-        self.assertIsNotNone(manager._preview_timeout)  # Automatic, debounced preview.
-        fire_preview(manager)
-        self.assertEqual(manager._draft_seed_info, (group, 2))
-        self.assertEqual(manager.draft.geom_type, 'MultiPolygon')
-        self.assertEqual(len(manager.draft.geoms), 2)
-        expected = union_all([manager.radius_geometry(.5, .5, .2), manager.radius_geometry(3.5, 3.5, .2)])
-        self.assertLess(manager.draft.symmetric_difference(expected).area, 1e-10)
-        self.assertEqual(len(manager.source.data['xs']), 1)  # One ROI, with two pieces.
-        self.assertEqual(len(manager.source.data['xs'][0]), 2)
-        self.assertEqual(manager.get_rois(), [])
-        self.assertEqual(layer.get_selected_obs_names(), set())
-        manager.name_input.value = 'Group neighbourhood'
-        manager.save_button._trigger_event(ButtonClick(manager.save_button))
-        wait_for(lambda: not manager.logger.running)
-        self.assertEqual(len(manager.get_rois()), 1)
-        roi = manager.get_rois()[0]
-        self.assertEqual(roi.seed_count, 2)
-        self.assertEqual(roi.seed_group, group)
-        self.assertEqual(roi.count, 2)
-        created = manager.create_group(roi)
-        np.testing.assert_array_equal(layer.sample.adata.obs[f'grp_{created}'], roi.mask)
-        manager.remove_roi(roi)
-        self.assertIn(group, layer.groups_manager._groups)
-        self.assertNotIn(created, layer.groups_manager._groups)
-
-    def test_minus_group_preview_geometry_membership_and_saved_snapshot(self):
-        layer = make_layer()
-        manager = layer.roi_manager
-        group = create_seed_group(layer, ['b1_1'])
-        manager.radius.value = 1.2
-        manager.method.value = 'radius'
-        manager.seed_source.value = 'group'
-        manager.seed_group.value = group
-        self.assertEqual(manager.group_region.value, 'full')
-        self.assertTrue(manager.group_region.visible)
-        fire_preview(manager)
-        full = manager.draft
-        full_members = manager.compute_membership(full)
-        self.assertTrue(full_members[5])
-        manager.group_region.value = 'minus_group'
-        fire_preview(manager)
-        expected = full.difference(box(1, 1, 2, 2))
-        self.assertLess(manager.draft.symmetric_difference(expected).area, 1e-10)
-        self.assertEqual(len(manager.draft.interiors), 1)
-        # Normal intersection still includes the source bin along the hole edge.
-        self.assertTrue(manager.compute_membership(manager.draft)[5])
-        self.assertGreater(len(manager.source.data['xs'][0][0]), 1)
-        manager.save_roi()
-        wait_for(lambda: not manager.logger.running)
-        roi = manager.get_rois()[0]
-        expected_members = full_members.copy()
-        expected_members[5] = False
-        np.testing.assert_array_equal(roi.mask, expected_members)
-        self.assertEqual(roi.seed_group, group)
-        manager.select(roi)
-        self.assertNotIn('b1_1', layer.get_selected_obs_names())
-        created = manager.create_group(roi)
-        np.testing.assert_array_equal(layer.sample.adata.obs[f'grp_{created}'], expected_members)
-        # Later source edits and switching to full mode do not modify saved ROIs.
-        layer.sample.adata.obs[f'grp_{group}'] = layer.sample.adata.obs_names == 'b3_3'
-        layer.groups_manager._notify_group_change()
-        manager.group_region.value = 'full'
-        fire_preview(manager)
-        self.assertIsNone(manager._draft_excluded_seed_mask)
-        np.testing.assert_array_equal(roi.mask, expected_members)
-        self.assertLess(roi.geometry.symmetric_difference(expected).area, 1e-10)
+        self.assertTrue(rois.compute_membership(shape).all())
 
     def test_minus_group_with_small_radius_explains_empty_result(self):
-        layer = make_layer()
-        manager = layer.roi_manager
-        group = create_seed_group(layer, ['b0_0'])
+        api = Api(self)
+        group = create_seed_group(api.view, ['b0_0'])
         with self.assertRaisesRegex(ValueError, 'Increase the radius'):
-            manager.compute_group_radius(group, .2, (1., 1.), exclude_group=True)
-        manager.radius.value = .2
-        manager.method.value = 'radius'
-        manager.seed_source.value = 'group'
-        manager.seed_group.value = group
-        manager.group_region.value = 'minus_group'
-        fire_preview(manager)
-        self.assertIsNone(manager.draft)
-        self.assertTrue(manager.save_button.disabled)
-        self.assertIn('leaves no ROI', manager.logger.div.text)
-        manager.group_region.value = 'full'
-        fire_preview(manager)
-        self.assertIsNotNone(manager.draft)
-        manager.seed_source.value = 'map'
-        self.assertFalse(manager.group_region.visible)
-        self.assertIsNone(manager._draft_excluded_seed_mask)
+            api.view.rois.compute_group_radius(group, .2, (1., 1.), exclude_group=True)
+        response = api.post('rois/preview', json=group_shape(group, .2, True))
+        self.assertEqual(response.status_code, 422)
+        self.assertIn('leaves no ROI', response.json()['detail'])
+        self.assertEqual(api.post('rois', json=group_shape(group, .2, True)).status_code, 422)
+        self.assertEqual(api.ok(api.get('rois'))['rois'], [])
+        self.assertEqual(api.ok(api.post('rois/preview', json=group_shape(group, .2)))['seeds'], 1)
 
     def test_subtraction_uses_native_shapes_after_radius_calibration(self):
-        layer = make_layer()
-        manager = layer.roi_manager
-        group = create_seed_group(layer, ['b0_0', 'b3_3'])
-        full, _ = manager.compute_group_radius(group, 2., (2., .5))
-        result, count = manager.compute_group_radius(group, 2., (2., .5), exclude_group=True)
+        view = make_layer()
+        group = create_seed_group(view, ['b0_0', 'b3_3'])
+        full, _ = view.rois.compute_group_radius(group, 2., (2., .5))
+        result, count = view.rois.compute_group_radius(group, 2., (2., .5), exclude_group=True)
         expected = full.difference(union_all([box(0, 0, 1, 1), box(3, 3, 4, 4)]))
         self.assertEqual(count, 2)
         self.assertTrue(result.is_valid)
         self.assertEqual(result.geom_type, 'MultiPolygon')
         self.assertLess(result.symmetric_difference(expected).area, 1e-10)
 
-    def test_changing_region_during_preview_discards_obsolete_geometry(self):
-        layer = make_layer()
-        manager = layer.roi_manager
-        group = create_seed_group(layer, ['b1_1'])
-        manager.radius.value = 1.2
-        manager.method.value = 'radius'
-        manager.seed_source.value = 'group'
-        manager.seed_group.value = group
-        original = manager.compute_group_radius
-        entered, release = threading.Event(), threading.Event()
-        calls = []
-        def slow(*args):
-            calls.append(args[-1])
-            if len(calls) == 1:
-                entered.set()
-                release.wait(5)
-            return original(*args)
-        manager.compute_group_radius = slow
-        manager.preview_group_radius(immediate=True)
-        self.assertTrue(entered.wait(5))
-        manager.group_region.value = 'minus_group'
-        self.assertTrue(manager.save_button.disabled)
-        release.set()
-        wait_for(lambda: not manager.logger.running and manager._pending_preview is None)
-        self.assertEqual(calls, [False, True])
-        self.assertIsNotNone(manager._draft_excluded_seed_mask)
-        expected, _ = original(group, 1.2, (1., 1.), exclude_group=True)
-        self.assertLess(manager.draft.symmetric_difference(expected).area, 1e-10)
-
-    def test_radius_changes_rebuild_preview_without_modifying_saved_rois(self):
-        layer = make_layer()
-        manager = layer.roi_manager
-        group = create_seed_group(layer, ['b0_0', 'b1_0'])
-        manager.method.value = 'radius'
-        manager.seed_source.value = 'group'
-        manager.radius.value = .2
-        manager.seed_group.value = group
-        fire_preview(manager)
-        self.assertEqual(manager.draft.geom_type, 'MultiPolygon')
-        manager.save_roi()
-        wait_for(lambda: not manager.logger.running)
-        roi = manager.get_rois()[0]
-        saved_area = roi.geometry.area
-        manager.radius.value = 1.
-        fire_preview(manager)
-        self.assertEqual(manager.draft.geom_type, 'Polygon')
-        self.assertGreater(manager.draft.area, saved_area)
-        self.assertEqual(roi.geometry.area, saved_area)
-        self.assertEqual(len(manager.get_rois()), 1)
-        # Membership changes of the selected group update the draft too.
-        layer.sample.adata.obs[f'grp_{group}'] = layer.sample.adata.obs_names == 'b3_3'
-        layer.groups_manager._notify_group_change()
-        fire_preview(manager)
-        self.assertEqual(manager._draft_seed_info, (group, 1))
-        np.testing.assert_allclose(manager.draft.centroid.coords[0], [3.5, 3.5])
-
     def test_physical_scale_and_holes_are_preserved(self):
-        layer = make_layer()
-        manager = layer.roi_manager
-        group = create_seed_group(layer, ['b0_0'])
-        geometry, count = manager.compute_group_radius(group, 2., (2., .5))
+        view = make_layer()
+        rois = view.rois
+        group = create_seed_group(view, ['b0_0'])
+        geometry, count = rois.compute_group_radius(group, 2., (2., .5))
         self.assertEqual(count, 1)
         np.testing.assert_allclose(geometry.bounds, [-.5, -3.5, 1.5, 4.5])
-        # A ring of seeded bin centers makes a hole, retained in the overlay source.
+        # A ring of seeded bin centers makes a hole, retained in the outline.
         ring = [f'b{x}_{y}' for y in range(3) for x in range(3) if x in (0, 2) or y in (0, 2)]
-        ring_group = create_seed_group(layer, ring, 'Ring')
-        shape, n = manager.compute_group_radius(ring_group, .6, (1., 1.))
+        ring_group = create_seed_group(view, ring, 'Ring')
+        shape, n = rois.compute_group_radius(ring_group, .6, (1., 1.))
         self.assertEqual(n, 8)
         self.assertEqual(shape.geom_type, 'Polygon')
         self.assertGreater(len(shape.interiors), 0)
-        manager.set_draft(shape, 'radius')
-        self.assertGreater(len(manager.source.data['xs'][0][0]), 1)
-        document = Document()
-        document.add_root(manager.component.figure)
-        document.to_json()
+        overlay = rois._prepare_overlay(shape)
+        self.assertGreater(len(overlay.xs[0]), 1)
 
     def test_categorical_group_conditions_work(self):
-        layer = make_layer()
-        layer.sample.adata.obs['cell_type'] = ['Tumor', 'Tumor', 'Normal', 'Normal'] * 4
-        mask = layer.groups_manager._build_mask([
-            ('cell_type', '==', 'Tumor', 'AND')
-        ], layer.sample.adata)
+        view = make_layer()
+        view.sample.adata.obs['cell_type'] = ['Tumor', 'Tumor', 'Normal', 'Normal'] * 4
+        mask = view.groups._build_mask([('cell_type', '==', 'Tumor', 'AND')], view.sample.adata)
         np.testing.assert_array_equal(mask.to_numpy(), np.tile([True, True, False, False], 4))
 
-    def test_latest_preview_wins_and_cancel_discards_work(self):
-        layer = make_layer()
-        manager = layer.roi_manager
-        group = create_seed_group(layer, ['b0_0', 'b1_0'])
-        manager.method.value = 'radius'
-        manager.seed_source.value = 'group'
-        manager.seed_group.value = group
-        manager.radius.value = .2
-        real = manager.compute_group_radius
-        running, release = threading.Event(), threading.Event()
-        radii = []
-        def slow(group, radius, *args):
-            radii.append(radius)
-            if len(radii) == 1:
-                running.set()
-                release.wait(10)
-            return real(group, radius, *args)
-        manager.compute_group_radius = slow
-        manager.preview_group_radius(immediate=True)
-        self.assertTrue(running.wait(5))
-        manager.radius.value = .8
-        self.assertTrue(manager.save_button.disabled)
-        release.set()
-        wait_for(lambda: not manager.logger.running and manager._pending_preview is None)
-        self.assertEqual(radii, [.2, .8])
-        expected, _ = real(group, .8, (1., 1.))
-        self.assertLess(manager.draft.symmetric_difference(expected).area, 1e-10)
-        manager.radius.value = .4
-        manager.cancel()
-        self.assertIsNone(manager._preview_timeout)
-        self.assertIsNone(manager._pending_preview)
-        self.assertIsNone(manager.draft)
-        self.assertTrue(manager.save_button.disabled)
 
-    def test_group_removal_invalid_inputs_and_manual_seed_mode(self):
-        layer = make_layer()
-        manager = layer.roi_manager
-        group = create_seed_group(layer, ['b0_0'])
-        manager.method.value = 'radius'
-        self.assertTrue(manager.seed_source.visible)
-        manager.seed_source.value = 'group'
-        manager.seed_group.value = group
-        manager.radius.value = 0
-        self.assertIn('positive', manager.logger.div.text)
-        self.assertIsNone(manager.draft)
-        manager.radius.value = .2
-        fire_preview(manager)
-        layer.groups_manager.delete_group(group, manager.doc)
-        self.assertEqual(manager.seed_group.value, '')
-        self.assertIsNone(manager.draft)
-        self.assertTrue(manager.save_button.disabled)
-        manager.seed_source.value = 'map'
-        self.assertEqual(manager.draw_button.label, 'Draw')
-        self.assertFalse(manager.seed_group.visible)
-        manager.begin()
-        self.assertIs(manager.drawing.owner, manager)
-        manager.cancel()
-        for kind in ('spots', 'other_cells'):
-            other = make_layer(kind).roi_manager
-            other.method.value = 'radius'
-            self.assertFalse(other.seed_source.visible)
-            self.assertFalse(other._group_mode())
+class GroupRadiusApiTests(unittest.TestCase):
+    def test_all_group_bins_create_one_roi_even_outside_viewport_and_at_aggregate_level(self):
+        api = Api(self)
+        view = api.view
+        group = create_seed_group(view, ['b0_0', 'b3_3'])
+        # Hide the group and load an aggregated viewport away from one seed.
+        self.assertEqual(api.patch(f'groups/{group}', json=dict(visible=False)).status_code, 200)
+        self.assertEqual(view.groups._active_groups, set())
+        view.rows.set_fetch_context(bbox=(0, 1, 0, 1), resolution_level='agg:2')
+        view.rows.fetch_data()
+        self.assertIn(group, api.ok(api.get('rois'))['seed_groups'])
+        preview = api.ok(api.post('rois/preview', json=group_shape(group, .2)))
+        self.assertEqual(preview['seeds'], 2)
+        self.assertEqual(len(preview['xs']), 2)                 # One ROI, with two pieces.
+        drawn = outline(preview['xs'], preview['ys'])
+        expected = union_all([ROIGeometry.radius_geometry(.5, .5, .2), ROIGeometry.radius_geometry(3.5, 3.5, .2)])
+        self.assertLess(drawn.symmetric_difference(expected).area, 1e-10)
+        self.assertEqual(api.ok(api.get('rois'))['rois'], [])   # a preview saves nothing
+        self.assertEqual(view.selected, set())
+
+        roi = api.roi(**group_shape(group, .2, name='Group neighbourhood'))
+        self.assertEqual(len(api.ok(api.get('rois'))['rois']), 1)
+        self.assertEqual((roi['name'], roi['seed_count'], roi['seed_group'], roi['count']),
+                         ('Group neighbourhood', 2, group, 2))
+        self.assertFalse(roi['group_excluded'])
+        saved = view.rois.rois[0]
+        self.assertEqual(saved.geometry.geom_type, 'MultiPolygon')
+        self.assertLess(saved.geometry.symmetric_difference(expected).area, 1e-10)
+        created = api.roi_group(roi)
+        np.testing.assert_array_equal(view.sample.adata.obs[f'grp_{created}'], saved.mask)
+        api.ok(api.delete(f"rois/{roi['id']}"))
+        self.assertIn(group, view.groups._groups)
+        self.assertNotIn(created, view.groups._groups)
+
+    def test_minus_group_preview_geometry_membership_and_saved_snapshot(self):
+        api = Api(self)
+        view, rois = api.view, api.view.rois
+        group = create_seed_group(view, ['b1_1'])
+        full_preview = api.ok(api.post('rois/preview', json=group_shape(group, 1.2)))
+        full = outline(full_preview['xs'], full_preview['ys'])
+        full_members = rois.compute_membership(full)
+        self.assertTrue(full_members[B1_1])
+        minus_preview = api.ok(api.post('rois/preview', json=group_shape(group, 1.2, True)))
+        minus = outline(minus_preview['xs'], minus_preview['ys'])
+        expected = full.difference(box(1, 1, 2, 2))
+        self.assertLess(minus.symmetric_difference(expected).area, 1e-10)
+        self.assertEqual(len(minus.interiors), 1)
+        self.assertGreater(len(minus_preview['xs'][0]), 1)                 # the hole is drawn
+        # Normal intersection still includes the source bin along the hole edge.
+        self.assertTrue(rois.compute_membership(minus)[B1_1])
+
+        roi = api.roi(**group_shape(group, 1.2, True))
+        self.assertTrue(roi['group_excluded'])
+        saved = rois.rois[0]
+        expected_members = full_members.copy()
+        expected_members[B1_1] = False
+        np.testing.assert_array_equal(saved.mask, expected_members)
+        self.assertEqual(saved.seed_group, group)
+        api.ok(api.post(f"rois/{roi['id']}/select"))
+        self.assertNotIn('b1_1', view.selected)
+        self.assertEqual(len(view.selected), int(expected_members.sum()))
+        created = api.roi_group(roi)
+        np.testing.assert_array_equal(view.sample.adata.obs[f'grp_{created}'], expected_members)
+        # Later source edits and previews do not modify saved ROIs.
+        view.sample.adata.obs[f'grp_{group}'] = view.sample.adata.obs_names == 'b3_3'
+        moved = api.ok(api.post('rois/preview', json=group_shape(group, 1.2)))
+        np.testing.assert_allclose(outline(moved['xs'], moved['ys']).centroid.coords[0], [3.5, 3.5], atol=1e-6)
+        np.testing.assert_array_equal(saved.mask, expected_members)
+        self.assertLess(saved.geometry.symmetric_difference(expected).area, 1e-10)
+
+    def test_radius_changes_rebuild_preview_without_modifying_saved_rois(self):
+        api = Api(self)
+        view = api.view
+        group = create_seed_group(view, ['b0_0', 'b1_0'])
+        self.assertEqual(len(api.ok(api.post('rois/preview', json=group_shape(group, .2)))['xs']), 2)
+        api.roi(**group_shape(group, .2))
+        saved = view.rois.rois[0]
+        self.assertEqual(saved.geometry.geom_type, 'MultiPolygon')
+        saved_area = saved.geometry.area
+        bigger = api.ok(api.post('rois/preview', json=group_shape(group, 1.)))
+        self.assertEqual(len(bigger['xs']), 1)                     # one polygon
+        self.assertGreater(outline(bigger['xs'], bigger['ys']).area, saved_area)
+        self.assertEqual(saved.geometry.area, saved_area)
+        self.assertEqual(len(api.ok(api.get('rois'))['rois']), 1)
+        # Membership changes of the seed group update the preview too.
+        view.sample.adata.obs[f'grp_{group}'] = view.sample.adata.obs_names == 'b3_3'
+        moved = api.ok(api.post('rois/preview', json=group_shape(group, 1.)))
+        self.assertEqual(moved['seeds'], 1)
+        np.testing.assert_allclose(outline(moved['xs'], moved['ys']).centroid.coords[0], [3.5, 3.5], atol=1e-6)
+
+    def test_latest_preview_wins(self):
+        for changed in ('exclude_group', 'radius'):
+            with self.subTest(changed=changed):
+                api = Api(self)
+                rois = api.view.rois
+                group = create_seed_group(api.view, ['b0_0', 'b1_0'])
+                first = group_shape(group, 1.2)
+                second = dict(first, exclude_group=True) if changed == 'exclude_group' else dict(first, radius=.8)
+                real = rois.compute_group_radius
+                entered, release = threading.Event(), threading.Event()
+                calls = []
+
+                def slow(group, radius, *args, **kwargs):
+                    calls.append((radius, kwargs['exclude_group']))
+                    if len(calls) == 1:
+                        entered.set()
+                        release.wait(10)
+                    return real(group, radius, *args, **kwargs)
+                rois.compute_group_radius = slow
+                responses = {}
+                worker = threading.Thread(target=lambda: responses.setdefault(
+                    'first', api.post('rois/preview', json=first)))
+                worker.start()
+                self.assertTrue(entered.wait(10))
+                latest = api.ok(api.post('rois/preview', json=second))
+                release.set()
+                worker.join(30)
+                self.assertEqual(responses['first'].status_code, 409)   # obsolete: discarded
+                self.assertEqual(calls, [(1.2, False), (second['radius'], second['exclude_group'])])
+                expected, _ = real(group, second['radius'], (1., 1.), exclude_group=second['exclude_group'])
+                self.assertLess(outline(latest['xs'], latest['ys']).symmetric_difference(expected).area, 1e-10)
+                # Saving the latest preview reuses its geometry
+                api.roi(**second)
+                self.assertEqual(len(calls), 2)
+                self.assertLess(rois.rois[0].geometry.symmetric_difference(expected).area, 1e-10)
+                self.assertEqual(rois.rois[0].excluded_seed_mask is not None, second['exclude_group'])
+
+    def test_group_removal_invalid_inputs_and_other_layers(self):
+        api = Api(self)
+        group = create_seed_group(api.view, ['b0_0'])
+        response = api.post('rois/preview', json=group_shape(group, 0))
+        self.assertEqual(response.status_code, 422)
+        self.assertIn('positive', response.json()['detail'])
+        self.assertEqual(api.post('rois/preview', json=dict(kind='group', group=group)).status_code, 422)
+        api.ok(api.post('rois/preview', json=group_shape(group, .2)))
+        api.ok(api.delete(f'groups/{group}'))
+        self.assertEqual(api.ok(api.get('rois'))['seed_groups'], [])
+        response = api.post('rois/preview', json=group_shape(group, .2))
+        self.assertEqual(response.status_code, 422)
+        self.assertIn('no longer exists', response.json()['detail'])
+        # Seeds from a map point still work
+        self.assertEqual(api.roi(kind='point', centre=[.5, .5], radius=.2)['count'], 1)
+        for kind in ('spots', 'cells'):
+            with self.subTest(kind=kind):
+                other = Api(self, kind)
+                name = other.view.groups.add_fixed_group('Seeds', np.arange(16) == 0)
+                self.assertEqual(other.ok(other.get('rois'))['seed_groups'], [])
+                response = other.post('rois/preview', json=group_shape(name, .2))
+                self.assertEqual(response.status_code, 422)
+                self.assertIn('bins layers', response.json()['detail'])
 
 
 if __name__ == '__main__':

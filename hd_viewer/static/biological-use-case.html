@@ -8,7 +8,7 @@
 </head>
 <body>
 <header>
-  <div style="display:flex;justify-content:space-between;gap:20px;margin-bottom:22px;font-size:12px"><a href="/hd_viewer" style="text-decoration:none">← VisiumVisualizer</a><a href="https://github.com/LuisAlonsoEsteban/VisiumVisualizer" target="_blank" rel="noopener noreferrer">Source on GitHub ↗</a></div>
+  <div style="display:flex;justify-content:space-between;gap:20px;margin-bottom:22px;font-size:12px"><a href="../../" style="text-decoration:none">← VisiumVisualizer</a><a href="https://github.com/LuisAlonsoEsteban/VisiumVisualizer" target="_blank" rel="noopener noreferrer">Source on GitHub ↗</a></div>
   <div class="eyebrow">VISIUMVISUALIZER · BIOLOGICAL USE CASE</div>
   <h1>P1CRC: exploring the tumor periphery</h1>
   <p class="lead">Which cells occupy the boundary of a colorectal tumor, and how does
@@ -160,7 +160,7 @@
     <section id="analysis">
       <h2>2 · Identify the P1CRC tumor population</h2>
       <ol>
-        <li>In the bins layer's <span class="ui">Deconvolution</span> tab, change
+        <li>In the bins layer's <span class="ui">Deconv.</span> (deconvolution) tab, change
           <span class="ui">Reference cell-type column (.obs)</span> from the example's
           default Level1 to <b>Level2</b>.</li>
         <li>Choose <span class="ui">spacexr (RCTD)</span>, set
@@ -209,7 +209,7 @@
       <ol>
         <li>Show the tumor and periphery groups. Use red for tumor and blue for periphery
           to echo the paper's map, and inspect both the section overview and a boundary close-up.</li>
-        <li>In <span class="ui">Color</span>, display <b>C1QC</b> to inspect the macrophage-associated
+        <li>In the <span class="ui">Display</span> tab, display <b>C1QC</b> to inspect the macrophage-associated
           signal. Then display <b>COL1A1</b> to inspect fibroblast-associated expression.</li>
         <li>Keep the same viewport for both genes. Compare their localization with the
           saved periphery outline and H&amp;E morphology.</li>
@@ -232,7 +232,7 @@
       <ol>
         <li>Keep only the two custom groups created above: <b>P1 tumor</b> and
           <b>P1 periphery 50um</b>. Delete unrelated custom groups before this comparison.</li>
-        <li>Open <span class="ui">Metadata comparison</span>. Select the periphery group
+        <li>Open the <span class="ui">Metadata</span> (metadata comparison) tab. Select the periphery group
           and enable <span class="ui">The rest (outside all defined custom groups and the compared set)</span>.
           With these two groups defined, the remainder excludes both tumor and periphery.</li>
         <li>Choose the same saved deconvolution run's fractions in

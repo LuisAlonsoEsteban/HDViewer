@@ -1,4 +1,4 @@
-# Build from the segmentation/ directory:
+# Build from hd_viewer/startup/data/image/segmentation/api/:
 #   docker build -t ghcr.io/luisalonsoesteban/visium-seg-stardist:0.2.0 -f plugins/stardist/Dockerfile .
 FROM python:3.11-slim
 # Never pick up packages from a mounted home directory (~/.local)

@@ -1,0 +1,71 @@
+html, body, #root { height: 100%; margin: 0; }
+body { background: #0f1d17; }
+.map-host { position: absolute; inset: 0; }
+.bk-root, .map-host > div { width: 100%; height: 100%; }
+
+/* Brand mark in the workspace header */
+.workspace-mark { width: 24px; height: 24px; color: #b0d4a5; flex: none; }
+
+/* Bin resolution readout, anchored to the map's top right (below the toolbar) */
+.bin-info-stack { position: absolute; top: 12px; right: 44px; z-index: 5; display: flex; flex-direction: column; gap: 8px; pointer-events: none; }
+.bin-info { width: 270px; background: rgba(20, 37, 31, .94); pointer-events: auto; }
+
+/* Drag handles between panels (the old interface's split gutters) */
+.splitter { z-index: 20; background: transparent; touch-action: none; }
+.splitter-x { width: 8px; cursor: col-resize; }
+.splitter-y { height: 8px; cursor: row-resize; }
+.splitter:hover, .splitter:focus-visible { background: rgba(103, 143, 92, 0.6); outline: none; }
+@media (max-width: 700px) { .splitter { display: none; } }
+
+/* ---------------------------------------------------------------- workspace */
+:root {
+  --ws-bg: #0f1d17;          /* map surroundings, rail */
+  --ws-panel: #14251f;       /* panels */
+  --ws-raised: #192d24;      /* headers, cards */
+  --ws-line: #263f33;
+  --ws-accent: #5ee0c2;
+}
+.ws-header { background: var(--ws-raised); border-bottom: 1px solid var(--ws-line); }
+.ws-brand { letter-spacing: -.03em; }
+.ws-nav { background: var(--ws-panel); border-right: 1px solid var(--ws-line); }
+.ws-aside { background: var(--ws-panel); border-left: 1px solid var(--ws-line); }
+.ws-main { display: flex; flex-direction: column; background: var(--ws-bg); }
+
+/* Tool rail (vertical tabs) + panel */
+.tool-tabs { display: flex; height: 100%; min-height: 0; }
+.tool-rail { width: 76px; flex: none; display: flex; flex-direction: column; gap: 2px; padding: 8px 6px;
+  background: var(--ws-bg); border-right: 1px solid var(--ws-line); overflow-y: auto; }
+.tool-tab { display: flex; flex-direction: column; align-items: center; gap: 3px; width: 100%; padding: 8px 2px 7px;
+  border: 0; border-radius: 8px; background: transparent; color: #8fae9f; cursor: pointer; position: relative; }
+.tool-tab:hover { background: #18302a; color: #d5e6dc; }
+.tool-tab[data-active] { background: #1d3a30; color: var(--ws-accent); }
+.tool-tab[data-active]::before { content: ""; position: absolute; left: -6px; top: 10px; bottom: 10px; width: 3px;
+  border-radius: 0 3px 3px 0; background: var(--ws-accent); }
+.tool-tab:focus-visible { outline: 2px solid var(--ws-accent); outline-offset: -2px; }
+.tool-tab-icon { display: grid; place-items: center; height: 22px; }
+.tool-tab-label { font-size: 10.5px; line-height: 1.15; font-weight: 600; letter-spacing: .01em; text-align: center; }
+.tool-panel { flex: 1; min-width: 0; display: flex; flex-direction: column; min-height: 0; }
+.tool-panel-top { padding: 12px 12px 10px; border-bottom: 1px solid var(--ws-line); }
+.tool-panel-heading { padding: 12px 16px 8px; }
+.tool-panel-body { flex: 1; min-height: 0; }
+
+/* Layer list */
+.layer-row { border-radius: 8px; padding-right: 4px; border: 1px solid transparent; }
+.layer-row:hover { background: #18302a; }
+.layer-row[data-active] { background: #1d3a30; border-color: #2f5a49; }
+.layer-row[data-hidden] .layer-swatch { opacity: .35; }
+.layer-row-select { flex: 1; min-width: 0; padding: 7px 8px; border-radius: 8px; }
+.layer-row-select:focus-visible { outline: 2px solid var(--ws-accent); }
+.layer-swatch { width: 14px; height: 14px; border-radius: 4px; flex: none; box-shadow: inset 0 0 0 1px #ffffff30; }
+.layer-swatch[data-categorical] { background: conic-gradient(#e6194b 0 25%, #3cb44b 0 50%, #4363d8 0 75%, #f58231 0); }
+
+/* Map and its overlays */
+.map-area { flex: 1; min-height: 0; position: relative; }
+.map-overview { position: absolute; left: 12px; bottom: 12px; z-index: 5; width: 196px; background: rgba(20, 37, 31, .94); }
+.map-overview-button { position: absolute; left: 12px; bottom: 12px; z-index: 5; }
+.results-area { position: relative; flex: none; border-top: 1px solid var(--ws-line); background: var(--ws-panel); }
+
+/* Analyses panel */
+.aside-tabs { display: flex; flex-direction: column; height: 100%; min-height: 0; }
+.aside-tabs > [role=tablist] { background: var(--ws-raised); padding-top: 4px; }
+.aside-body { flex: 1; min-height: 0; }

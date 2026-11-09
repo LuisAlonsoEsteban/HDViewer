@@ -6,7 +6,7 @@ import numpy as np
 import pandas as pd
 from shapely.geometry import box
 
-from hd_viewer.board.source.manager import DynamicSourceManager
+from hd_viewer.core.layer_state import LayerRows
 from hd_viewer.startup.sample import Bins
 
 
@@ -39,43 +39,37 @@ class BinAggregationGeometryTests(unittest.TestCase):
 
     def test_native_rotation_and_resolution_switching(self):
         sample = self.make_sample()
-        manager = DynamicSourceManager(sample)
+        rows = LayerRows(sample)
         for level, expected_angle in ((None, 0), ('agg:2', 0), ('agg:4', 0), (None, 0)):
-            manager.set_fetch_context(resolution_level=level)
-            manager.clear_sources()
-            manager.add_data()
+            rows.set_fetch_context(resolution_level=level)
+            rows.clear_sources()
+            rows.add_data()
             # Constant per level: a glyph value, not a per-bin column
-            self.assertNotIn('angle', manager.source.data)
-            self.assertEqual(manager.glyph_constants['angle'], expected_angle)
+            self.assertNotIn('angle', rows.sink.data)
+            self.assertEqual(rows.glyph_constants['angle'], expected_angle)
             factor = sample.get_aggregation_factor(level)
-            self.assertEqual(manager.glyph_constants['width'], sample.native_width * factor)
+            self.assertEqual(rows.glyph_constants['width'], sample.native_width * factor)
 
-    def test_renderer_uses_rectangles_without_polygon_sources(self):
-        from bokeh.document import Document
-        from bokeh.plotting import figure
-        from bokeh.models import Rect
-        from hd_viewer.board.components.layer import Squares
-
+    def test_rows_are_rectangle_centres_without_polygon_columns(self):
+        """Bins are drawn as rectangles: the source holds centres only; width and
+        height are per-level glyph constants that follow the aggregation level."""
+        from tests.fixtures import make_view, show
         sample = self.make_sample()
-        plot = figure()
-        component = Squares(plot, sample, lazy_loading=True, alias='Bin', hover_color='green')
-        component.manager.clear_sources()
-        component.add_glyph()
-        component.manager.add_data()
-        glyph = component.glyph_renderer.glyph
-        self.assertIsInstance(glyph, Rect)
-        self.assertEqual(glyph.width, sample.native_width)
-        self.assertEqual(glyph.height, sample.native_height)
-        self.assertNotIn('width', component.manager.source.data)
-        self.assertNotIn('xs', component.manager.source.data)
-        self.assertNotIn('ys', component.manager.source.data)
-        component.manager.set_fetch_context(resolution_level='agg:2')
-        component.manager.add_data()
-        self.assertEqual(glyph.width, sample.native_width * 2)
-        self.assertEqual(component.glyph_renderer.hover_glyph.width, sample.native_width * 2)
-        doc = Document()
-        doc.add_root(plot)
-        doc.to_json()
+        view = make_view(sample)
+        show(view, -1, 17, -1, 33, width=800, height=800)
+        data = view.rows.sink.data
+        self.assertGreater(len(data['x']), 0)
+        for name in ('width', 'height', 'angle', 'xs', 'ys'):
+            self.assertNotIn(name, data)
+        self.assertEqual(view.rows.glyph_constants['width'], sample.native_width)
+        self.assertEqual(view.rows.glyph_constants['height'], sample.native_height)
+        view.set_aggregation(2)
+        show(view, -1, 17, -1, 33, width=800, height=800)
+        self.assertEqual(view.rows.glyph_constants['width'], sample.native_width * 2)
+        self.assertEqual(view.rows.glyph_constants['height'], sample.native_height * 2)
+        header = view.header([])
+        self.assertEqual(header['constants']['width'], sample.native_width * 2)
+        self.assertEqual(header['level'], 'agg:2')
 
     def test_empty_crop_keeps_angle_schema(self):
         sample = self.make_sample()
@@ -129,13 +123,13 @@ class NativeBinFootprintTests(unittest.TestCase):
                                        item.x+item.width/2, item.y+item.height/2)
                         rendered = rotate(rendered, item.angle, origin=(item.x,item.y), use_radians=True)
                         self.assertLess(rendered.symmetric_difference(polygons.loc[index].geometry).area, 1e-10)
-                    manager = DynamicSourceManager(sample)
+                    rows = LayerRows(sample)
                     for level in (None, 'agg:2', None):
-                        manager.set_fetch_context(resolution_level=level)
-                        manager.clear_sources()
-                        manager.add_data()
-                        self.assertNotIn('xs', manager.source.data)
-                        self.assertNotIn('ys', manager.source.data)
+                        rows.set_fetch_context(resolution_level=level)
+                        rows.clear_sources()
+                        rows.add_data()
+                        self.assertNotIn('xs', rows.sink.data)
+                        self.assertNotIn('ys', rows.sink.data)
 
 
 if __name__ == '__main__':

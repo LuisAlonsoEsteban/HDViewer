@@ -1,25 +1,24 @@
+"""Extra glyph parameters (Parameters tab) of a layer: core.parameters through LayerView.
+
+The HTTP side (listing, validation, figures, frames) is in test_api_parameters_export."""
 import unittest
 
 import anndata as ad
 import geopandas as gpd
 import numpy as np
 import pandas as pd
-from bokeh.document import Document
-from bokeh.models import Div
-from bokeh.events import ButtonClick
-from bokeh.plotting import figure
 from shapely.geometry import box
 
-from hd_viewer.board.components.layer import Squares
-from hd_viewer.board.source.parameter import CategoricalColor, Scaler, StaticParameter
+from hd_viewer.api.views import LayerView
+from hd_viewer.core import parameters
+from hd_viewer.core.encoding import CategoricalColor, Scaler, StaticParameter
 from hd_viewer.startup.sample import Bins
-
-
-def click(button):
-    button._trigger_event(ButtonClick(button))
+from tests.fixtures import COLOUR, show
 
 
 def make_layer(n=6):
+    """A LayerView of n 16 µm bins in a row (unit squares [i, i+1] x [0, 1]) with a
+    categorical `region` and a numeric `score` column, its rows loaded."""
     index = pd.Index([f"b{i}" for i in range(n)], name="barcode")
     gdf = gpd.GeoDataFrame({"index": list(index)}, geometry=[box(i, 0, i + 1, 1) for i in range(n)],
                            index=index)
@@ -27,125 +26,91 @@ def make_layer(n=6):
                        obs=pd.DataFrame(index=index.astype(str)), var=pd.DataFrame(index=["g0", "g1"]))
     adata.obs["region"] = pd.Categorical(["a", "b"] * (n // 2))
     adata.obs["score"] = np.linspace(0, 1, n)
-    layer = Squares(figure(), Bins(gdf, adata, pixels_per_bin=1, bin_size=16),
-                    lazy_loading=True, alias="Bin")
-    # As the app sets layers up
-    layer.add_parameter(attr="alpha", colname="g0", colname_hovered=True)
-    layer.add_parameter(attr="color", static=True, val="#6baed6", not_sequenced_val="#b8b8b8")
-    layer.manager.bbox = (-1, n + 1, -1, 2)       # a loaded viewport
-    layer.manager.fetch_data()
-    layer.get_widgets(Document())
-    return layer, layer.add_param_form
+    view = LayerView("bins", "bins", Bins(gdf, adata, pixels_per_bin=1, bin_size=16), "Bins", COLOUR)
+    show(view, -1, n + 1, -1, 2)
+    return view
 
 
-class ParamFormTests(unittest.TestCase):
-    def test_only_the_relevant_inputs_are_shown(self):
-        _, form = make_layer()
-        self.assertEqual(form.attr_select.options, ["fill_alpha", "line_width", "line_color", "line_alpha"])
-        form.attr_select.value = "line_width"
-        visible = lambda: {name for name in ("value_color", "value_number", "colname_input", "range_row",
-                                             "hover_checkbox", "ns_color", "ns_number")
-                           if getattr(form, name).visible}
-        self.assertEqual(visible(), {"value_number", "ns_number"})
-        form.mode.active = 1                                   # from data
-        self.assertEqual(visible(), {"colname_input", "range_row", "hover_checkbox", "ns_number"})
-        self.assertIn("g0", form.colname_input.completions)
-        self.assertIn("score", form.colname_input.completions)
-        self.assertNotIn("region", form.colname_input.completions)
+def data(view, attr):
+    return np.asarray(view.rows.sink.data[attr])
 
-        form.attr_select.value = "line_color"                  # colours: categorical columns only
-        self.assertEqual(visible(), {"colname_input", "hover_checkbox", "ns_color"})
-        self.assertEqual(form.colname_input.completions, ["region"])
-        form.mode.active = 0
-        self.assertEqual(visible(), {"value_color", "ns_color"})
+
+class ParametersTests(unittest.TestCase):
+    def test_only_relevant_columns_are_offered(self):
+        view = make_layer()
+        self.assertEqual(list(parameters.EXTRA_ATTRS), ["fill_alpha", "line_width", "line_color", "line_alpha"])
+        widths = parameters.column_choices(view.sample, "line_width")
+        self.assertIn("g0", widths)
+        self.assertIn("score", widths)
+        self.assertNotIn("region", widths)
+        self.assertEqual(parameters.column_choices(view.sample, "line_color"), ["region"])
+        self.assertEqual([entry["color"] for entry in view.describe_parameters()], [False, False, True, False])
 
     def test_add_edit_and_remove(self):
-        layer, form = make_layer()
-        form.attr_select.value = "line_width"
-        form.value_number.value = 2.5
-        click(form.submit_button)
-        param = layer.manager.get_param("line_width")
+        view = make_layer()
+        described = view.set_parameter("line_width", mode="static", value=2.5)
+        self.assertEqual((described["mode"], described["value"]), ("static", 2.5))
+        param = view.rows.get_param("line_width")
         self.assertIsInstance(param, StaticParameter)
-        self.assertEqual(param.value, 2.5)
-        # Drawn straight away from the updated source column.
-        np.testing.assert_array_equal(layer.manager.source.data["line_width"], [2.5] * 6)
-        self.assertEqual(layer.glyph_renderer.glyph.line_width, "line_width")   # drawn from the column
-        self.assertNotIn("line_width", form.attr_select.options)
-        self.assertEqual(len(form.list_column.children), 1)
+        np.testing.assert_array_equal(data(view, "line_width"), [2.5] * 6)
+        self.assertEqual(next(e["current"] for e in view.describe_parameters() if e["attr"] == "line_width"),
+                         described)
 
-        # Edit: the form is filled with the parameter, then saved as data-driven
-        form._start_editing("line_width")
-        self.assertTrue(form.attr_select.disabled)
-        self.assertEqual(form.value_number.value, 2.5)
-        form.mode.active = 1
-        form.colname_input.value = "score"
-        form.min_input.value, form.max_input.value = 1.0, 3.0
-        click(form.submit_button)
-        param = layer.manager.get_param("line_width")
+        # Edit: saved as data-driven
+        view.set_parameter("line_width", mode="data", column="score", minv=1.0, maxv=3.0)
+        param = view.rows.get_param("line_width")
         self.assertIsInstance(param, Scaler)
         self.assertEqual((param.colname, param.minv, param.maxv), ("score", 1.0, 3.0))
-        self.assertEqual(layer.manager.source.data["line_width"][0], 1.0)
-        self.assertEqual(layer.manager.source.data["line_width"][-1], 3.0)
-        self.assertIn("updated", form.status.text)
+        self.assertEqual(data(view, "line_width")[0], 1.0)
+        self.assertEqual(data(view, "line_width")[-1], 3.0)
+        current = next(e["current"] for e in view.describe_parameters() if e["attr"] == "line_width")
+        self.assertEqual((current["mode"], current["column"], current["min"], current["max"]),
+                         ("data", "score", 1.0, 3.0))
 
-        form._start_editing("line_width")                     # editing shows the saved values
-        self.assertEqual((form.mode.active, form.colname_input.value), (1, "score"))
-
-        click(form.list_column.children[0].children[2])       # ✕ remove
-        self.assertIsNone(layer.manager.get_param("line_width"))
-        self.assertNotIn("line_width", layer.manager.source.data)
-        self.assertIn("line_width", form.attr_select.options)
-        self.assertIn("No extra parameters", form.list_column.children[0].text)
+        view.remove_parameter("line_width")
+        self.assertIsNone(view.rows.get_param("line_width"))
+        self.assertNotIn("line_width", view.rows.sink.data)
+        self.assertEqual(view.extra_parameters(), [])
 
     def test_categorical_line_colour_and_validation(self):
-        layer, form = make_layer()
-        form.attr_select.value = "line_color"
-        form.mode.active = 1
-        click(form.submit_button)                              # no column chosen
-        self.assertIn("categorical metadata", form.status.text)
-        self.assertIsNone(layer.manager.get_param("line_color"))
+        view = make_layer()
+        with self.assertRaisesRegex(ValueError, "categorical metadata"):
+            view.set_parameter("line_color", mode="data")               # no column chosen
+        with self.assertRaisesRegex(ValueError, "categorical metadata"):
+            view.set_parameter("line_color", mode="data", column="score")
+        self.assertIsNone(view.rows.get_param("line_color"))
+        with self.assertRaisesRegex(ValueError, "between"):
+            view.set_parameter("line_width", mode="static", value=1e6)
+        with self.assertRaisesRegex(ValueError, "numeric"):
+            view.set_parameter("line_width", mode="data", column="region")
 
-        form.colname_input.value = "region"
-        click(form.submit_button)
-        param = layer.manager.get_param("line_color")
-        self.assertIsInstance(param, CategoricalColor)
-        self.assertEqual(len(set(layer.manager.source.data["line_color"])), 2)
+        view.set_parameter("line_color", mode="data", column="region")
+        self.assertIsInstance(view.rows.get_param("line_color"), CategoricalColor)
+        self.assertEqual(len(set(data(view, "line_color"))), 2)
 
     def test_changing_the_colour_gene_keeps_data_parameters(self):
-        layer, form = make_layer()
-        # Line width from the very gene the Color tab is showing (g0)
-        form.attr_select.value = "line_width"
-        form.mode.active = 1
-        form.colname_input.value = "g0"
-        click(form.submit_button)
-        before = list(layer.manager.source.data["line_width"])
+        view = make_layer()
+        # Line width from the very gene the colour is showing (g0)
+        self.assertEqual(view.rows.get_param("alpha").colname, "g0")
+        view.set_parameter("line_width", mode="data", column="g0")
+        before = list(data(view, "line_width"))
 
-        layer.show_colname("g1")                      # the Color tab's gene selector
+        view.colour_by_column("g1")
 
-        self.assertEqual(layer.manager.get_param("alpha").colname, "g1")
-        self.assertEqual(layer.manager.get_param("line_width").colname, "g0")
-        self.assertEqual(list(layer.manager.source.data["line_width"]), before)
+        self.assertEqual(view.rows.get_param("alpha").colname, "g1")
+        self.assertEqual(view.rows.get_param("line_width").colname, "g0")
+        self.assertEqual(list(data(view, "line_width")), before)
 
     def test_colour_and_alpha_are_not_offered(self):
-        _, form = make_layer()
-        self.assertFalse({"color", "alpha"} & set(form.attr_select.options))
-        self.assertEqual(form.extra_parameters(), [])
-    def test_de_tab_uses_de_manager_widgets(self):
-        layer, _ = make_layer()
-        group_widgets = [Div(text="groups widget")]
-        de_widgets = [Div(text="de widget")]
+        view = make_layer()
+        self.assertFalse({"color", "alpha"} & set(parameters.EXTRA_ATTRS))
+        self.assertEqual(view.extra_parameters(), [])
+        for attr in ("color", "alpha"):
+            with self.assertRaises(ValueError):
+                view.set_parameter(attr, mode="static", value="#ffffff")
+            with self.assertRaises(ValueError):
+                view.remove_parameter(attr)
 
-        layer.groups_manager.get_widgets = lambda doc: group_widgets
-        layer.de_manager.get_widgets = lambda doc: de_widgets
-        layer.clustering_manager.get_widgets = lambda doc, on_run=None, on_markers=None: []
-        layer.deconvolution_manager.get_widgets = lambda doc: []
-        layer.roi_manager.get_widgets = lambda doc: []
-
-        layer.get_widgets(Document())
-
-        de_tab = next(tab for tab in layer.tabs_widget.tabs if tab.title == "DE")
-        self.assertIn(de_widgets[0], de_tab.child.children)
-        self.assertNotIn(group_widgets[0], de_tab.child.children)
 
 if __name__ == "__main__":
     unittest.main()

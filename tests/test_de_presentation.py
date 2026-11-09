@@ -9,10 +9,10 @@ from bokeh.models import BoxSelectTool, HoverTool, Legend, PanTool, Plot, ResetT
 import numpy as np
 import pandas as pd
 
-from hd_viewer.board.operations.layer.de import DEResult
-from hd_viewer.board.operations.layer.de import DEPresenter
+from hd_viewer.analysis.de import DEResult
+from hd_viewer.analysis.de import DEPresenter
 from tests.test_de import log1p_normalized, make_analysis
-from hd_viewer.board.operations.layer.de import build_de_plots
+from hd_viewer.analysis.de import build_de_plots
 
 
 class DEPresentationTests(unittest.TestCase):

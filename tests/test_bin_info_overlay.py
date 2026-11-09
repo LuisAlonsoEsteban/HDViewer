@@ -1,24 +1,21 @@
+"""Bin resolution state shown by the bin-info overlay (drawn by the React front
+end from `LayerView.bin_info()`, sent in every frame header): the displayed
+aggregation factor and bin geometry, fixed vs zoom-driven levels and the
+cluster minimum."""
 import math
 import unittest
-from types import SimpleNamespace
 
 import anndata as ad
 import geopandas as gpd
 import numpy as np
 import pandas as pd
-from bokeh.document import Document
-from bokeh.events import ButtonClick
-from bokeh.models import ColumnDataSource
-from bokeh.plotting import figure
 from shapely.geometry import Polygon
 
 from hd_viewer.startup.sample import Bins
-from hd_viewer.board.components.layer.utils.bin_info import BinInfoOverlay
-from hd_viewer.board.source.lazyloader import LazyLoader
-from hd_viewer.board.source.manager import DynamicSourceManager
+from tests.fixtures import loaded, make_view, show
 
 
-class BinInfoOverlayTests(unittest.TestCase):
+class BinResolutionTests(unittest.TestCase):
     def setUp(self):
         # A native bin transformed by rotation followed by unequal axis scaling.
         angle = math.radians(30)
@@ -30,189 +27,152 @@ class BinInfoOverlayTests(unittest.TestCase):
         gdf = gpd.GeoDataFrame({'index': ['bin']}, geometry=[Polygon(corners)],
                                index=pd.Index(['bin'], name='barcode'))
         adata = ad.AnnData(np.ones((1, 1)), obs=pd.DataFrame(index=['bin']),
-                          var=pd.DataFrame(index=['gene']))
+                           var=pd.DataFrame(index=['gene']))
         self.sample = Bins(gdf, adata, pixels_per_bin=2, tile_scale_yfactor=2,
                            native_angle=89, bin_size=16)
-        self.manager = DynamicSourceManager(self.sample)
-        self.plot = figure(x_range=(0, 20), y_range=(0, 20))
-        self.overlay = BinInfoOverlay(SimpleNamespace(
-            sample=self.sample, manager=self.manager, figure=self.plot))
+        self.view = make_view(self.sample)
+        self.zoom(20)
+
+    def zoom(self, span):
+        return show(self.view, 0, span, 0, span)
+
+    def factor(self):
+        factor = self.sample.get_aggregation_factor(self.view.rows.effective_resolution_level)
+        self.assertEqual(self.view.bin_info()['factor'], factor)        # what the overlay shows
+        return factor
+
+    def use_clusters(self, *columns):
+        """Bind cluster columns to the layer (colour and an extra width parameter)."""
+        for column in columns:
+            self.sample.adata.obs[column] = ['0']
+        self.view.colour_by_categories(columns[0], {'0': '#ff0000'}, 'clusters')
+        if len(columns) > 1:
+            self.sample.adata.obs[columns[1]] = pd.Categorical(['0'])
+            self.view.set_parameter('line_color', mode='data', column=columns[1])
 
     def test_native_dimensions_and_rotation_use_polygon_edges(self):
-        width, height, angle = self.overlay.metadata()['geometry']
+        info = self.view.header([])['bins']
         edge = self.corners[1] - self.corners[0]
-        np.testing.assert_allclose(width, np.linalg.norm(edge))
-        np.testing.assert_allclose(height, np.linalg.norm(self.corners[2] - self.corners[1]))
-        self.assertAlmostEqual(angle, math.degrees(math.atan2(edge[1], edge[0])))
-        self.assertIn('1 × 1 · native', self.overlay.header.text)
-        self.assertIn('Native bin 16 µm', self.overlay.label.text)
-        self.assertIn('plot units', self.overlay.label.text)
+        self.assertEqual(info['factor'], 1)
+        np.testing.assert_allclose(info['width'], np.linalg.norm(edge))
+        np.testing.assert_allclose(info['height'], np.linalg.norm(self.corners[2] - self.corners[1]))
+        self.assertAlmostEqual(info['rotation'], math.degrees(math.atan2(edge[1], edge[0])))
+        self.assertEqual(info['bin_size_um'], 16)
+        self.assertIsNone(info['fixed'])
+        self.assertIsNone(info['minimum'])
+        self.assertEqual(info['factors'], [1, 2, 4, 8, 12])
 
-    def test_zoom_updates_overlay_via_source_callbacks(self):
-        loader = LazyLoader(self.manager, self.plot)
-        self.manager.clear_sources()
-        self.plot.x_range.end = 10000
-        self.plot.y_range.end = 10000
-        loader.force_reload()
-        self.assertEqual(self.overlay.metadata()['factor'], 12)
-        self.assertIn('12 × 12', self.overlay.header.text)
-        self.assertIn('Rotation   0.00°', self.overlay.label.text)
-        self.assertEqual(self.overlay.metadata()['geometry'], (24, 48, 0))
-        self.plot.x_range.end = 20
-        self.plot.y_range.end = 20
-        loader.force_reload()
-        self.assertIn('1 × 1 · native', self.overlay.header.text)
+    def test_zoom_updates_level_and_glyph_size(self):
+        self.assertEqual(self.factor(), 1)
+        self.assertEqual(self.view.header([])['level'], None)
+        self.assertEqual(self.view.describe()['aggregation_factors'], [1, 2, 4, 8, 12])
+        ops = self.zoom(10000)
+        self.assertEqual(self.factor(), 12)
+        header = self.view.header(ops)
+        self.assertEqual(header['level'], 'agg:12')
+        self.assertEqual(header['constants'],
+                         dict(width=24.0, height=48.0, angle=0.0))   # rectangles at aggregated levels
+        info = header['bins']
+        self.assertEqual((info['factor'], info['width'], info['height'], info['rotation']), (12, 24, 48, 0))
+        self.zoom(20)
+        self.assertEqual(self.factor(), 1)
+        self.assertEqual(loaded(self.view), ['bin'])
 
     def test_cluster_minimum_allows_coarser_zoom(self):
-        self.sample.adata.obs['leiden_4'] = ['0']
-        self.manager.get_colnames = lambda: ['leiden_4']
-        self.manager.set_fetch_context(resolution_level='agg:12')
-        self.manager.clear_sources()
-        self.assertEqual(self.overlay.metadata()['factor'], 12)
-        self.assertIn('12 × 12', self.overlay.header.text)
-        self.assertIn('Cluster minimum 4 × 4', self.overlay.label.text)
-        self.assertEqual(self.overlay.mode_select.value, 'dynamic')
-        self.assertFalse(self.overlay.mode_select.disabled)
-        self.manager.set_fetch_context(resolution_level='agg:2')
-        self.assertEqual(self.overlay.metadata()['factor'], 4)
-        self.manager.get_colnames = lambda: []
-        self.manager.clear_sources()
-        self.assertIn('2 × 2', self.overlay.header.text)
-        self.assertIn('Zoom-driven', self.overlay.label.text)
-
-    def test_screen_anchor_visibility_and_renderer_replacement(self):
-        label = self.overlay.panel
-        self.assertEqual((label.position.target, label.position.symbol), ('frame', 'top_right'))
-        self.assertEqual(label.anchor, 'top_right')
-        source = ColumnDataSource({'xs': [], 'ys': []})
-        first = self.plot.patches(xs='xs', ys='ys', source=source)
-        self.overlay.bind_renderer(first)
-        first.visible = False
-        self.assertFalse(label.visible)
-        second = self.plot.patches(xs='xs', ys='ys', source=source)
-        self.overlay.bind_renderer(second)
-        first.visible = True
-        second.visible = False
-        first.visible = False
-        first.visible = True
-        self.assertFalse(label.visible)
-        second.visible = True
-        self.assertTrue(label.visible)
-        doc = Document()
-        doc.add_root(self.plot)
-        doc.to_json()
-        self.assertEqual(len(list(self.plot.select({'name': 'bin_resolution_info'}))), 1)
+        self.use_clusters('leiden_4')
+        self.zoom(10000)
+        self.assertEqual(self.factor(), 12)
+        self.assertEqual(self.view.rows.minimum_aggregation_factor, 4)
+        self.assertEqual(self.view.bin_info()['minimum'], 4)
+        self.assertIsNone(self.view.describe()['fixed_aggregation'])
+        self.assertIsNone(self.view.bin_info()['fixed'])
+        self.zoom(20)
+        self.assertEqual(self.factor(), 4)                     # not below the analysis level
+        self.view.colour_by_column('gene')
+        self.assertIsNone(self.view.rows.minimum_aggregation_factor)
+        self.zoom(20)
+        self.assertEqual(self.factor(), 1)
 
     def test_fixed_level_survives_zoom_then_dynamic_uses_current_view(self):
-        self.overlay.mode_select.value = '4'
-        self.assertEqual(self.manager.fixed_aggregation_factor, 4)
-        self.assertEqual(self.overlay.metadata()['factor'], 4)
-        self.assertIn('Resolution Fixed', self.overlay.label.text)
-        self.assertTrue(all(str(name).endswith(':4') for name in self.manager.loaded_obs_names))
-        loader = LazyLoader(self.manager, self.plot)
-        self.plot.x_range.end = 10000
-        self.plot.y_range.end = 10000
-        loader.force_reload()
-        self.assertEqual(self.overlay.metadata()['factor'], 4)
-        self.overlay.mode_select.value = 'dynamic'
-        self.assertIsNone(self.manager.fixed_aggregation_factor)
-        self.assertEqual(self.overlay.metadata()['factor'], 12)
-        self.assertIn('Zoom-driven', self.overlay.label.text)
+        self.view.set_aggregation(4)
+        self.zoom(20)
+        self.assertEqual(self.view.rows.fixed_aggregation_factor, 4)
+        self.assertEqual(self.view.describe()['fixed_aggregation'], 4)
+        self.assertEqual(self.factor(), 4)
+        self.assertTrue(all(str(name).endswith(':4') for name in loaded(self.view)))
+        self.zoom(10000)
+        self.assertEqual(self.factor(), 4)
+        self.view.set_aggregation(None)
+        self.zoom(10000)
+        self.assertIsNone(self.view.rows.fixed_aggregation_factor)
+        self.assertEqual(self.factor(), 12)
 
     def test_raw_mode_overrides_zoom_and_reloads_native_bins(self):
-        self.plot.x_range.end = 10000
-        self.plot.y_range.end = 10000
-        self.overlay.mode_select.value = '4'
-        self.overlay.mode_select.value = '1'
-        self.assertEqual(self.manager.fixed_aggregation_factor, 1)
-        self.assertIsNone(self.manager.effective_resolution_level)
-        self.assertEqual(list(self.manager.loaded_obs_names), ['bin'])
-        np.testing.assert_allclose(self.overlay.metadata()['geometry'][0],
+        self.zoom(10000)
+        self.view.set_aggregation(4)
+        self.view.set_aggregation(1)
+        self.zoom(10000)
+        self.assertEqual(self.view.rows.fixed_aggregation_factor, 1)
+        self.assertIsNone(self.view.rows.effective_resolution_level)
+        self.assertEqual(list(loaded(self.view)), ['bin'])
+        self.assertEqual(self.view.rows.glyph_constants['width'], self.sample.native_width)
+        np.testing.assert_allclose(self.view.bin_info()['width'],
                                    np.linalg.norm(self.corners[1] - self.corners[0]))
-        self.assertIn('1 × 1 · native', self.overlay.header.text)
 
-    def test_cluster_minimum_restores_saved_mode(self):
-        self.overlay.mode_select.value = '2'
-        self.sample.adata.obs['leiden_4'] = ['0']
-        self.manager.get_colnames = lambda: ['leiden_4']
-        self.manager.clear_sources()
-        self.assertFalse(self.overlay.mode_select.disabled)
-        self.assertTrue(self.overlay.lock_notice.visible)
-        self.assertEqual(self.overlay.mode_select.value, '4')
-        self.assertEqual(self.manager.fixed_aggregation_factor, 2)
-        self.assertEqual([value for value, _ in self.overlay.mode_select.options],
-                         ['dynamic', '4', '8', '12'])
-        # Programmatic selection of a hidden finer level is rejected too.
-        self.overlay.mode_select.value = '1'
-        self.assertEqual(self.overlay.mode_select.value, '4')
-        self.assertEqual(self.manager.fixed_aggregation_factor, 2)
-        self.manager.get_colnames = lambda: []
-        self.manager.clear_sources()
-        self.assertFalse(self.overlay.mode_select.disabled)
-        self.assertFalse(self.overlay.lock_notice.visible)
-        self.assertEqual(self.overlay.mode_select.value, '2')
-        self.assertEqual(self.overlay.metadata()['factor'], 2)
+    def test_cluster_minimum_keeps_the_saved_fixed_level(self):
+        self.view.set_aggregation(2)
+        self.use_clusters('leiden_4')
+        self.zoom(20)
+        self.assertEqual(self.factor(), 4)
+        self.assertEqual(self.view.rows.fixed_aggregation_factor, 2)
+        with self.assertRaisesRegex(ValueError, 'at least 4'):        # a finer level is rejected
+            self.view.set_aggregation(1)
+        self.assertEqual(self.view.rows.fixed_aggregation_factor, 2)
+        self.view.colour_by_column('gene')
+        self.zoom(20)
+        self.assertEqual(self.factor(), 2)
 
     def test_coarser_fixed_levels_and_dynamic_mode_remain_available(self):
-        self.sample.adata.obs['kmeans_2'] = ['0']
-        self.manager.get_colnames = lambda: ['kmeans_2']
-        self.manager.clear_sources()
-        self.assertEqual([value for value, _ in self.overlay.mode_select.options],
-                         ['dynamic', '2', '4', '8', '12'])
+        self.use_clusters('kmeans_2')
         for factor in (2, 4, 8, 12):
-            self.overlay.mode_select.value = str(factor)
-            self.assertEqual(self.overlay.metadata()['factor'], factor)
-        self.overlay.mode_select.value = 'dynamic'
-        self.assertIsNone(self.manager.fixed_aggregation_factor)
-        self.assertEqual(self.overlay.metadata()['factor'], 2)
-        self.plot.x_range.end = self.plot.y_range.end = 10000
-        LazyLoader(self.manager, self.plot).force_reload()
-        self.assertEqual(self.overlay.metadata()['factor'], 12)
-        self.assertEqual(self.overlay.mode_select.value, 'dynamic')
+            self.view.set_aggregation(factor)
+            self.zoom(20)
+            self.assertEqual(self.factor(), factor)
+        self.view.set_aggregation(None)
+        self.zoom(20)
+        self.assertIsNone(self.view.rows.fixed_aggregation_factor)
+        self.assertEqual(self.factor(), 2)
+        self.zoom(10000)
+        self.assertEqual(self.factor(), 12)
         with self.assertRaisesRegex(ValueError, 'at least 2'):
-            self.manager.set_aggregation_factor(1)
+            self.view.rows.set_aggregation_factor(1)
 
     def test_strictest_cluster_column_sets_minimum(self):
         for columns in (['leiden_2', 'kmeans_8'], ['kmeans_8', 'leiden_2']):
-            self.manager.get_colnames = lambda columns=columns: columns
-            self.manager.set_fetch_context(resolution_level='agg:4')
-            self.assertEqual(self.overlay.metadata()['factor'], 8)
-            self.assertEqual([value for value, _ in self.overlay.mode_select.options],
-                             ['dynamic', '8', '12'])
+            view = self.view = make_view(self.sample)
+            self.use_clusters(*columns)
+            self.assertEqual(view.rows.minimum_aggregation_factor, 8)
+            view.rows.set_fetch_context(bbox=[0, 20, 0, 20], resolution_level='agg:4')
+            self.assertEqual(self.factor(), 8)
 
     def test_supported_fixed_levels_and_invalid_factor(self):
-        self.assertEqual([value for value, _ in self.overlay.mode_select.options],
-                         ['dynamic', '1', '2', '4', '8', '12'])
         for factor in self.sample.AGGREGATION_FACTORS:
-            self.overlay.mode_select.value = str(factor)
-            self.assertEqual(self.overlay.metadata()['factor'], factor)
+            self.view.set_aggregation(factor)
+            self.zoom(20)
+            self.assertEqual(self.factor(), factor)
         with self.assertRaises(ValueError):
-            self.manager.set_aggregation_factor(3)
-        self.assertEqual(self.manager.fixed_aggregation_factor, 12)
+            self.view.set_aggregation(3)
+        self.assertEqual(self.view.rows.fixed_aggregation_factor, 12)
 
     def test_empty_geometry(self):
         self.sample.gdf = self.sample.gdf.iloc[:0]
-        overlay = BinInfoOverlay(SimpleNamespace(
-            sample=self.sample, manager=self.manager, figure=figure()))
-        self.assertIn('No bin geometry available', overlay.label.text)
+        info = make_view(self.sample).bin_info()
+        self.assertIsNone(info['width'])
+        self.assertIsNone(info['height'])
+        self.assertIsNone(info['rotation'])
 
-    def test_minimize_keeps_the_current_resolution_visible(self):
-        self.assertFalse(self.overlay.minimized)
-        self.assertTrue(self.overlay.body.visible)
-
-        self.overlay.toggle_button._trigger_event(ButtonClick(self.overlay.toggle_button))
-        self.assertTrue(self.overlay.minimized)
-        self.assertFalse(self.overlay.body.visible)
-        self.assertEqual(self.overlay.toggle_button.label, '+')
-        # The header still reports the active resolution, and keeps updating
-        self.assertIn('1 × 1 · native', self.overlay.header.text)
-        self.overlay.mode_select.value = '4'
-        self.assertIn('4 × 4', self.overlay.header.text)
-
-        self.overlay.toggle_button._trigger_event(ButtonClick(self.overlay.toggle_button))
-        self.assertFalse(self.overlay.minimized)
-        self.assertTrue(self.overlay.body.visible)
-        self.assertEqual(self.overlay.toggle_button.label, '−')
+    def test_other_layers_have_no_bin_info(self):
+        self.assertIsNone(make_view(kind='cells').header([])['bins'])
 
 
 if __name__ == '__main__':

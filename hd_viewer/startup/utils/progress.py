@@ -2,7 +2,7 @@
 
 Computation code calls `report("step...")`; the caller decides where messages go by wrapping the
 work in `reporting(callback)`. The callback is thread-local, so concurrent jobs running in their own
-threads (e.g. from the Bokeh server) each log to their own sink. Without a callback, messages are
+threads (e.g. the API's background jobs) each log to their own sink. Without a callback, messages are
 ignored.
 """
 

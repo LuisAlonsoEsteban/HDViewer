@@ -4,10 +4,6 @@ All user-facing explanations live here so they stay consistent and easy to edit.
 Each entry describes what the code actually does; update it with the feature.
 """
 
-from bokeh.layouts import row
-from bokeh.models import Div, HelpButton, Tooltip
-from bokeh.models.dom import HTML
-
 # topic -> (title, HTML body)
 HELP = {
     # ---------------------------------------------------------------- startup
@@ -25,7 +21,7 @@ HELP = {
         AnnData .obs annotations load automatically; for 10x count matrices, upload a CSV or Parquet file with
         cell barcodes in its first column and cell-type annotations in the other columns.
         Parquet can also store barcodes in its index or a barcode column.
-        It is loaded once and reused in every layer's Deconvolution tab.<br>
+        It is loaded once and reused in every layer's Deconv. (deconvolution) tab.<br>
         Examples use their configured local reference, if available; otherwise they run without one.
         Reference uploads are available only with your own data.<br>
         The <b>Human CRC</b> example loads its Chromium counts, single-cell CSV annotations and spatial
@@ -39,7 +35,8 @@ HELP = {
         assigns the bins to them; every method becomes its own cells layer, so they can be compared.
         Results are cached, so loading the same image with the same settings is instant.
         Methods run in their own containers; their parameters are shown when ticked.
-        Available methods depend on the server's setup."""),
+        Available methods depend on the server's setup. Each method is a plugin: developers can add
+        their own (<a href='static/assets/tutorial.html#app-plugins' target='_blank' rel='noopener'>how</a>)."""),
     "progress": ("Loading progress", """
         One bar per task. Percentages count completed steps, not time remaining. A failed
         segmentation method turns its bar red with the reason; the rest of the data still loads.
@@ -48,12 +45,14 @@ HELP = {
         or to <a href='mailto:laesteban@unav.es'>laesteban@unav.es</a>."""),
 
     # ------------------------------------------------------------- layer tabs
-    "general": ("General", """
-        <b>Show</b> or hide the whole layer, and the <b>not-sequenced</b> observations (those without
-        counts).<br>
-        <b>Alpha</b>: maximum opacity. When coloring by a gene, opacity follows its expression up to
-        this value; with categories (clusters, groups) every observation uses it."""),
-    "color": ("Color", """
+    "general": ("Showing a layer", """
+        Show or hide the whole layer with the eye in the layer list. Only observations with counts are
+        loaded: bins, spots and cells without counts are left out.<br>
+        <b>Opacity</b>: maximum opacity. When coloring by a gene, opacity follows its expression up to
+        this value; with categories (clusters, groups) every observation uses it.<br>
+        <b>Clear selection</b> deselects the layer's observations; <b>Download data</b> saves the layer as an
+        AnnData file (.h5ad) with its clusters, groups and deconvolution results."""),
+    "color": ("Coloring", """
         Choose a <b>gene or metadata column</b> to display:
         <ul>
           <li>Genes and numeric columns: choose one color with the color picker; opacity follows the value.</li>
@@ -81,11 +80,12 @@ HELP = {
         cell-type column and run deconvolution. Both datasets must use matching, unique gene identifiers and linear,
         nonnegative expression in <code>.X</code> (not log-transformed values).<br>
         Choose <b>NNLS, spacexr (RCTD), cell2location, MuSiC, or CIBERSORTx</b> and set its parameters;
-        methods not installed on this server are not listed.
+        methods not installed on this server are not listed. Each method is a plugin, and developers can
+        add their own (<a href='static/assets/tutorial.html#app-plugins' target='_blank' rel='noopener'>how</a>).
         NNLS estimates expression mixture fractions rather than calibrated cell counts.
         spacexr (RCTD) needs raw integer counts; set <b>RCTD mode</b> (doublet by default, full or multi)
         and <b>Minimum target UMIs</b> (default 100), plus normalization cutoffs and reference filters.
-        It can take hours on a whole 8 µm sample.
+        It can take hours on a whole 8 µm sample. <b>Cancel</b> stops a running deconvolution; no result is saved.
         cell2location needs an expected number of cells per location and offers posterior mean abundance
         as well as relative fractions. MuSiC requires a donor/sample column with multiple subjects.
         CIBERSORTx generates a signature from the reference; it is offered only where the server operator has
@@ -124,7 +124,11 @@ HELP = {
         AND/OR). Categorical columns accept <code>==</code> and a category name.
         Build the conditions, name the group and create it.<br>
         An observation in several groups is drawn with the group created last. Tick or untick groups to
-        show or hide them; this does not change differential expression."""),
+        show or hide them; this does not change differential expression.<br>
+        <b>Combine groups</b> makes a new group from two existing ones: their <b>intersection</b> (A ∩ B),
+        <b>union</b> (A ∪ B) or <b>difference</b> (A − B), or the <b>complement</b> of one (not A: every
+        sequenced observation outside it). <i>Take the opposite set</i> keeps everything outside the result.
+        The size is shown before creating it, and its members stay fixed if A or B change later."""),
     "de": ("Differential expression", """
         Finds the genes that differ between groups and/or clusters (Wilcoxon test on log1p library-size-normalized counts).
         <ul>
@@ -156,8 +160,9 @@ HELP = {
     "parameters": ("Parameters", """
         Extra drawing parameters of this layer: line color, line width, fill and line opacity.
         Each is either a <b>fixed value</b> or taken <b>from data</b> (a gene or numeric column scaled to
-        an output range; for colors, a categorical column). Edit (✎) or remove (✕) them from the list.
-        Color and alpha themselves are set in the Color and General tabs."""),
+        an output range; for colors, a categorical column). <b>Apply</b> redraws the map at the same view;
+        <b>Reset</b> returns the attribute to its default. Color and opacity themselves are set in the
+        Display tab."""),
 
     # ----------------------------------------------------------- other panels
     "bin_resolution": ("Bin resolution", """
@@ -177,39 +182,11 @@ HELP = {
 }
 
 
-def help_html(topic):
-    title, body = HELP.get(topic, ("",""))
-    anchor = TUTORIAL_ANCHORS.get(topic, "")
-    more = (f"<div style='margin-top:6px'><a href='{TUTORIAL_URL}#{anchor}' target='_blank' "
-            f"rel='noopener'>Read more in the tutorial →</a></div>") if anchor else ""
-    return (f"<div style='max-width:340px;font-size:12px;line-height:1.45'>"
-            f"<b style='font-size:13px'>{title}</b><div style='margin-top:4px'>{body}</div>{more}</div>")
-
-
-def help_button(topic, position="right"):
-    """Small "?" button explaining `topic` on hover or click."""
-    return HelpButton(tooltip=Tooltip(content=HTML(help_html(topic)), position=position),
-                      align="center", margin=(0, 0, 0, 6))
-
-
-def tutorial_link():
-    """Links opening the tutorial and biological walkthrough in new tabs."""
-    return Div(text=f"<a href='{TUTORIAL_URL}' target='_blank' rel='noopener' "
-                    f"style='color:#88f5dc;font-size:12px;white-space:nowrap'>📖 Tutorial</a>"
-                    f" · <a href='{BIOLOGICAL_USE_CASE_URL}' target='_blank' rel='noopener' "
-                    f"style='color:#88f5dc;font-size:12px'>Biological use case</a>",
-               align="center", margin=(0, 0, 0, 12))
-
-
-def help_header(text, topic, style="color:#888888"):
-    """A section title with its help button."""
-    return row(Div(text=f"<b style='{style}'>{text}</b>"), help_button(topic), margin=0)
-
-
 # ------------------------------------------------------------- tutorial page
-# Standalone tutorial pages in hd_viewer/static (served next to the app)
-TUTORIAL_URL = "/hd_viewer/static/tutorial.html"
-BIOLOGICAL_USE_CASE_URL = "/hd_viewer/static/biological-use-case.html"
+# Standalone tutorial pages in hd_viewer/static, served at static/assets/ (relative,
+# so they work under any URL prefix)
+TUTORIAL_URL = "static/assets/tutorial.html"
+BIOLOGICAL_USE_CASE_URL = "static/assets/biological-use-case.html"
 
 # Section of the tutorial each help topic links to
 TUTORIAL_ANCHORS = {
@@ -221,17 +198,9 @@ TUTORIAL_ANCHORS = {
     "bin_resolution": "app-bin-resolution", "embedding": "app-embedding", "metadata": "app-summary",
 }
 
-TUTORIAL_CARD_HTML = f"""
-<div style="display:flex;flex-wrap:wrap;align-items:center;gap:12px 20px">
-  <div style="flex:1 1 320px">
-    <h2 style="margin:0 0 4px;font-size:19px">New here?</h2>
-    <p style="margin:0;color:#b7cbd1">The tutorial explains every part of the platform: which files to load,
-       what each option computes, and how to explore the results.</p>
-    <p style="margin:8px 0 0"><a href="{BIOLOGICAL_USE_CASE_URL}" target="_blank" rel="noopener"
-       style="color:#88f5dc">Follow the biological use-case walkthrough →</a></p>
-  </div>
-  <a href="{TUTORIAL_URL}" target="_blank" rel="noopener"
-     style="background:#5ee0c2;color:#102a24;font-weight:600;text-decoration:none;
-            padding:12px 18px;border-radius:10px;white-space:nowrap">📖 Open the tutorial</a>
-</div>
-"""
+
+def help_topics():
+    """Every help topic as {topic: {title, html, tutorial}} (tutorial: a URL or None)."""
+    return {topic: dict(title=title, html=" ".join(body.split()),
+                        tutorial=f"{TUTORIAL_URL}#{TUTORIAL_ANCHORS[topic]}" if topic in TUTORIAL_ANCHORS else None)
+            for topic, (title, body) in HELP.items()}

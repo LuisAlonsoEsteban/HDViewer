@@ -6,18 +6,23 @@ import threading
 
 
 class Cancelled(RuntimeError):
-    """The sessions awaiting a job have all closed."""
+    """Every session awaiting a job closed or cancelled it."""
+
+SESSION_CLOSED = "the browser session closed"
+USER_CANCELLED = "cancelled by the user"
 
 
 class Job:
-    """One cache key's run. Cancelled when every session awaiting it has closed."""
+    """One cache key's run. Cancelled when every session awaiting it has closed
+    or withdrawn (the user cancelled it)."""
 
     def __init__(self, key):
         self.key = key
         self.lock = threading.Lock()  # held while checking the cache and running
         self.owners = Counter()  # owner -> threads of that owner awaiting the job
-        self.closed = set()  # owners whose session ended
+        self.closed = set()  # owners whose session ended or who withdrew
         self.cancelled = threading.Event()
+        self.reason = SESSION_CLOSED
         self._kill = None
         self._kill_lock = threading.Lock()
 
@@ -33,7 +38,7 @@ class Job:
 
     def check(self):
         if self.cancelled.is_set():
-            raise Cancelled("cancelled: the browser session closed")
+            raise Cancelled(f"cancelled: {self.reason}")
 
     @contextmanager
     def hold(self, semaphore, poll=0.5):
@@ -46,7 +51,9 @@ class Job:
         finally:
             semaphore.release()
 
-    def cancel(self):
+    def cancel(self, reason=SESSION_CLOSED):
+        if not self.cancelled.is_set():
+            self.reason = reason
         self.cancelled.set()
         with self._kill_lock:
             kill = self._kill
@@ -71,6 +78,7 @@ class JobTable:
                 # A cancelled job is still dying: later requests start afresh
                 job = self._jobs[key] = Job(key)
             job.owners[owner] += 1
+            job.closed.discard(owner)  # rejoining after withdrawing from it
         token = _current.__dict__.get("job")
         _current.job = job
         try:
@@ -95,6 +103,18 @@ class JobTable:
         for job in orphans:
             job.cancel()
         return len(orphans)
+
+    def withdraw(self, job, owner, reason=USER_CANCELLED):
+        """`owner` no longer awaits `job` (the user cancelled it): the run is
+        stopped unless another live session still awaits it. True if stopped."""
+        with self._lock:
+            if not job.owners.get(owner):
+                return False
+            job.closed.add(owner)
+            orphan = not job.live_owners()
+        if orphan:
+            job.cancel(reason)
+        return orphan
 
     def __len__(self):
         with self._lock:

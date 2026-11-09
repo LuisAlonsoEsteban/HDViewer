@@ -53,10 +53,6 @@ def embedding_kwargs():
     return dict(n_pcs=_settings.N_PCS, n_neighbors=_settings.N_NEIGHBORS)
 
 
-def deconvolution_kwargs():
-    return dict(batch_size=_settings.DECONV_BATCH_SIZE)
-
-
 def comparison_kwargs():
     return dict(min_coverage=_settings.COMPARISON_MIN_COVERAGE, predicate=_settings.COMPARISON_PREDICATE,
                 n_hvg=_settings.COMPARISON_N_HVG, n_top_svg=_settings.COMPARISON_TOP_SPATIAL_GENES,
@@ -86,7 +82,7 @@ def segmentation_kwargs():
 
 
 def deconvolution_service_kwargs():
-    from ..board.operations.layer.deconvolution.service import load_config
+    from ..analysis.deconvolution.service import load_config
     defaults = dict(runner=_settings.DECONVOLUTION_DEFAULT_RUNNER, gpu=_settings.DECONVOLUTION_GPU,
                     threads_per_run=_settings.DEFAULT_THREADS, max_parallel=_settings.DECONVOLUTION_MAX_PARALLEL,
                     timeout_minutes=_settings.DECONVOLUTION_TIMEOUT_MINUTES, memory=_settings.DECONVOLUTION_MEMORY,

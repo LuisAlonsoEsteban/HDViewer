@@ -1,4 +1,4 @@
-# Build from the segmentation/ directory:
+# Build from hd_viewer/startup/data/image/segmentation/api/:
 #   docker build -t ghcr.io/luisalonsoesteban/visium-seg-cellpose:0.1.0 -f plugins/cellpose/Dockerfile .
 # CPU-only torch keeps the image small; swap the index URL in requirements.txt for CUDA.
 FROM python:3.11-slim

@@ -1,188 +1,107 @@
-import threading
+"""Groups on the map (visibility) and the layer's selection when ROIs and groups change."""
 import unittest
-from unittest.mock import patch
 
-from bokeh.document import Document
-from bokeh.server.callbacks import NextTickCallback
-from bokeh.events import ButtonClick
-from bokeh.models import Button
+import numpy as np
 
-from hd_viewer.startup.sample import Bins  # Initialize startup before importing board components.
-from hd_viewer.board.layout.embedding import EmbeddingPanel
-from tests.test_roi_manager import ImmediateDoc, make_layer, saved, wait_for
+from hd_viewer.core.groups import GROUPS_COL
+from tests.fixtures import loaded
+from tests.test_roi_manager import KINDS, Api, make_layer
 
 
 class GroupSelectionTests(unittest.TestCase):
-    def test_group_visibility_respects_unsequenced_checkbox(self):
-        for kind in ('bins', 'spots', 'method_a'):
+    def test_group_visibility_shows_only_the_shown_groups(self):
+        for kind in KINDS:
             with self.subTest(kind=kind):
-                layer = make_layer(kind)
-                groups = layer.groups_manager
-                checkbox = layer.notsequenced_checkbox
-                checkbox.active = []
-                name = groups.add_mask_group('A', layer.sample.adata.obs_names == 'b0_0',
-                                             layer.roi_manager.doc)
+                view = make_layer(kind)
+                groups = view.groups
+                obs_names = view.sample.adata.obs_names
+                first, last = obs_names[0], obs_names[-1]
+                name = groups.add_fixed_group('A', obs_names == first)
+                groups.refresh_active_labels()
+                view.colour_by_categories(GROUPS_COL, groups._color_map, 'groups')
 
-                def assert_visible(show_unsequenced, show_group=True):
-                    names = list(layer.manager.loaded_obs_names)
-                    visible = list(layer.view)
-                    self.assertEqual(visible[names.index('b0_0')], show_group)
-                    self.assertFalse(visible[names.index('b3_3')])
-                    missing = [i for i, value in enumerate(layer.manager.get_nan_vector()) if value]
-                    self.assertEqual(len(missing), 1)
-                    self.assertEqual(visible[missing[0]], show_unsequenced)
+                def visible():
+                    mask = view.visibility()
+                    self.assertIsNotNone(mask)
+                    return dict(zip(loaded(view), mask.astype(bool)))
 
-                assert_visible(False)
-                checkbox.active = [0]
-                assert_visible(True)
-                groups._apply_visibility_mask()
-                assert_visible(True)
-                if layer.lazy_loading:
-                    layer.manager.clear_sources()
-                    layer.manager.fetch_data()
-                    assert_visible(True)
-                checkbox.active = []
-                groups._apply_visibility_mask()
-                assert_visible(False)
-                if layer.lazy_loading:
-                    layer.manager.clear_sources()
-                    layer.manager.fetch_data()
-                    assert_visible(False)
+                shown = visible()
+                self.assertTrue(shown[first])
+                self.assertFalse(shown[last])
+                self.assertEqual(sum(shown.values()), 1)            # only the shown group's member
+                view.rows.clear_sources()                           # reloaded rows keep the rule
+                view.rows.fetch_data()
+                self.assertEqual(sum(visible().values()), 1)
                 groups._active_groups.discard(name)
-                groups._apply_visibility_mask()
-                checkbox.active = [0]
-                groups._apply_visibility_mask()
-                assert_visible(True, show_group=False)
+                groups.refresh_active_labels()
+                self.assertEqual(sum(visible().values()), 0)
 
-    def test_clear_selection_without_embedding(self):
-        layer = make_layer()
-        widgets = layer.get_widgets(ImmediateDoc())
-        roi = saved(layer.roi_manager)
-        layer.roi_manager.select(roi)
-        self.assertTrue(layer.get_selected_obs_names())
-        clear = next(b for b in widgets.select({'type': Button}) if b.label == 'Clear selection')
-        clear._trigger_event(ButtonClick(clear))
-        self.assertEqual(layer.get_selected_obs_names(), set())
-        self.assertEqual(layer.manager.source.selected.indices, [])
+    def test_clear_selection(self):
+        api = Api(self)
+        roi = api.roi(kind='box', box=[.2, .2, 1.8, 1.8])
+        self.assertEqual(api.ok(api.post(f"rois/{roi['id']}/select"))['selected'], 4)
+        cleared = api.ok(api.post('selection', json=dict(row_version=api.view.rows.row_version, rows=[])))
+        self.assertEqual(cleared['selected'], 0)
+        self.assertEqual(api.view.selected, set())
+        self.assertEqual(api.ok(api.get('selection'))['rows'], [])
 
     def test_unselect_and_remove_preserve_unrelated_selection(self):
         for action in ('unselect', 'remove_roi', 'delete_group'):
             with self.subTest(action=action):
-                layer = make_layer()
-                manager = layer.roi_manager
-                roi = saved(manager)
-                name = manager.create_group(roi)
-                members = set(layer.sample.adata.obs_names[roi.mask])
-                layer.set_selected_obs_names(members | {'b3_3'})
+                api = Api(self)
+                view = api.view
+                roi = api.roi(kind='box', box=[.2, .2, 1.8, 1.8])
+                name = api.roi_group(roi)
+                members = set(view.sample.adata.obs_names[view.rois.rois[0].mask])
+                view.selected = members | {'b3_3'}
                 if action == 'delete_group':
-                    layer.groups_manager.delete_group(name, manager.doc)
+                    api.ok(api.delete(f'groups/{name}'))
+                elif action == 'remove_roi':
+                    api.ok(api.delete(f"rois/{roi['id']}"))
                 else:
-                    getattr(manager, action)(roi)
-                self.assertEqual(layer.get_selected_obs_names(), {'b3_3'})
-                displayed = layer.manager.loaded_obs_names
-                self.assertEqual({displayed[i] for i in layer.manager.source.selected.indices}, {'b3_3'})
-
-    def test_roi_group_creation_and_removal_log_progress(self):
-        layer = make_layer()
-        manager = layer.roi_manager
-        roi = saved(manager)
-        groups = layer.groups_manager
-        entered, release = threading.Event(), threading.Event()
-        original = groups._prepare_groups
-
-        def blocked(*args):
-            entered.set()
-            release.wait(5)
-            return original(*args)
-
-        with patch.object(groups, '_prepare_groups', side_effect=blocked):
-            manager._group_click(roi)
-            self.assertTrue(entered.wait(5))
-            self.assertTrue(manager.logger.running)
-            self.assertIn('Creating group', manager.logger.div.text)
-            release.set()
-            wait_for(lambda: not groups._operation_running)
-        self.assertIn('created', manager.logger.div.text)
-        self.assertTrue(any('members' in message for _, message in manager.logger._steps))
-        manager.select(roi)
-        manager._delete_click(roi)
-        wait_for(lambda: not groups._operation_running)
-        self.assertIn('deleted', manager.logger.div.text)
-        self.assertEqual(layer.get_selected_obs_names(), set())
-        self.assertNotIn('ROI: Region', groups._groups)
-
-    def test_worker_defers_updates_to_document_thread(self):
-        layer = make_layer()
-        groups = layer.groups_manager
-        doc = Document()
-        groups.get_widgets(doc)
-        owner = threading.get_ident()
-        workers, commits = [], []
-
-        def work():
-            workers.append(threading.get_ident())
-            return groups._prepare_groups({'A': [('g0', '>', '15', 'AND')]})
-
-        def done(prepared):
-            commits.append(threading.get_ident())
-            groups._groups['A'] = [('g0', '>', '15', 'AND')]
-            groups._apply_groups_to_adata(prepared)
-
-        groups.run_group_action(doc, 'Creating A', work, done, 'Created A')
-        wait_for(lambda: any(isinstance(cb, NextTickCallback) for cb in doc.session_callbacks))
-        self.assertNotEqual(workers, [owner])
-        self.assertNotIn('grp_A', layer.sample.adata.obs)
-        completion = next(cb for cb in doc.session_callbacks if isinstance(cb, NextTickCallback))
-        completion.callback()
-        self.assertEqual(commits, [owner])
-        self.assertIn('grp_A', layer.sample.adata.obs)
-        self.assertFalse(groups._operation_running)
+                    api.ok(api.post(f"rois/{roi['id']}/unselect"))
+                self.assertEqual(view.selected, {'b3_3'})
+                displayed = loaded(view)
+                self.assertEqual({displayed[i] for i in api.ok(api.get('selection'))['rows']}, {'b3_3'})
 
     def test_deletion_clears_embedding_selection_too(self):
-        layer = make_layer()
-        roi = saved(layer.roi_manager)
-        group = layer.roi_manager.create_group(roi)
-        panel = EmbeddingPanel(ImmediateDoc())
-        panel.set_components([layer])
-        source = panel._component_views[layer.key]['source']
-        names = layer.sample.adata.obs_names.tolist()
-        source.data = dict(obs_name=names, x=list(range(16)), y=list(range(16)), color=['red'] * 16)
-        layer.roi_manager.select(roi)
-        self.assertTrue(source.selected.indices)
-        layer.groups_manager.delete_group(group, layer.roi_manager.doc)
-        self.assertEqual(source.selected.indices, [])
-        self.assertEqual(layer.manager.source.selected.indices, [])
+        api = Api(self)
+        view = api.view
+        roi = api.roi(kind='box', box=[.2, .2, 1.8, 1.8])
+        group = api.roi_group(roi)
+        view.embedding.update(method='pca', names=np.asarray(view.sample.adata.obs_names.astype(str)))
+        api.ok(api.post(f"rois/{roi['id']}/select"))
+        self.assertEqual(api.ok(api.get('embedding/selection'))['indices'], [0, 1, 4, 5])
+        api.ok(api.delete(f'groups/{group}'))
+        self.assertEqual(api.ok(api.get('embedding/selection'))['indices'], [])
+        self.assertEqual(api.ok(api.get('selection'))['rows'], [])
 
-    def test_condition_creation_failure_keeps_conditions_and_no_group(self):
-        layer = make_layer()
-        groups = layer.groups_manager
-        groups._conditions = [('g0', '>', 'invalid', 'AND')]
-        widgets = layer.get_widgets(ImmediateDoc())
-        create = next(b for b in widgets.select({'type': Button}) if b.label == '✓ Create group')
-        create._trigger_event(ButtonClick(create))
-        wait_for(lambda: not groups._operation_running)
-        self.assertIn('Error', groups.logger.div.text)
-        self.assertNotIn('Group A', groups._groups)
-        self.assertEqual(groups._conditions, [('g0', '>', 'invalid', 'AND')])
+    def test_condition_creation_failure_creates_no_group(self):
+        api = Api(self)
+        response = api.post('groups', json=dict(conditions=[dict(column='g0', op='>', value='invalid')]))
+        self.assertEqual(response.status_code, 422)
+        self.assertIn('numeric', response.json()['detail'])
+        self.assertEqual(api.ok(api.get('groups'))['groups'], [])
+        self.assertNotIn('grp_Group A', api.view.sample.adata.obs)
+        for bad in (dict(column='nope', op='==', value='1'), dict(column='g0', op='!=', value='1')):
+            with self.subTest(condition=bad):
+                self.assertEqual(api.post('groups/check', json=bad).status_code, 422)
+        self.assertEqual(api.post('groups', json=dict(conditions=[])).status_code, 422)
 
-    def test_condition_creation_and_deletion_use_progress_logger(self):
-        layer = make_layer()
-        groups = layer.groups_manager
-        groups._conditions = [('g0', '>', '15', 'AND')]
-        widgets = layer.get_widgets(ImmediateDoc())
-        buttons = list(widgets.select({'type': Button}))
-        create = next(b for b in buttons if b.label == '✓ Create group')
-        delete = next(b for b in buttons if b.label == '🗑 Delete group')
-        create._trigger_event(ButtonClick(create))
-        wait_for(lambda: not groups._operation_running)
-        self.assertIn('created', groups.logger.div.text)
-        self.assertEqual(int(layer.sample.adata.obs['grp_Group A'].sum()), 8)
-        self.assertTrue(any('Evaluating condition' in message for _, message in groups.logger._steps))
-        layer.set_selected_obs_names(['b3_3'])
-        delete._trigger_event(ButtonClick(delete))
-        wait_for(lambda: not groups._operation_running)
-        self.assertIn('deleted', groups.logger.div.text)
-        self.assertEqual(layer.get_selected_obs_names(), set())
+    def test_condition_creation_and_deletion(self):
+        api = Api(self)
+        hint = api.ok(api.post('groups/check', json=dict(column='g0', op='>', value='15')))['hint']
+        self.assertIn('max=31.00', hint)
+        created = api.ok(api.post('groups', json=dict(conditions=[dict(column='g0', op='>', value='15')])))
+        self.assertTrue(created['shown'])
+        self.assertEqual([(g['name'], g['size']) for g in created['groups']], [('Group A', 8)])
+        self.assertEqual(int(api.view.sample.adata.obs['grp_Group A'].sum()), 8)
+        self.assertEqual(api.post('groups', json=dict(name='Group A', conditions=[
+            dict(column='g0', op='>', value='1')])).status_code, 422)          # names are unique
+        api.view.selected = {'b3_3'}
+        api.ok(api.delete('groups/Group A'))
+        self.assertEqual(api.view.selected, set())
+        self.assertEqual(api.ok(api.get('groups'))['groups'], [])
 
 
 if __name__ == '__main__':

@@ -4,8 +4,9 @@ from unittest.mock import patch
 
 import scanpy as sc
 
-from hd_viewer.board.layout.embedding import EmbeddingPanel
-from tests.test_clustering_markers import ImmediateDoc, make_layer
+from hd_viewer.core import embedding
+from hd_viewer.settings.config import embedding_kwargs
+from tests.test_clustering_markers import make_layer
 
 
 class SharedStepTests(unittest.TestCase):
@@ -21,19 +22,18 @@ class SharedStepTests(unittest.TestCase):
         with patch.object(sc.pp, "pca", counted("pca", sc.pp.pca)), \
                 patch.object(sc.pp, "neighbors", counted("neighbors", sc.pp.neighbors)), \
                 patch.object(sc.tl, "umap", counted("umap", sc.tl.umap)):
-            layer = make_layer()
-            clustering = layer.clustering_manager
-            panel = EmbeddingPanel(ImmediateDoc())
-            panel.set_components([layer])
+            view = make_layer()
+            clustering, sample = view.clustering, view.sample
+            options = embedding_kwargs()              # as the embedding API runs them
             clustering.compute(1.0)
-            panel.compute_embedding(layer, "pca")          # reuses the clustering's PCA
-            panel.compute_embedding(layer, "umap")         # reuses its neighbor graph
-            clustering.compute(0.5)                        # only Leiden is recomputed
-            panel.compute_embedding(layer, "umap")         # still cached
+            embedding.frame(sample, clustering, "pca", **options)    # reuses the clustering's PCA
+            embedding.frame(sample, clustering, "umap", **options)   # reuses its neighbor graph
+            clustering.compute(0.5)                                  # only Leiden is recomputed
+            embedding.frame(sample, clustering, "umap", **options)   # still cached
         self.assertEqual(calls, {"pca": 1, "neighbors": 1, "umap": 1})
 
     def test_markers_of_replaced_labels_are_not_shown(self):
-        clustering = make_layer().clustering_manager
+        clustering = make_layer().clustering
         clustering.compute(1.0)
         clustering.compute_markers()
         self.assertTrue(clustering.get_marker_genes())

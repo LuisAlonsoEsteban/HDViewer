@@ -1,7 +1,6 @@
 import numpy as np
 from PIL import Image
 
-from flask import Flask, send_file, abort
 import os
 import math
 
@@ -18,7 +17,6 @@ from .... import settings
 _CACHE_LOCK = threading.Lock()
 
 _TILE_SETS = {}                 # key -> (tiles directory, file extension)
-_TILE_SERVERS = set()           # ports with a running tile server
 _TILE_LOCK = threading.Lock()
 
 TILE_MIMETYPES = {'webp': 'image/webp', 'png': 'image/png'}
@@ -77,48 +75,6 @@ def tile_extension(key):
     """File extension (and URL suffix) of the tiles registered under `key`."""
     with _TILE_LOCK:
         return _TILE_SETS[key][1]
-
-
-def make_tile_app():
-    app = Flask("TileSource")
-    cors = {'Access-Control-Allow-Origin': '*'}
-
-    @app.errorhandler(404)
-    def not_found(error):
-        # Never cache misses: the same URL may become valid (or the key re-registered).
-        return 'Tile not found', 404, {**cors, 'Cache-Control': 'no-store'}
-
-    @app.route("/<key>/<int:zoom>/<int:x>/<int:y>")
-    @app.route("/<key>/<int:zoom>/<int:x>/<int:y>.<ext>")
-    def get_tile(key, zoom, x, y, ext=None):
-        with _TILE_LOCK:
-            tile_set = _TILE_SETS.get(key)
-        if tile_set is None:
-            abort(404)
-        tiles_path, tile_ext = tile_set
-        if ext is not None and ext != tile_ext:
-            abort(404)
-        filepath = os.path.join(tiles_path, TILE_NAME.format(zoom=zoom, x=x, y=y, ext=tile_ext))
-        if not os.path.exists(filepath):
-            abort(404)
-        # The key is content-versioned, so the response for this URL never changes.
-        response = send_file(filepath, mimetype=TILE_MIMETYPES.get(tile_ext, 'application/octet-stream'),
-                             etag=f"{key}-{zoom}-{x}-{y}", conditional=True, max_age=31536000)
-        response.headers['Cache-Control'] = TILE_CACHE_CONTROL
-        response.headers.update(cors)
-        return response
-
-    return app
-
-
-def ensure_tile_server(host='0.0.0.0', port=4000):
-    """Start the process' tile server on `port` once."""
-    with _TILE_LOCK:
-        if port in _TILE_SERVERS:
-            return
-        _TILE_SERVERS.add(port)
-    app = make_tile_app()
-    threading.Thread(target=lambda: app.run(debug=False, host=host, port=port), daemon=True).start()
 
 
 class ImageProcessor:
@@ -338,15 +294,3 @@ class ImageProcessor:
             raise
 
 
-    def deploy_server(self, host='0.0.0.0', port=4000, overwrite=False):
-        """Serve these tiles; returns the key of their URL path (/<key>/<z>/<x>/<y>.<ext>).
-
-        One tile server per process and port serves every image: starting one per
-        dataset failed silently once the port was taken, and the browser was then
-        shown the first dataset's image for every later one.
-        """
-        
-        self.create_tiles(overwrite=overwrite, single_image=self._single_image)
-        self.tile_key = register_tiles(self.tiles_path)
-        ensure_tile_server(host, port)
-        return self.tile_key

@@ -75,10 +75,6 @@ class Sample:
     def n_geometries(self):
         return self.gdf.shape[0]
     
-    @property
-    def n_not_sequenced(self):
-        colname = self.adata.var_names.tolist()[0]
-        return int(self.get_value(self.adata, self.gdf, colname=colname).isna().sum())
                 
     def has_adata(self):
         return self.adata is not None

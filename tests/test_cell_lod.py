@@ -7,9 +7,8 @@ import pandas as pd
 from shapely.geometry import Point
 
 from hd_viewer.startup.sample import Cells
-from tests.test_cell_loading import ImmediateDoc, n_loaded, zoom_to
-from bokeh.plotting import figure
-from hd_viewer.board.components.layer import Patches
+from tests.fixtures import loaded
+from tests.test_cell_loading import make_cell_view, zoom_to
 
 
 def make_round_cells(n=4, radius=20.0):
@@ -70,21 +69,17 @@ class CellLevelOfDetailTests(unittest.TestCase):
             self.assertEqual(part.loc[name, "y"], whole.loc[name, "y"])
 
     def test_layer_reloads_with_a_coarser_level_when_zooming_out(self):
-        plot = figure(x_range=(0, 200), y_range=(0, 200), width=100, height=100)
-        layer = Patches(plot, make_round_cells(), lazy_loading=True, alias="Cell", key="cells_lod")
-        layer.add_parameter(attr="alpha", colname="g0", colname_hovered=True)
-        layer.add_parameter(attr="color", static=True, val="#6baed6", not_sequenced_val="#b8b8b8")
-        layer.attach_loader(ImmediateDoc())
-        layer.loader.add_range_callback(layer, ImmediateDoc())
+        view = make_cell_view(sample=make_round_cells())
 
-        zoom_to(plot, 0, 50)                                  # 0.5 units per pixel
-        self.assertIsNone(layer.manager.resolution_level)
-        fine_per_cell = n_vertices(layer.manager.source.data) / n_loaded(layer)
+        zoom_to(view, 0, 50, width_px=100, height_px=100)     # 0.5 units per pixel
+        self.assertIsNone(view.rows.effective_resolution_level)
+        fine_per_cell = n_vertices(view.rows.sink.data) / len(loaded(view))
 
-        zoom_to(plot, 0, 200)                                 # 2 units per pixel
-        self.assertEqual(layer.manager.resolution_level, "lod:1")
-        self.assertEqual(n_loaded(layer), 16)
-        self.assertLess(n_vertices(layer.manager.source.data) / 16, fine_per_cell / 2)
+        ops = zoom_to(view, 0, 200, width_px=100, height_px=100)   # 2 units per pixel
+        self.assertEqual(view.rows.effective_resolution_level, "lod:1")
+        self.assertEqual(view.header(ops)["level"], "lod:1")
+        self.assertEqual(len(loaded(view)), 16)
+        self.assertLess(n_vertices(view.rows.sink.data) / 16, fine_per_cell / 2)
 
 
 if __name__ == "__main__":

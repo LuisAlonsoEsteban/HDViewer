@@ -1,13 +1,16 @@
-# Publish the image tags used by the deconvolution manifests.
-# CIBERSORTx uses its official upstream image and is not republished.
+# Publishes the container images of the deconvolution plugins.
+# Every plugin folder with a Dockerfile is built from hd_viewer/analysis/deconvolution/api/ and pushed
+# under the `image:` named in its manifest.yaml, so the viewer pulls ready-made images.
+# Bump `version` and the image tag in a manifest whenever the method's results change.
+# CIBERSORTx has no Dockerfile: it runs its official upstream image. See docs/plugins.md.
 name: Deconvolution plugin images
 
 on:
   push:
     branches: [main]
     paths:
-      - "hd_viewer/board/operations/layer/deconvolution/api/plugins/**"
-      - "hd_viewer/board/operations/layer/deconvolution/api/sdk/**"
+      - "hd_viewer/analysis/deconvolution/api/plugins/**"
+      - "hd_viewer/analysis/deconvolution/api/sdk/**"
       - ".github/workflows/deconvolution-images.yml"
   workflow_dispatch:
 
@@ -16,19 +19,31 @@ permissions:
   packages: write
 
 jobs:
+  list:
+    runs-on: ubuntu-latest
+    outputs:
+      plugins: ${{ steps.find.outputs.plugins }}
+    steps:
+      - uses: actions/checkout@v4
+      - id: find
+        run: |
+          plugins=$(ls hd_viewer/analysis/deconvolution/api/plugins/*/Dockerfile | awk -F/ '{print $(NF-1)}' | jq -R . | jq -cs .)
+          echo "plugins=$plugins" >> "$GITHUB_OUTPUT"
+
   build:
+    needs: list
     runs-on: ubuntu-latest
     strategy:
       fail-fast: false
       matrix:
-        plugin: [nnls, cell2location, music, spacexr]
+        plugin: ${{ fromJson(needs.list.outputs.plugins) }}
     steps:
       - uses: actions/checkout@v4
       - id: manifest
         env:
           PLUGIN: ${{ matrix.plugin }}
         run: |
-          image=$(awk '/^image:/ { print $2; exit }' "hd_viewer/board/operations/layer/deconvolution/api/plugins/$PLUGIN/manifest.yaml")
+          image=$(awk '/^image:/ { print $2; exit }' "hd_viewer/analysis/deconvolution/api/plugins/$PLUGIN/manifest.yaml")
           echo "image=$image" >> "$GITHUB_OUTPUT"
       - uses: docker/login-action@v3
         with:
@@ -37,7 +52,7 @@ jobs:
           password: ${{ secrets.GITHUB_TOKEN }}
       - uses: docker/build-push-action@v6
         with:
-          context: hd_viewer/board/operations/layer/deconvolution/api
-          file: hd_viewer/board/operations/layer/deconvolution/api/plugins/${{ matrix.plugin }}/Dockerfile
+          context: hd_viewer/analysis/deconvolution/api
+          file: hd_viewer/analysis/deconvolution/api/plugins/${{ matrix.plugin }}/Dockerfile
           push: true
           tags: ${{ steps.manifest.outputs.image }}

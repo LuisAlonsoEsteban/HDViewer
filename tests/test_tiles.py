@@ -9,8 +9,19 @@ from unittest.mock import Mock, patch
 import numpy as np
 from PIL import Image
 
-from hd_viewer.board.components.image import ImageComponent
-from hd_viewer.startup.data.image.image import ImageProcessor, make_tile_app, register_tiles, tile_extension
+from hd_viewer.api import figures
+from hd_viewer.core.tiles import resolve_tile
+from hd_viewer.startup.data.image.image import ImageProcessor, register_tiles, tile_extension
+
+
+def tile_client():
+    """The API's tile route (GET /api/tiles/{key}/{zoom}/{x}/{y}[.ext]) on its own."""
+    from fastapi import FastAPI
+    from fastapi.testclient import TestClient
+    from hd_viewer.api.routers import tiles
+    app = FastAPI()
+    app.include_router(tiles.router, prefix="/api")
+    return TestClient(app)
 
 
 def tile_dir(root, name, colour):
@@ -26,25 +37,31 @@ class TileServerTests(unittest.TestCase):
             brain = register_tiles(tile_dir(root, "brain", 10))
             ovary = register_tiles(tile_dir(root, "ovary", 200))
             self.assertNotEqual(brain, ovary)
-            client = make_tile_app().test_client()
+            client = tile_client()
             pixel = lambda key: np.asarray(Image.open(
-                __import__("io").BytesIO(client.get(f"/{key}/0/0/0").data)))[0, 0, 0]
+                io.BytesIO(client.get(f"/api/tiles/{key}/0/0/0").content)))[0, 0, 0]
             self.assertEqual(pixel(brain), 10)
             self.assertEqual(pixel(ovary), 200)      # not the first dataset's image
-            self.assertEqual(client.get("/unknown/0/0/0").status_code, 404)
-            self.assertEqual(client.get(f"/{ovary}/3/0/0").status_code, 404)
-            self.assertEqual(client.get(f"/{ovary}/0/0/0.png").status_code, 200)
-            self.assertEqual(client.get(f"/{ovary}/0/0/0.webp").status_code, 404)   # wrong extension
+            self.assertEqual(client.get("/api/tiles/unknown/0/0/0").status_code, 404)
+            self.assertEqual(client.get(f"/api/tiles/{ovary}/3/0/0").status_code, 404)
+            self.assertEqual(client.get(f"/api/tiles/{ovary}/0/0/0.png").status_code, 200)
+            self.assertEqual(client.get(f"/api/tiles/{ovary}/0/0/0.webp").status_code, 404)   # wrong extension
+            self.assertEqual(client.get(f"/api/tiles/{ovary}/0/0/x.png").status_code, 404)    # malformed
+            path, mimetype, etag = resolve_tile(ovary, 0, 0, 0)
+            self.assertEqual((Path(path).parent, mimetype), (Path(root) / "ovary", "image/png"))
+            self.assertIn(ovary, etag)
+            self.assertIsNone(resolve_tile(ovary, 0, 0, 0, "webp"))
 
     def test_image_urls_carry_the_key(self):
         with tempfile.TemporaryDirectory() as root:
             processor = ImageProcessor(np.zeros((8, 8, 3), np.uint8), tile_dir(root, "img", 0))
-            processor.deploy_server = lambda port, host=None: register_tiles(processor.tiles_path)   # no real server
-            component = ImageComponent(processor)
-            component.deploy_server()
+            key = register_tiles(processor.tiles_path)
+            self.assertEqual(figures.tile_template(processor, "/app"),
+                             f"/app/api/tiles/{key}/{{Z}}/{{X}}/{{Y}}.png")
             plot = SimpleNamespace(calls=[], image_url=lambda **kw: plot.calls.append(kw))
-            component.add_lowres_image(plot)
-            self.assertEqual(plot.calls[0]["url"], [f"http://localhost:4000/{component.tile_key}/0/0/0.png"])
+            figures._image(plot, processor, True, "")
+            self.assertEqual(plot.calls[0]["url"], [f"/api/tiles/{key}/0/0/0.png"])
+            self.assertEqual(tile_client().get(plot.calls[0]["url"][0]).status_code, 200)
 
 
 class TileGenerationTests(unittest.TestCase):
@@ -90,7 +107,6 @@ class TileGenerationTests(unittest.TestCase):
             with patch.object(SpatialTransform, 'warp_image', side_effect=AssertionError('Cache must not pad pixels')):
                 self.assertFalse(cached.create_tiles(overwrite=False))
                 self.assertIsNone(cached._image)
-                self.assertFalse(ImageComponent(cached).are_tiles_needed)
             # A missing manifest forces a fresh generation and exactly one decode.
             (cached.tiles_path/'manifest.json').unlink()
             reload_image = Mock(return_value=image)
@@ -121,8 +137,10 @@ class TileGenerationTests(unittest.TestCase):
             for size in (8, 130):
                 processor = ImageProcessor(np.zeros((3, size, 3), np.uint8), Path(root) / str(size), tile_size=16)
                 processor.create_tiles()
-                processor.deploy_server = lambda port, host=None: register_tiles(processor.tiles_path)
-                source = ImageComponent(processor).generate_tile_source()
+                from bokeh.plotting import figure
+                plot = figure()
+                figures._image(plot, processor, False, "")
+                source = plot.select_one({"name": "image:tiles"}).tile_source
                 self.assertEqual(source.max_zoom, processor.max_zoom)
                 self.assertTrue(source.url.endswith(f"/{register_tiles(processor.tiles_path)}/{{Z}}/{{X}}/{{Y}}.webp"),
                                 source.url)
@@ -160,27 +178,26 @@ class TileFormatTests(unittest.TestCase):
 
     def test_server_sends_format_mimetype_and_immutable_cache_headers(self):
         with tempfile.TemporaryDirectory() as root:
-            client = make_tile_app().test_client()
+            client = tile_client()
             for fmt in ("webp", "png"):
                 with self.subTest(fmt=fmt):
                     processor = ImageProcessor(padded(20, 20, 40), Path(root) / fmt, tile_size=16, tile_format=fmt)
                     processor.create_tiles()
                     key = register_tiles(processor.tiles_path)
                     self.assertEqual(tile_extension(key), fmt)
-                    response = client.get(f"/{key}/1/0/0.{fmt}")
+                    response = client.get(f"/api/tiles/{key}/1/0/0.{fmt}")
                     self.assertEqual(response.status_code, 200)
-                    self.assertEqual(response.mimetype, f"image/{fmt}")
-                    with Image.open(io.BytesIO(response.data)) as image:
+                    self.assertEqual(response.headers["Content-Type"], f"image/{fmt}")
+                    with Image.open(io.BytesIO(response.content)) as image:
                         self.assertEqual(image.format, fmt.upper())
-                    response.close()
                     self.assertEqual(response.headers["Cache-Control"], "public, max-age=31536000, immutable")
                     self.assertEqual(response.headers["Access-Control-Allow-Origin"], "*")
                     etag = response.headers["ETag"]
                     self.assertIn(key, etag)
-                    again = client.get(f"/{key}/1/0/0.{fmt}", headers={"If-None-Match": etag})
+                    again = client.get(f"/api/tiles/{key}/1/0/0.{fmt}", headers={"If-None-Match": etag})
                     self.assertEqual(again.status_code, 304)
                     self.assertIn("immutable", again.headers["Cache-Control"])
-                    for missing in (f"/{key}/9/0/0.{fmt}", f"/nokey/0/0/0.{fmt}"):
+                    for missing in (f"/api/tiles/{key}/9/0/0.{fmt}", f"/api/tiles/nokey/0/0/0.{fmt}"):
                         miss = client.get(missing)
                         self.assertEqual(miss.status_code, 404)
                         self.assertNotIn("immutable", miss.headers.get("Cache-Control", ""))
@@ -213,11 +230,11 @@ class TileFormatTests(unittest.TestCase):
             # Same settings, overwrite=True (e.g. a new image at the same path): new key, old one stops serving.
             before = register_tiles(path)
             ImageProcessor(image[::-1].copy(), path, tile_size=8, tile_format="png").create_tiles(overwrite=True)
-            client = make_tile_app().test_client()
-            self.assertEqual(client.get(f"/{before}/0/0/0.png").status_code, 404)
+            client = tile_client()
+            self.assertEqual(client.get(f"/api/tiles/{before}/0/0/0.png").status_code, 404)
             after = register_tiles(path)
             self.assertNotEqual(after, before)
-            self.assertEqual(client.get(f"/{after}/0/0/0.png").status_code, 200)
+            self.assertEqual(client.get(f"/api/tiles/{after}/0/0/0.png").status_code, 200)
 
     def test_legacy_png_cache_is_reused_without_re_tiling(self):
         with tempfile.TemporaryDirectory() as root:

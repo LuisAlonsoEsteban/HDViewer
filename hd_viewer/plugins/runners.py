@@ -142,9 +142,9 @@ class Runner:
                 job.on_cancel(None)
         if stopped:
             if stopped[0] == "cancelled":
-                log.write("[runner] cancelled: the browser session closed\n")
+                log.write(f"[runner] cancelled: {job.reason}\n")
                 log.flush()
-                raise Cancelled("cancelled: the browser session closed")
+                raise Cancelled(f"cancelled: {job.reason}")
             reason = (f"timed out after {timeout / 60:g} minutes and was stopped ({self.name} runner); "
                       "raise timeout_minutes in config.yaml for larger inputs")
             log.write(f"[runner] {reason}\n")

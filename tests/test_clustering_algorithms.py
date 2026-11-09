@@ -1,21 +1,20 @@
-"""Algorithm dispatch, cache invalidation, native projection and UI contracts."""
+"""Algorithm dispatch, cache invalidation, native projection and the API contract."""
+import time
 import unittest
 from unittest.mock import patch
 
 import anndata as ad
 import numpy as np
 import pandas as pd
-from bokeh.document import Document
-from bokeh.models import Select
+from sklearn.cluster import AgglomerativeClustering, KMeans
 from sklearn.metrics import adjusted_rand_score
 
+from hd_viewer.core.clustering import SUPPORTED_ALGORITHMS, ClusteringState
+from hd_viewer.startup.data.image.transform import SpatialTransform
+from hd_viewer.startup.operations.bins2spots import Bins2Spots
+from hd_viewer.startup.sample import Bins
 from hd_viewer.startup.sample._sample import Sample
-try:
-    from src.utils.clustering import fit_clusters  # removed in refactor (f4265e9)
-except ImportError:
-    fit_clusters = None
-from tests.test_clustering_markers import make_layer
-from tests.test_spatial_alignment import fixture
+from tests.test_clustering_markers import api_client, make_layer
 
 
 def prepared_sample():
@@ -30,121 +29,149 @@ def prepared_sample():
     return sample
 
 
-@unittest.skipIf(fit_clusters is None, "fit_clusters / Sample.run_clustering removed in refactor")
+def aligned_bins(n=6):
+    """A 6 x 6 grid of 2-um bins registered on an image (from test_spatial_alignment)."""
+    theta = np.deg2rad(23.)
+    rotation = np.array([[np.cos(theta), -np.sin(theta)], [np.sin(theta), np.cos(theta)]])
+    basis = np.array([[4., 0.], [.4, 3.5]]) @ rotation.T
+    rows, cols = np.indices((n, n))
+    xy = np.column_stack((cols.ravel(), rows.ravel())) @ basis + [65, 70]
+    names = [f'b{i}' for i in range(len(xy))]
+    positions = pd.DataFrame(dict(array_col=cols.ravel(), array_row=rows.ravel(),
+                                  pxl_col_in_fullres=xy[:, 0], pxl_row_in_fullres=xy[:, 1], in_tissue=1,
+                                  index=names), index=names)
+    transform = SpatialTransform.fit(positions, (140, 180, 3), 1.)
+    counts = np.column_stack((np.arange(len(xy)) + 1, np.ones(len(xy))))
+    data = ad.AnnData(counts, obs=pd.DataFrame(index=names), var=pd.DataFrame(index=['gene', 'one']))
+    b2s = Bins2Spots(data, positions, pixels_per_bin=4, bins_size=2, spatial_transform=transform)
+    return Bins(b2s.bin_squares, data, pixels_per_bin=4, bin_size=2, spatial_transform=transform)
+
+
+class Counted:
+    """Counts the fits of an estimator class: patch.object(cls, 'fit_predict', counted.method)."""
+    def __init__(self, estimator):
+        self.calls, original = 0, estimator.fit_predict
+
+        def method(estimator, *args, **kwargs):
+            self.calls += 1
+            return original(estimator, *args, **kwargs)
+        self.method = method
+
+
 class ClusteringAlgorithmTests(unittest.TestCase):
     def test_all_algorithms_find_separated_populations_without_mutating_counts(self):
-        for algorithm in ('leiden', 'kmeans', 'dbscan', 'hdbscan', 'gaussian_mixture', 'agglomerative'):
+        for algorithm in SUPPORTED_ALGORITHMS:
             with self.subTest(algorithm=algorithm):
                 sample = prepared_sample()
+                state = ClusteringState(sample)
                 before = sample.adata.X.copy()
-                column = sample.run_clustering(algorithm=algorithm, n_pcs=3, n_neighbors=8,
+                column = state.run_clustering(algorithm=algorithm, n_pcs=3, n_neighbors=8,
                     resolution=.1, n_clusters=2, eps=1, min_samples=3, min_cluster_size=5)
                 labels = sample.adata.obs[column]
                 self.assertGreater(adjusted_rand_score([0]*20 + [1]*20, labels), .95)
                 np.testing.assert_array_equal(sample.adata.X, before)
                 self.assertEqual(sample.adata.uns['clustering']['algorithm'], algorithm)
+                self.assertEqual(state.cluster_col, column)
 
     def test_density_noise_and_marker_edge_cases(self):
         sample = prepared_sample()
+        state = ClusteringState(sample)
         sample.adata_processed.obsm['X_pca'][-1] = [100, 100, 100]
-        column = sample.run_clustering(algorithm='dbscan', n_pcs=3, eps=1, min_samples=3)
+        column = state.run_clustering(algorithm='dbscan', n_pcs=3, eps=1, min_samples=3)
         self.assertEqual(sample.adata.obs[column].iloc[-1], 'Noise')
-        sample.compute_marker_genes()
-        self.assertNotIn('Noise', sample.get_marker_genes())
-        self.assertEqual(len(sample.get_marker_genes()), 2)
+        state.compute_markers()
+        self.assertNotIn('Noise', state.get_marker_genes())
+        self.assertEqual(len(state.get_marker_genes()), 2)
+        state._build_cluster_state()
+        self.assertEqual(state._result_summary(), '2 clusters found, 1 noise observations')
         for algorithm, options in [('dbscan', {'eps': 1e-10}), ('kmeans', {'n_clusters': 1})]:
             with self.subTest(algorithm=algorithm):
-                sample.run_clustering(algorithm=algorithm, n_pcs=3, **options)
-                sample.compute_marker_genes()
-                self.assertEqual(sample.get_marker_genes(), {})
+                state.run_clustering(algorithm=algorithm, n_pcs=3, **options)
+                state.compute_markers()
+                self.assertEqual(state.get_marker_genes(), {})
 
     def test_cache_tracks_method_parameters_and_marker_freshness(self):
         sample = prepared_sample()
-        import src.utils.clustering as module
-        with patch.object(module, 'fit_clusters', wraps=module.fit_clusters) as fitting:
-            sample.run_clustering(algorithm='kmeans', n_pcs=3, n_clusters=2)
-            sample.compute_marker_genes()
-            self.assertTrue(sample.get_marker_genes())
-            sample.run_clustering(algorithm='kmeans', n_pcs=3, n_clusters=2, eps=4)
-            self.assertEqual(fitting.call_count, 1)
-            sample.run_clustering(algorithm='kmeans', n_pcs=3, n_clusters=3)
-            self.assertEqual(fitting.call_count, 2)
-            self.assertEqual(sample.get_marker_genes(), {})
-            sample.run_clustering(algorithm='agglomerative', n_pcs=3, n_clusters=3)
-            self.assertEqual(fitting.call_count, 3)
+        state = ClusteringState(sample)
+        kmeans, agglomerative = Counted(KMeans), Counted(AgglomerativeClustering)
+        with patch.object(KMeans, 'fit_predict', kmeans.method), \
+                patch.object(AgglomerativeClustering, 'fit_predict', agglomerative.method):
+            state.run_clustering(algorithm='kmeans', n_pcs=3, n_clusters=2)
+            state.compute_markers()
+            self.assertTrue(state.get_marker_genes())
+            state.run_clustering(algorithm='kmeans', n_pcs=3, n_clusters=2, eps=4)   # eps: not a kmeans option
+            self.assertEqual(kmeans.calls, 1)
+            self.assertTrue(state.get_marker_genes())
+            state.run_clustering(algorithm='kmeans', n_pcs=3, n_clusters=3)
+            self.assertEqual(kmeans.calls, 2)
+            self.assertEqual(state.get_marker_genes(), {})
+            state.run_clustering(algorithm='agglomerative', n_pcs=3, n_clusters=3)
+            self.assertEqual(agglomerative.calls, 1)
+        self.assertEqual(kmeans.calls, 2)
 
     def test_aggregate_algorithms_project_identical_labels_to_native_members(self):
-        _, _, _, bins = fixture()
+        bins = aligned_bins()
+        state = ClusteringState(bins)
         aggregate = bins._get_aggregated_sample(2)
         aggregate.adata_processed = aggregate.adata.copy()
         aggregate.adata_processed.obsm['X_pca'] = np.arange(aggregate.adata.n_obs*2).reshape(-1, 2)
         aggregate._step_params['pca'] = 2
-        column = bins.run_clustering(algorithm='kmeans', n_clusters=2, n_pcs=2,
+        column = state.run_clustering(algorithm='kmeans', n_clusters=2, n_pcs=2,
                     resolution_level=bins.get_resolution_level_for_factor(2), compute_markers=False)
-        projected = bins.aggregation_names(2).map(aggregate.adata.obs[aggregate.cluster_col].astype(str))
+        projected = bins.aggregation_names(2).map(aggregate.adata.obs['kmeans_2'].astype(str))
         self.assertEqual(bins.adata.obs[column].tolist(), projected.tolist())
         self.assertEqual(column, 'kmeans_2')
         self.assertEqual(bins._clustering_factor, 2)
+        self.assertEqual(state.get_cluster_factor(column), 2)
+        self.assertIs(state._get_active_analysis_sample(), aggregate)
 
-    def test_ui_parameter_visibility_rebuild_and_serialization(self):
-        layer = make_layer()
-        manager = layer.clustering_manager
-        doc = Document()
-        manager.get_widgets(doc)
-        widgets = manager.get_widgets(doc)
-        controls = manager._algorithm_controls
-        self.assertEqual(len(controls['algorithm']._callbacks['value']), 1)
-        for algorithm, fields in {
-            'leiden': set(), 'kmeans': {'n_clusters'}, 'dbscan': {'eps', 'min_samples'},
-            'hdbscan': {'min_cluster_size', 'min_samples'},
-            'gaussian_mixture': {'n_clusters', 'covariance_type'},
-            'agglomerative': {'n_clusters', 'linkage'},
-        }.items():
-            controls['algorithm'].value = algorithm
-            visible = {key for key, widget in controls.items() if key != 'algorithm' and widget.visible}
-            self.assertEqual(visible, fields)
-        from bokeh.layouts import column
-        doc.add_root(column(*widgets))
-        doc.to_json()
-        self.assertEqual(len(controls['algorithm'].options), 6)
+    def test_noise_visibility_and_hover(self):
+        view = make_layer()
+        clustering = view.clustering
+        obs = view.sample.adata.obs
+        obs['dbscan_1'] = ['Noise'] + ['0'] * (view.sample.adata.n_obs - 1)
+        clustering._cluster_columns['dbscan'] = clustering.cluster_col = 'dbscan_1'
+        clustering._build_cluster_state()
+        self.assertEqual(clustering._cluster_labels, ['0', 'Noise'])
+        clustering._active_clusters = {'Noise'}
+        self.assertEqual(clustering.visible_mask(obs['dbscan_1']).sum(), 1)
+        # A row without a cluster label (left out of the clustering) stays visible
+        self.assertEqual(clustering.visible_mask([None, 'Noise', '0']).tolist(), [True, True, False])
 
-    def test_selected_algorithm_reaches_run_and_noise_visibility_and_hover(self):
-        from bokeh.events import ButtonClick
-        from bokeh.models import Button
-        from hd_viewer.board.utils.loading import LoadingLogger
-        from tests.test_clustering_markers import ImmediateDoc
-        layer = make_layer()
-        manager = layer.clustering_manager
-        widgets = manager.get_widgets(ImmediateDoc())
-        manager._algorithm_controls['algorithm'].value = 'hdbscan'
-        manager._algorithm_controls['min_cluster_size'].value = 12
-        def work_only(logger, title, work, **callbacks):
-            work()
-        with patch.object(LoadingLogger, 'run', work_only), patch.object(manager, 'compute') as compute:
-            button = next(w for w in widgets if isinstance(w, Button))
-            button._trigger_event(ButtonClick(button))
-            self.assertEqual(compute.call_args.kwargs['algorithm'], 'hdbscan')
-            self.assertEqual(compute.call_args.kwargs['min_cluster_size'], 12)
-        manager.cluster_col = 'dbscan_1'
-        layer.sample.adata.obs['dbscan_1'] = ['Noise'] + ['0'] * (layer.sample.adata.n_obs - 1)
-        manager._build_cluster_state()
-        self.assertIn('Noise', manager._cluster_labels)
-        manager._active_clusters = {'Noise'}
-        layer.manager.source.data = {
-            'obs_name': list(layer.sample.adata.obs_names),
-            'dbscan_1': list(layer.sample.adata.obs['dbscan_1']),
-        }
-        manager._apply_visibility_mask()
-        self.assertEqual(sum(layer._view), 1)
-        layer.manager.source.data = {'obs_name': ['b0'], 'dbscan_1': ['Noise']}
-        self.assertIn('Cluster: @{dbscan_1}', layer.get_hover_tooltips())
+        view.update_viewport(-1, 181, -1, 2, 900, 900)
+        view.colour_by_categories('dbscan_1', clustering._color_map, 'clusters')
+        self.assertEqual(int(view.visibility().sum()), 1)
+        self.assertIn(['dbscan_1', '@{dbscan_1}'], view.tooltips())
+
+
+class ClusteringApiTests(unittest.TestCase):
+    def test_selected_algorithm_and_its_options_reach_the_run(self):
+        client, session = api_client(self, make_layer().sample)
+        clustering = session.views['bins'].clustering
+        with patch.object(clustering, 'compute', side_effect=RuntimeError('stop')) as compute:
+            response = client.post('/api/layers/bins/clustering',
+                                   json=dict(algorithm='hdbscan', min_cluster_size=12, resolution=.5))
+            self.assertEqual(response.status_code, 202)
+            for _ in range(600):
+                if client.get('/api/layers/bins/clusters').json()['job']['state'] != 'running':
+                    break
+                time.sleep(.05)
+        self.assertEqual(compute.call_args.args[0], .5)
+        self.assertEqual(compute.call_args.kwargs['algorithm'], 'hdbscan')
+        self.assertEqual(compute.call_args.kwargs['min_cluster_size'], 12)
+        self.assertNotIn('eps', compute.call_args.kwargs)        # unset options keep their defaults
+        job = client.get('/api/layers/bins/clusters').json()['job']
+        self.assertEqual((job['state'], job['message']), ('failed', 'stop'))
+        self.assertEqual(len(client.get('/api/clustering/options').json()['algorithms']), 6)
 
     def test_invalid_algorithm_and_cluster_counts(self):
         with self.assertRaisesRegex(ValueError, 'Unsupported'):
-            prepared_sample().run_clustering(algorithm='invalid')
-        for count in (0, 50, 2.5):
-            with self.assertRaisesRegex(ValueError, 'Number of clusters'):
-                fit_clusters(np.ones((4, 3)), 'kmeans', n_clusters=count)
+            ClusteringState(prepared_sample()).run_clustering(algorithm='invalid')
+        client, _ = api_client(self, make_layer().sample)
+        self.assertEqual(client.post('/api/layers/bins/clustering', json=dict(algorithm='invalid')).status_code, 422)
+        for count in (0, 50):
+            with self.subTest(count=count), self.assertRaises(ValueError):
+                ClusteringState(prepared_sample()).run_clustering(algorithm='kmeans', n_pcs=3, n_clusters=count)
 
 
 if __name__ == '__main__':
