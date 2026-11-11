@@ -1,7 +1,7 @@
 cff-version: 1.2.0
 message: If you use this software, please cite it using this metadata.
 type: software
-title: VisiumVisualizer
+title: HDViewer
 abstract: An interactive workspace for exploring Visium HD expression, cell populations,
   and tissue regions.
 authors:
@@ -19,5 +19,5 @@ authors:
     family-names: Ochoa
     affiliation: Tecnun, University of Navarra
 license: MIT
-repository-code: https://github.com/LuisAlonsoEsteban/VisiumVisualizer
+repository-code: https://github.com/LuisAlonsoEsteban/HDViewer
 url: https://hdviewer.unav.edu

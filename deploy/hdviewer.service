@@ -3,19 +3,19 @@
 # Adjust User, WorkingDirectory and the virtual environment path.
 
 [Unit]
-Description=VisiumVisualizer (FastAPI + React)
+Description=HDViewer (FastAPI + React)
 After=network-online.target docker.service
 Wants=network-online.target
 
 [Service]
 Type=simple
 User=hdviewer
-WorkingDirectory=/opt/VisiumVisualizer
-Environment=VHD_DATA_DIR=/opt/VisiumVisualizer/data
+WorkingDirectory=/opt/hd_viewer
+Environment=VHD_DATA_DIR=/opt/hd_viewer/data
 Environment=VHD_SESSION_TTL=1800
 Environment=VHD_MAX_SESSIONS=50
 # One process: sessions, loaded datasets and the tile registry live in memory
-ExecStart=/opt/VisiumVisualizer/.venv/bin/uvicorn hd_viewer.api.main:app \
+ExecStart=/opt/hd_viewer/.venv/bin/uvicorn hd_viewer.api.main:app \
     --host 127.0.0.1 --port 8000 --workers 1 --proxy-headers --forwarded-allow-ips 127.0.0.1
 Restart=on-failure
 RestartSec=5

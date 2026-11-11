@@ -1,4 +1,4 @@
-# VisiumVisualizer
+# HDViewer
 
 An interactive web platform for exploring **10x Genomics Visium HD** spatial
 transcriptomics data on top of the original tissue image: bins, pseudospots and
@@ -52,8 +52,8 @@ The public server is free and open to all users. Uploaded data is private to you
 ### Install
 
 ```bash
-git clone https://github.com/LuisAlonsoEsteban/VisiumVisualizer.git
-cd VisiumVisualizer
+git clone https://github.com/LuisAlonsoEsteban/HDViewer.git
+cd HDViewer
 python3 -m venv .venv
 source .venv/bin/activate          # Windows (PowerShell): .venv\Scripts\Activate.ps1
 pip install -r requirements.txt
@@ -62,8 +62,8 @@ pip install -r requirements.txt
 Using conda instead:
 
 ```bash
-conda create -n visiumvisualizer python=3.11
-conda activate visiumvisualizer
+conda create -n HDViewer python=3.11
+conda activate HDViewer
 pip install -r requirements.txt
 ```
 
@@ -174,7 +174,7 @@ with a run id; its log is kept as `<run id>/run.log` under the dataset's
 
 ## Bring your own method: plugins
 
-Every segmentation and deconvolution method in VisiumVisualizer is a **plugin**, and
+Every segmentation and deconvolution method in HDViewer is a **plugin**, and
 you can add yours the same way. A plugin is one folder:
 
 ```text
@@ -204,7 +204,7 @@ To get started:
    method appears in the interface.
 3. To make it available to everyone on <https://hdviewer.unav.edu>, open a pull request
    ([contribution guide](CONTRIBUTING.md)) or first a
-   [*New method plugin* issue](https://github.com/LuisAlonsoEsteban/VisiumVisualizer/issues/new?template=method-plugin.yml).
+   [*New method plugin* issue](https://github.com/LuisAlonsoEsteban/HDViewer/issues/new?template=method-plugin.yml).
 
 Reference documentation:
 [segmentation plugins](hd_viewer/startup/data/image/segmentation/api/README.md) ·
@@ -281,20 +281,20 @@ HDV_URL=http://127.0.0.1:8000 npx playwright test
 
 ## Citation
 
-If you use VisiumVisualizer, please cite the software (see
+If you use HDViewer, please cite the software (see
 [`CITATION.cff`](CITATION.cff); GitHub's "Cite this repository" button exports it)
 and the methods and datasets you used in your analysis.
 
 ## License
 
-VisiumVisualizer is released under the [MIT License](LICENSE). Example datasets and
+HDViewer is released under the [MIT License](LICENSE). Example datasets and
 third-party methods run as plugins keep their own licenses.
 
 ## Contact
 
 Luis Alonso, Computational Biology group, Tecnun, University of Navarra —
 <laesteban@unav.es>. Please report bugs and feature requests on the
-[issue tracker](https://github.com/LuisAlonsoEsteban/VisiumVisualizer/issues).
+[issue tracker](https://github.com/LuisAlonsoEsteban/HDViewer/issues).
 
 ---
 

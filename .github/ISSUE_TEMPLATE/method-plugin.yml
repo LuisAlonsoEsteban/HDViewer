@@ -1,5 +1,5 @@
 name: New method plugin
-description: Propose a segmentation or deconvolution method for VisiumVisualizer
+description: Propose a segmentation or deconvolution method for HDViewer
 title: "[Plugin] "
 labels: [plugin]
 body:
@@ -7,7 +7,7 @@ body:
     attributes:
       value: |
         Methods are added as plugins: one folder with a manifest and a script, no viewer changes.
-        See the [plugin guide](https://github.com/LuisAlonsoEsteban/VisiumVisualizer/blob/main/docs/plugins.md).
+        See the [plugin guide](https://github.com/LuisAlonsoEsteban/HDViewer/blob/main/docs/plugins.md).
   - type: dropdown
     id: kind
     attributes:
