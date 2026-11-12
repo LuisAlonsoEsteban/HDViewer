@@ -54,15 +54,7 @@ The public server is free and open to all users. Uploaded data is private to you
 ```bash
 git clone https://github.com/LuisAlonsoEsteban/HDViewer.git
 cd HDViewer
-python3 -m venv .venv
-source .venv/bin/activate          # Windows (PowerShell): .venv\Scripts\Activate.ps1
-pip install -r requirements.txt
-```
-
-Using conda instead:
-
-```bash
-conda create -n HDViewer python=3.11
+conda create -n HDViewer python=3.11 conda-forge::nodejs conda-forge::uvicorn
 conda activate HDViewer
 pip install -r requirements.txt
 ```
@@ -72,6 +64,7 @@ pip install -r requirements.txt
 From the repository root:
 
 ```bash
+cd frontend & npm ci & npm run dev & npm run build & cd ..
 uvicorn hd_viewer.api.main:app --port 8000
 ```
 
