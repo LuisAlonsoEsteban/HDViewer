@@ -54,8 +54,9 @@ The public server is free and open to all users. Uploaded data is private to you
 ```bash
 git clone https://github.com/LuisAlonsoEsteban/HDViewer.git
 cd HDViewer
-conda create -n HDViewer python=3.11 conda-forge::nodejs conda-forge::uvicorn
+conda create -n HDViewer python=3.11
 conda activate HDViewer
+conda install -c conda-forge nodejs=22 uvicorn
 pip install -r requirements.txt
 ```
 
@@ -64,7 +65,7 @@ pip install -r requirements.txt
 From the repository root:
 
 ```bash
-cd frontend & npm ci & npm run dev & npm run build & cd ..
+cd frontend && npm ci && npm run build && cd ..
 uvicorn hd_viewer.api.main:app --port 8000
 ```
 
