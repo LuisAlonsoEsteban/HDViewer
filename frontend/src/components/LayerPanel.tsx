@@ -35,6 +35,7 @@ export function LayerPanel({ layer }: { layer: Layer }) {
     <Stack gap="sm">
       {!layer.visible && <Text size="xs" c="yellow.4">This layer is hidden: show it with the eye in the layer list.</Text>}
       <Autocomplete label="Gene / metadata" placeholder="Start typing" data={options} value={query} onChange={setQuery}
+                    wrapperProps={{ "data-tour": "gene" }}
                     disabled={!layer.visible}
                     onOptionSubmit={(name) => change({ colour_by: name }, { colour_by: { kind: "column", name } })} />
       <Select label="Expression values" disabled={!layer.visible} value={layer.scale}

@@ -93,7 +93,8 @@ def start_load(body: LoadRequest, session=Depends(current_session)):
             raise HTTPException(409, "A dataset is already loading.")
         config = _config(session, body)
         session.load = dict(state="running", tasks={task: dict(pct=0, status="Waiting") for task in config.tasks},
-                            error=None, cancelled=False)
+                            error=None, cancelled=False,
+                            dataset=body.dataset_id if body.source == "example" else None)
         session.loaded, session.views, session.comparison = None, {}, {}
 
     def progress(task, pct, status):

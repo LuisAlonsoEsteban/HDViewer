@@ -136,8 +136,10 @@ export function DeconvolutionPanel({ layer }: { layer: Layer }) {
         Empty observations remain unassigned.
       </Text>
       <Select label="Reference cell-type column (.obs)" data={state?.columns ?? []} value={label} onChange={setLabel}
+              wrapperProps={{ "data-tour": "deconv-form" }}
               disabled={!state?.columns.length || running} allowDeselect={false} />
       <Select label="Deconvolution method" value={method} allowDeselect={false} disabled={!state?.methods.length || running}
+              wrapperProps={{ "data-tour": "deconv-form" }}
               data={(state?.methods ?? []).map((m) => ({ value: m.name, label: m.title }))} onChange={setMethod} />
       {plugin && (
         <Text size="xs" c="dark.1">
@@ -147,11 +149,11 @@ export function DeconvolutionPanel({ layer }: { layer: Layer }) {
         </Text>
       )}
       {plugin && (
-        <PluginParamForm params={plugin.params} values={params} columns={state?.columns ?? []} disabled={running}
-                         onChange={(next) => setValues((v) => ({ ...v, [plugin.name]: next }))} />
+        <div data-tour="deconv-form"><PluginParamForm params={plugin.params} values={params} columns={state?.columns ?? []} disabled={running}
+                         onChange={(next) => setValues((v) => ({ ...v, [plugin.name]: next }))} /></div>
       )}
       {reason && <Text size="xs" c="yellow.5">{reason}</Text>}
-      <Group gap="xs" grow>
+      <Group gap="xs" grow data-tour="deconv-run">
         <Button color="green" onClick={start} loading={running} disabled={!!reason || !plugin || !label}>
           Run deconvolution
         </Button>
@@ -160,7 +162,8 @@ export function DeconvolutionPanel({ layer }: { layer: Layer }) {
         )}
       </Group>
       <JobProgress job={job} message={false} />
-      <Text size="xs" c={job?.state === "failed" || error ? "red.4" : "dark.1"} style={{ whiteSpace: "pre-wrap" }}>
+      <Text size="xs" c={job?.state === "failed" || error ? "red.4" : "dark.1"} style={{ whiteSpace: "pre-wrap" }}
+            data-tour="deconv-status">
         {error ?? (job && job.state !== "idle" ? job.message
           : ready ? `Reference ready: ${state!.reference!.name} (${state!.reference!.cells.toLocaleString()} cells, `
                     + `${state!.reference!.genes.toLocaleString()} genes). Runner: ${state!.runner ?? "unavailable"}.`

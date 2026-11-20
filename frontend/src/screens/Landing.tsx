@@ -3,6 +3,7 @@ import { useState } from "react";
 import "../landing/landing.css";
 import preview from "../landing/tissue-preview.svg?raw";
 import { useApp } from "../store/app";
+import { startTour, useTourAvailable } from "../tour/start";
 
 // Files of hd_viewer/static, served at static/assets/ (relative: works under any prefix)
 const STATIC = "static/assets";
@@ -35,6 +36,7 @@ export function Landing() {
   const tutorial = config?.tutorial_url ?? `${STATIC}/tutorial.html`;
   const useCase = config?.use_case_url ?? `${STATIC}/biological-use-case.html`;
   const [view, setView] = useState<Preview>("tissue");
+  const tourAvailable = useTourAvailable("p1crc");
   const [citationStatus, setCitationStatus] = useState("");
 
   // "Launch" resumes the loaded workspace, as in the old interface
@@ -61,8 +63,8 @@ export function Landing() {
     <div className="landing">
       <a className="skip-link" href="#landing-main">Skip to content</a>
       <header className="site-header wrap">
-        <a className="brand" href="#" aria-label={`${branding.name ?? "VisiumVisualizer"} home`}>
-          <BrandMark />{branding.name ?? "VisiumVisualizer"}
+        <a className="brand" href="#" aria-label={`${branding.name ?? "HDViewer"} home`}>
+          <BrandMark />{branding.name ?? "HDViewer"}
         </a>
         <nav className="site-nav" aria-label="Main navigation">
           <a className="desktop-link" href="#features">Explore</a>
@@ -84,7 +86,7 @@ export function Landing() {
               workspace for asking spatial questions, with the original tissue image as your guide.
             </p>
             <div className="hero-actions">
-              <button className="button" onClick={launch}>{launchLabel("Explore your data")} <span aria-hidden="true">↗</span></button>
+              <button className="button" onClick={launch} data-tour="explore">{launchLabel("Explore your data")} <span aria-hidden="true">↗</span></button>
               <a className="button secondary" href={tutorial} {...external}>Read the guide <span aria-hidden="true">↗</span></a>
             </div>
             <p className="hero-note">
@@ -116,7 +118,10 @@ export function Landing() {
             </div>
             <figcaption>
               <span>One tissue. Multiple ways to explore.</span>
-              <a href={useCase} {...external}>View the biological example ↗</a>
+              <span className="figcaption-links">
+                {tourAvailable && <button className="link-button" onClick={() => startTour("p1crc")}>Take the guided tour →</button>}
+                <a href={useCase} {...external}>View the biological example ↗</a>
+              </span>
             </figcaption>
           </figure>
         </section>
@@ -161,7 +166,9 @@ export function Landing() {
               <span className="number">03 / REGIONS &amp; COMPARISONS</span>
               <h3>Ask a spatial question.</h3>
               <p>Draw a region, start from a barcode, or build a neighborhood around a group. Compare expression and composition across regions.</p>
-              <a href={useCase} {...external}>Follow a biological use case ↗</a>
+              {tourAvailable
+                ? <button className="link-button" onClick={() => startTour("p1crc")}>Follow a biological use case, guided →</button>
+                : <a href={useCase} {...external}>Follow a biological use case ↗</a>}
             </article>
           </div>
         </section>
@@ -264,7 +271,7 @@ export function Landing() {
       </main>
 
       <footer className="closing wrap">
-        <span>{branding.name ?? "VisiumVisualizer"} · Spatial biology, in context.</span>
+        <span>{branding.name ?? "HDViewer"} · Spatial biology, in context.</span>
         <nav aria-label="Footer">
           <a href={tutorial} {...external}>Documentation</a>
           <a href={branding.plugins_guide} {...external}>Plugins</a>

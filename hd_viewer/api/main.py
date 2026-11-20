@@ -41,7 +41,7 @@ def create_app(registry=None, sweep_seconds=SWEEP_SECONDS):
         finally:
             task.cancel()
 
-    app = FastAPI(title="VisiumVisualizer API", lifespan=lifespan,
+    app = FastAPI(title="HDViewer API", lifespan=lifespan,
                   root_path=os.environ.get("VHD_ROOT_PATH", ""))
     app.state.sessions = registry
 

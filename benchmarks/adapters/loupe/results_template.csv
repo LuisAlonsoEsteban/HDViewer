@@ -1,0 +1,7 @@
+dataset,task,bin_size,phase,repeat,seconds,peak_rss_mb,status,notes
+# One row per measured action; written by loupe_monitor.py. Example rows (delete before use):
+mouse_brain,e2e.first_view,8,load_to_first_view,0,,,ok,open cloupe.cloupe from File > Open
+mouse_brain,bins.render,8,view:overview,0,,,ok,
+mouse_brain,bins.render,8,view:zoom_250um,0,,,ok,
+mouse_brain,bins.render,8,gene_switch,0,,,ok,Ttr -> Mbp
+mouse_brain,bins.cluster,8,total,0,,,n.a.,clusters are precomputed by Space Ranger

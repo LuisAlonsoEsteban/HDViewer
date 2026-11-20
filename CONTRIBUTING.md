@@ -1,6 +1,6 @@
-# Contributing to VisiumVisualizer
+# Contributing to HDViewer
 
-Thank you for helping to improve VisiumVisualizer. Bug reports, documentation fixes,
+Thank you for helping to improve HDViewer. Bug reports, documentation fixes,
 new features and new analysis methods are all welcome.
 
 ## Adding your method as a plugin
@@ -11,7 +11,7 @@ takes you from an empty folder to a method that runs in the interface.
 
 To propose a method for the public instance at <https://hdviewer.unav.edu>:
 
-1. Optionally, open a [*New method plugin* issue](https://github.com/LuisAlonsoEsteban/VisiumVisualizer/issues/new?template=method-plugin.yml)
+1. Optionally, open a [*New method plugin* issue](https://github.com/LuisAlonsoEsteban/HDViewer/issues/new?template=method-plugin.yml)
    to discuss it first.
 2. Fork the repository and add your plugin folder under
    `hd_viewer/startup/data/image/segmentation/api/plugins/` or
@@ -27,7 +27,7 @@ your citation.
 
 ## Reporting a problem
 
-Open an [issue](https://github.com/LuisAlonsoEsteban/VisiumVisualizer/issues). Please
+Open an [issue](https://github.com/LuisAlonsoEsteban/HDViewer/issues). Please
 include what you did, what you expected, what happened, and the dataset (example name,
 or the bin size and image size of your own data). Never attach private data.
 

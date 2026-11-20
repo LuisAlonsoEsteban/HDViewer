@@ -25,3 +25,11 @@ frontend/test-results/
 frontend/playwright-report/
 frontend/test-results-*/
 test-results/
+
+# Benchmarks: results, the Vitessce page's dependencies/build, npm logs
+benchmarks/results/*
+!benchmarks/results/README.md
+benchmarks/adapters/vitessce_app/node_modules/
+benchmarks/adapters/vitessce_app/dist/
+benchmarks/adapters/vitessce_app/npm-*.log
+benchmarks/slurm/logs/

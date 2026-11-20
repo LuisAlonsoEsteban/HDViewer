@@ -6,6 +6,9 @@ import { getJson, sendJson, uploadFile } from "../api/client";
 import { PluginParamForm, Param } from "../components/PluginParamForm";
 import { HelpButton } from "../components/HelpButton";
 import { useApp } from "../store/app";
+import { TOURS } from "../tour/p1crc";
+import { startTour, useTourAvailable } from "../tour/start";
+import { useTour } from "../tour/store";
 
 interface Dataset { id: string; title: string; bins_size: number; has_reference: boolean; has_annotations: boolean }
 interface Plugin { name: string; title: string; description: string; url?: string; citation?: string | null; params: Param[] }
@@ -49,9 +52,17 @@ export function Loading() {
   const [error, setError] = useState<string | null>(null);
   const aborts = useRef<Record<string, AbortController>>({});
   const running = load.state === "running";
+  const tour = useTour((s) => (s.tour ? TOURS[s.tour] : undefined));
+  const tourAvailable = useTourAvailable("p1crc");
 
   useEffect(() => {
-    getJson<Dataset[]>("datasets").then((list) => { setDatasets(list); setDataset(list[0]?.id ?? null); });
+    getJson<Dataset[]>("datasets").then((list) => {
+      setDatasets(list);
+      // A guided tour needs its example (and no pseudospots): preselect them
+      const wanted = tour && list.some((d) => d.id === tour.dataset) ? tour.dataset : null;
+      setDataset(wanted ?? list[0]?.id ?? null);
+      if (wanted) setPseudospots(false);
+    });
     getJson<Plugins>("plugins").then(setPlugins);
     getJson<Record<string, UploadState>>("uploads").then(setUploads);
   }, []);
@@ -115,7 +126,12 @@ export function Loading() {
                   Follow the biological use-case walkthrough →
                 </Anchor>
               </div>
-              <Button component="a" href={config.tutorial_url} target="_blank" rel="noopener">📖 Open the tutorial</Button>
+              <Stack gap="xs">
+                <Button component="a" href={config.tutorial_url} target="_blank" rel="noopener">📖 Open the tutorial</Button>
+                {tourAvailable && !tour && (
+                  <Button variant="light" onClick={() => startTour("p1crc")}>Take the guided tour</Button>
+                )}
+              </Stack>
             </Group>
           </Card>
         )}
@@ -127,6 +143,7 @@ export function Loading() {
             </Tabs.List>
             <Tabs.Panel value="example" pt="md">
               <Select label="Example dataset" data={datasets.map((d) => ({ value: d.id, label: d.title }))}
+                      wrapperProps={{ "data-tour": "dataset" }}
                       value={dataset} onChange={setDataset} disabled={running} />
               {example && (
                 <Text size="xs" c="dark.2" mt={6}>
@@ -191,6 +208,7 @@ export function Loading() {
           <Stack>
             <Group gap={6}><Title order={4}>Preprocessing</Title><HelpButton topic="preprocessing" /></Group>
             <Checkbox label="Generate Visium v2 pseudospots (55 µm)" checked={pseudospots} disabled={running}
+                      wrapperProps={{ "data-tour": "pseudospots" }}
                       onChange={(e) => setPseudospots(e.currentTarget.checked)} />
             <Text fw={600} size="sm">Cell segmentation</Text>
             {plugins && !plugins.available && <Text size="sm" c="red.4">Segmentation is unavailable: {plugins.error}</Text>}
@@ -223,9 +241,9 @@ export function Loading() {
         {load.state === "failed" && <Alert color="red">{load.error}</Alert>}
         {failures.map((message) => <Alert key={message} color="yellow">{message}</Alert>)}
 
-        <Button size="md" onClick={start} disabled={!canLoad} loading={running}>Load data</Button>
+        <Button size="md" onClick={start} disabled={!canLoad} loading={running} data-tour="load">Load data</Button>
         {load.tasks && (
-          <Card withBorder>
+          <Card withBorder data-tour="progress">
             <Stack gap="xs">
               <Group gap={6}><Text fw={600} size="sm">Progress</Text><HelpButton topic="progress" /></Group>
               {Object.entries(load.tasks).map(([task, state]) => (

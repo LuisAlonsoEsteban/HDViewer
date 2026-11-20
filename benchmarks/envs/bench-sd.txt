@@ -1,0 +1,13 @@
+# SpatialData + Vitessce + Python Playwright (driver for HDViewer and Vitessce in Chromium).
+# python3.11 -m venv <prefix>/bench-sd && <prefix>/bench-sd/bin/pip install -r benchmarks/envs/bench-sd.txt
+spatialdata
+spatialdata-io
+spatialdata-plot
+scanpy
+leidenalg
+igraph
+vitessce[all]==3.5.1   # newer releases pin zarr<3, which spatialdata 0.7 cannot use
+playwright==1.64.1
+psutil
+pyyaml
+tifffile

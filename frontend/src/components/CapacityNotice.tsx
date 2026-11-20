@@ -48,7 +48,7 @@ export function CapacityNotice({ retryAfter, onRetry }: { retryAfter: number; on
           <Progress value={checking ? 100 : ((retryAfter - left) / retryAfter) * 100} animated={checking} />
         </div>
         <Text size="sm" c="dimmed">
-          Have large datasets, or prefer not to wait? VisiumVisualizer is free and open source: you can{" "}
+          Have large datasets, or prefer not to wait? HDViewer is free and open source: you can{" "}
           {repository
             ? <Anchor href={`${repository}#run-it-locally`} target="_blank" rel="noopener" size="sm">run it on your own computer</Anchor>
             : "run it on your own computer"}

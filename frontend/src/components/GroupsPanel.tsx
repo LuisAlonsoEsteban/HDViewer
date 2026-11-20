@@ -75,8 +75,9 @@ export function GroupsPanel({ layer }: { layer: Layer }) {
   return (
     <Stack gap="sm">
       <Text fw={600} size="sm">Build conditions</Text>
-      <Autocomplete label="Gene / metadata" placeholder="Start typing" data={options} value={column} onChange={setColumn} />
-      <Group grow>
+      <Autocomplete label="Gene / metadata" placeholder="Start typing" data={options} value={column} onChange={setColumn}
+                    wrapperProps={{ "data-tour": "groups-form" }} />
+      <Group grow data-tour="groups-form">
         <Select label="Operator" data={state?.operators ?? [">", "<", ">=", "<=", "=="]} value={op} onChange={setOp} />
         <TextInput label="Value" value={value} onChange={(e) => setValue(e.currentTarget.value)} />
       </Group>
@@ -88,12 +89,13 @@ export function GroupsPanel({ layer }: { layer: Layer }) {
       {conditions.map((c, i) => (
         <Text key={i} size="xs" ff="monospace">{i ? `${c.logic} ` : ""}{c.column} {c.op} {c.value}</Text>
       ))}
-      <TextInput label="Group name" value={name} onChange={(e) => setName(e.currentTarget.value)} />
-      <Button onClick={create} loading={busy} disabled={!conditions.length}>Create group</Button>
+      <TextInput label="Group name" value={name} onChange={(e) => setName(e.currentTarget.value)}
+                 wrapperProps={{ "data-tour": "groups-form" }} />
+      <Button onClick={create} loading={busy} disabled={!conditions.length} data-tour="groups-form">Create group</Button>
       {message && <Text size="xs" c={message.error ? "red.4" : "teal.3"}>{message.text}</Text>}
 
       {state && state.groups.length > 0 && (
-        <Stack gap={6}>
+        <Stack gap={6} data-tour="groups-list">
           <Text fw={600} size="sm">Created groups</Text>
           {!state.shown && <Button size="xs" variant="light" onClick={async () => {
             await sendJson("POST", `${base}/groups/show`); await refreshLayer(layer.id);

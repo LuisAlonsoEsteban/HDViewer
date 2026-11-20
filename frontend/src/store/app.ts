@@ -76,6 +76,8 @@ interface State {
   setWorkspace(workspace: Workspace): void;
   updateLayer(id: string, changes: Partial<Layer>): void;
   activeLayer: string | null;               // the layer the tool panel works on
+  tool: string;                             // the open tool of the workspace rail
+  setTool(tool: string): void;
   setActiveLayer(id: string): void;
   binInfo: Record<string, BinInfo>;
   setBinInfo(layer: string, info: BinInfo): void;
@@ -116,6 +118,8 @@ export const useApp = create<State>((set) => ({
     activeLayer: workspace.layers.some((l) => l.id === state.activeLayer) ? state.activeLayer : workspace.layers[0]?.id ?? null,
   })),
   activeLayer: null,
+  tool: "display",
+  setTool: (tool) => set({ tool }),
   setActiveLayer: (id) => set({ activeLayer: id }),
   updateLayer: (id, changes) =>
     set((state) => state.workspace ? {

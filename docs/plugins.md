@@ -1,6 +1,6 @@
 # Plugins: bring your own method
 
-VisiumVisualizer runs its **cell segmentation** and **cell-type deconvolution**
+HDViewer runs its **cell segmentation** and **cell-type deconvolution**
 methods as plugins. A plugin is one folder holding a short manifest and a script.
 The viewer finds it at start-up and builds its settings form from the manifest:
 inputs, defaults, limits and help texts. It runs the method in isolation and
@@ -253,16 +253,16 @@ Containers make a method reproducible, and are how the public instance runs it.
 There are two ways to share a method:
 
 - **Use it in your own copy.** Keep the plugin folder in your fork or local clone.
-  Anyone who runs VisiumVisualizer from it gets your method. This is enough for a lab,
+  Anyone who runs HDViewer from it gets your method. This is enough for a lab,
   a paper's reproducibility package, or a private server.
-- **Add it to VisiumVisualizer and <https://hdviewer.unav.edu>.** Open a pull request
+- **Add it to HDViewer and <https://hdviewer.unav.edu>.** Open a pull request
   that adds the plugin folder; the [contribution guide](../CONTRIBUTING.md) has the
   checklist. Once it is merged and its image is published, the method is available to
   everyone who uses the public instance, with your description, link and citation.
 
 The public server only runs plugins merged into this repository. Visitors cannot
 upload code, so every method there has been reviewed. If you are unsure whether your
-method fits, open a [*New method plugin* issue](https://github.com/LuisAlonsoEsteban/VisiumVisualizer/issues/new?template=method-plugin.yml)
+method fits, open a [*New method plugin* issue](https://github.com/LuisAlonsoEsteban/HDViewer/issues/new?template=method-plugin.yml)
 first.
 
 ### Before you share: checklist

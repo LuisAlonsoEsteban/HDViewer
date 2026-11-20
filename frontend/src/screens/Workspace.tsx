@@ -24,6 +24,8 @@ import { Splitter, useDragSize } from "../components/Splitter";
 import { SummaryPanel } from "../components/SummaryPanel";
 import { Layer, useApp } from "../store/app";
 import { BrandMark } from "./Landing";
+import { startTour, useTourAvailable } from "../tour/start";
+import { useTour } from "../tour/store";
 
 const HEADER = 52;
 const RAIL = 76;
@@ -60,8 +62,11 @@ const TOOLS: Tool[] = [
 export function Workspace() {
   const { workspace, config, results, setScreen } = useApp();
   const activeId = useApp((s) => s.activeLayer);
-  const [tool, setTool] = useState<string>("display");
+  const tool = useApp((s) => s.tool);
+  const setTool = useApp((s) => s.setTool);
   const [analyses, setAnalyses] = useState(true);
+  const touring = useTour((s) => s.tour !== null);
+  const tourAvailable = useTourAvailable("p1crc");
   const [left, setLeft] = useDragSize("tools", 360, 300, 720);
   const [right, setRight] = useDragSize("right", 440, 320, 900);
   const [below, setBelow] = useDragSize("results", Math.round(window.innerHeight * 0.42), 160, Math.round(window.innerHeight * 0.8));
@@ -79,7 +84,7 @@ export function Workspace() {
             <UnstyledButton onClick={() => setScreen("landing")} aria-label="About (back to the overview)">
               <Group gap={8} wrap="nowrap">
                 <BrandMark className="workspace-mark" />
-                <Title order={4} className="ws-brand">{branding.name ?? "VisiumVisualizer"}</Title>
+                <Title order={4} className="ws-brand">{branding.name ?? "HDViewer"}</Title>
               </Group>
             </UnstyledButton>
             <Divider orientation="vertical" my={14} visibleFrom="sm" />
@@ -93,6 +98,9 @@ export function Workspace() {
             )}
           </Group>
           <Group gap="md" wrap="nowrap">
+            {tourAvailable && !touring && (
+              <Anchor size="sm" component="button" onClick={() => startTour("p1crc")} c="dark.1" visibleFrom="sm">Guided tour</Anchor>
+            )}
             {config && <Anchor size="sm" href={config.tutorial_url} target="_blank" rel="noopener" c="dark.1">Guide ↗</Anchor>}
             {branding.repository && (
               <Anchor size="sm" href={branding.repository} target="_blank" rel="noopener" c="dark.1" visibleFrom="sm">GitHub ↗</Anchor>
@@ -113,7 +121,7 @@ export function Workspace() {
           <Tabs.List className="tool-rail" aria-label="Tools">
             {TOOLS.map(({ value, label, title, icon: Icon }) => (
               <Tooltip key={value} label={title} position="right" withArrow openDelay={500} disabled={title === label}>
-                <Tabs.Tab value={value} className="tool-tab">
+                <Tabs.Tab value={value} className="tool-tab" data-tour={`tool-${value}`}>
                   <span className="tool-tab-icon"><Icon size={20} /></span>
                   <span className="tool-tab-label">{label}</span>
                 </Tabs.Tab>
@@ -121,7 +129,7 @@ export function Workspace() {
             ))}
           </Tabs.List>
           <div className="tool-panel">
-            <div className="tool-panel-top">
+            <div className="tool-panel-top" data-tour="layers">
               <Text size="xs" c="dimmed" tt="uppercase" fw={600} mb={6} style={{ letterSpacing: ".1em" }}>Layers</Text>
               <LayerSwitcher />
             </div>
@@ -171,7 +179,7 @@ export function Workspace() {
         </div>
         {/* DE and metadata comparison results open below the map */}
         {results && (
-          <div className="results-area" style={{ height: below }}>
+          <div className="results-area" style={{ height: below }} data-tour="results">
             <Splitter axis="y" sign={-1} size={below} onResize={setBelow} label="Resize the results panel"
                       style={{ position: "absolute", left: 0, right: 0, top: -4 }} />
             {results.kind === "de"

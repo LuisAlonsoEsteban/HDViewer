@@ -41,7 +41,7 @@ HELP = {
         One bar per task. Percentages count completed steps, not time remaining. A failed
         segmentation method turns its bar red with the reason; the rest of the data still loads.
         If a problem persists, report it with the message shown at
-        <a href='https://github.com/LuisAlonsoEsteban/VisiumVisualizer/issues' target='_blank' rel='noopener'>GitHub issues</a>
+        <a href='https://github.com/LuisAlonsoEsteban/HDViewer/issues' target='_blank' rel='noopener'>GitHub issues</a>
         or to <a href='mailto:laesteban@unav.es'>laesteban@unav.es</a>."""),
 
     # ------------------------------------------------------------- layer tabs

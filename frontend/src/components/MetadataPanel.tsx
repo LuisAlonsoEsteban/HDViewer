@@ -97,7 +97,7 @@ export function MetadataPanel({ layer }: { layer: Layer }) {
 
   const spec = options?.presets.find((p) => p.key === preset);
   return (
-    <Stack gap="sm">
+    <Stack gap="sm" data-tour="metadata-form">
       <Text size="xs" c="dark.1">Compare selected groups/clusters, or compare each selected set against The rest.</Text>
       <SetList title="Groups" sets={options?.groups ?? []} chosen={groups} toggle={toggle(setGroups)}
                hint="Create groups in the Groups tab (or from an ROI)." />

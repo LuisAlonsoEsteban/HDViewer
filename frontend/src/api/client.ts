@@ -1,4 +1,4 @@
-// Thin client for the VisiumVisualizer API. Paths are relative, so the app
+// Thin client for the HDViewer API. Paths are relative, so the app
 // works under any prefix (e.g. /v2/ behind nginx).
 import { decodeFrame, Frame } from "./frames";
 
@@ -87,6 +87,7 @@ export interface LoadStatus {
   state?: "running" | "ready" | "failed";
   tasks?: Record<string, { pct: number; status: string }>;
   error?: string | null;
+  dataset?: string | null;     // the example's id, or null for uploads
 }
 
 /** Events socket with automatic reconnection (the session survives reloads). */

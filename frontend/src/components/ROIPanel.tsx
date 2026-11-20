@@ -207,7 +207,8 @@ export function ROIPanel({ layer }: { layer: Layer }) {
 
   return (
     <Stack gap="sm">
-      <TextInput label="ROI name (optional)" placeholder="ROI 1" value={name} onChange={(e) => setName(e.currentTarget.value)} />
+      <TextInput label="ROI name (optional)" placeholder="ROI 1" value={name} onChange={(e) => setName(e.currentTarget.value)}
+                 wrapperProps={{ "data-tour": "roi-form" }} />
       <Select label="Geometry" value={method} allowDeselect={false}
               data={[{ value: "box", label: "Bounding box" }, { value: "lasso", label: "Lasso" }, { value: "radius", label: "Seed + radius" }]}
               onChange={(value) => changeMethod(() => setMethod(value as DrawMode))} />
@@ -242,7 +243,7 @@ export function ROIPanel({ layer }: { layer: Layer }) {
           {draft.shape.exclude_group && " Source-group bin shapes and members are excluded."}
         </Text>
       )}
-      <Group gap="xs">
+      <Group gap="xs" data-tour="roi-form">
         <Button onClick={begin} disabled={!layer.visible || saving} loading={previewing || drawing}>
           {mode === "barcode" ? "Preview barcode" : mode === "group" ? "Preview group" : "Draw"}
         </Button>
@@ -254,7 +255,7 @@ export function ROIPanel({ layer }: { layer: Layer }) {
       <Text fw={600} size="sm">Saved ROIs</Text>
       {list && list.rois.length === 0 && <Text size="xs" c="dark.2">No ROIs saved in this layer.</Text>}
       {list?.rois.map((roi) => (
-        <Stack key={roi.id} gap={4} data-testid="roi">
+        <Stack key={roi.id} gap={4} data-testid="roi" data-tour="roi-list">
           <div>
             <Text size="sm"><Text span fw={700} c={roi.colour}>{roi.name}</Text> · {KIND_LABELS[roi.kind] ?? roi.kind}</Text>
             <Text size="xs" c={roi.error ? "red.4" : "dark.1"}>

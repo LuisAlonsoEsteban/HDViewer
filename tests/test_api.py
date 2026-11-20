@@ -49,7 +49,7 @@ class ApiTestCase(unittest.TestCase):
 class ConfigTests(ApiTestCase):
     def test_config_and_datasets(self):
         config = self.client.get("/api/config").json()
-        self.assertEqual(config["branding"]["name"], "VisiumVisualizer")
+        self.assertEqual(config["branding"]["name"], "HDViewer")
         self.assertIn("log1p", [scale["value"] for scale in config["expression_scales"]])
         self.assertEqual(self.client.get("/api/datasets").json()[0]["id"], "Tiny")
         self.assertEqual(self.client.get("/static/bokehjs/bokeh.min.js").status_code, 200)

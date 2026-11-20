@@ -125,3 +125,7 @@
 /* Plugins section */
 .landing #plugins .hero-actions { margin-top: 34px; }
 .landing .feature code { font: 12px/1.6 ui-monospace, SFMono-Regular, Menlo, monospace; background: var(--green-soft); color: var(--green); padding: 1px 5px; border-radius: 4px; }
+/* Guided-tour launchers: buttons styled as the surrounding links */
+.landing .link-button { background: none; border: 0; padding: 0; font: inherit; color: inherit; cursor: pointer; text-decoration: underline; text-underline-offset: 4px; }
+.landing .figcaption-links { display: inline-flex; gap: 14px; flex-wrap: wrap; justify-content: flex-end; }
+.landing .feature .link-button { display: inline-block; margin-top: 16px; font-size: 12px; font-weight: 600; text-align: left; }

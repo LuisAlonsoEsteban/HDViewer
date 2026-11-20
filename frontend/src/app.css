@@ -69,3 +69,18 @@ body { background: #0f1d17; }
 .aside-tabs { display: flex; flex-direction: column; height: 100%; min-height: 0; }
 .aside-tabs > [role=tablist] { background: var(--ws-raised); padding-top: 4px; }
 .aside-body { flex: 1; min-height: 0; }
+
+/* Guided tour: an outline around the highlighted controls (clicks pass through), and the step card
+   (above the cookie notice, which could otherwise cover its buttons) */
+.tour-spotlight {
+  position: fixed; z-index: 240; pointer-events: none; border-radius: 10px;
+  border: 2px solid var(--mantine-color-green-4);
+  box-shadow: 0 0 0 4px rgba(64, 192, 87, .25), 0 0 24px rgba(64, 192, 87, .35);
+  transition: left .2s ease, top .2s ease, width .2s ease, height .2s ease;
+  animation: tour-pulse 1.8s ease-in-out infinite;
+}
+@keyframes tour-pulse { 50% { box-shadow: 0 0 0 7px rgba(64, 192, 87, .12), 0 0 30px rgba(64, 192, 87, .25); } }
+.tour-card { position: fixed; z-index: 1001; transition: left .2s ease, top .2s ease; max-height: calc(100dvh - 32px); overflow-y: auto; }
+@media (prefers-reduced-motion: reduce) {
+  .tour-spotlight, .tour-card { transition: none; animation: none; }
+}

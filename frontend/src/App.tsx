@@ -1,17 +1,21 @@
 import { useEffect, useState } from "react";
 import { ApiError, connectEvents, getJson, LoadStatus, onCapacity } from "./api/client";
 import { CapacityNotice } from "./components/CapacityNotice";
+import { CookieNotice } from "./components/CookieNotice";
 import { refreshLayer } from "./map/layers";
 import { Config, useApp, Workspace as WorkspaceData } from "./store/app";
 import { Landing } from "./screens/Landing";
 import { Loading } from "./screens/Loading";
 import { Workspace } from "./screens/Workspace";
+import { startTourFromUrl } from "./tour/start";
+import { TourOverlay } from "./tour/TourOverlay";
 
 export function App() {
   const { screen, setConfig, setLoad, progress, fail, setWorkspace, setScreen } = useApp();
   // Seconds until the next try when every analysis session on the server is in use
   const [capacity, setCapacity] = useState<number | null>(null);
   useEffect(() => onCapacity(setCapacity), []);
+  useEffect(startTourFromUrl, []);
 
   /** A free session? Then start again cleanly (the page sets up its session). */
   const retrySession = async () => {
@@ -74,7 +78,11 @@ export function App() {
     return () => { stop(); clearInterval(poll); };
   }, []);
 
-  const notice = capacity !== null && <CapacityNotice retryAfter={capacity} onRetry={retrySession} />;
+  const notice = <>
+    {capacity !== null && <CapacityNotice retryAfter={capacity} onRetry={retrySession} />}
+    <CookieNotice />
+    <TourOverlay />
+  </>;
   if (screen === "workspace") return <>{notice}<Workspace /></>;
   if (screen === "loading") return <>{notice}<Loading /></>;
   return <>{notice}<Landing /></>;

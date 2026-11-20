@@ -1,0 +1,85 @@
+# Cross-tool benchmark configuration (see benchmarks/README.md).
+# Paths are relative to the repository root unless absolute.
+
+repeats: 5                    # the first run is reported separately as "first"
+timeout_s: 1800               # per (tool, dataset, task, repeat) process
+memory_cap_gb: 100            # process tree RSS above this is killed and recorded as "oom"
+sample_hz: 20                 # memory sampling rate
+threads: 8                    # OMP/MKL/OpenBLAS/numba threads, identical for every tool
+work_dir: data/benchmark_work          # per-run scratch folders and reader mirrors
+cache_dir: data/benchmark_work/cache   # Zarr stores reused by query/render tasks (built in 'setup' phases)
+results_dir: benchmarks/results
+snapshots: true               # save a picture of the last rendered view of each render task (visual check)
+
+analysis:                     # identical for HDViewer and scanpy (SpatialData)
+  n_pcs: 30
+  n_neighbors: 15
+  resolution: 0.9
+
+# Interpreters (one environment per tool family; see envs/ and setup.sh)
+python:
+  hdviewer: .venv/bin/python
+  bench_sd: /scratch/lalonsoeste/PhD/envs/bench-sd/bin/python
+  bench_napari: /scratch/lalonsoeste/PhD/envs/bench-napari/bin/python
+
+env:
+  PLAYWRIGHT_BROWSERS_PATH: /scratch/lalonsoeste/PhD/envs/playwright-browsers
+
+# napari needs an X server with OpenGL: Xvfb (conda-forge xorg-xvfb-server) + system Mesa
+xvfb:
+  prefix: /scratch/lalonsoeste/PhD/envs/bench-xvfb
+  dri_path: /usr/lib64/dri
+
+tools:
+  hdviewer:
+    label: HDViewer (ours)
+    adapters:
+      - {script: tool_hdviewer.py, python: hdviewer}
+      - {script: tool_hdviewer_browser.py, python: bench_sd,
+         tasks: [e2e.first_view, image.render, bins.render, cells.render]}
+  spatialdata:
+    label: SpatialData
+    adapters:
+      - {script: tool_spatialdata.py, python: bench_sd}
+  napari:
+    label: napari
+    adapters:
+      - {script: tool_napari.py, python: bench_napari, xvfb: true}
+  vitessce:
+    label: Vitessce
+    adapters:
+      - {script: tool_vitessce.py, python: bench_sd}
+  loupe:
+    label: Loupe Browser
+    manual: true              # measured by hand: adapters/loupe/PROTOCOL.md
+
+tasks:
+  image: [image.read, image.pyramid, image.query, image.render]
+  bins: [bins.load, bins.query, bins.render, bins.aggregate, bins.cluster, bins.de]
+  cells: [cells.load, cells.pool, cells.query, cells.render, cells.cluster, cells.de]
+  e2e: [e2e.first_view]
+
+# Bin sizes each bins/e2e task runs at (default: the dataset's bin_sizes).
+# Clustering 2 µm bins of a whole slide is not a realistic use; it is left out by default.
+task_bin_sizes:
+  bins.aggregate: [2]
+  bins.cluster: [8, 16]
+  bins.de: [8, 16]
+  e2e.first_view: [8]
+
+datasets:
+  mouse_brain:
+    root: data/Visium_HD_Mouse_Brain
+    image: data/Visium_HD_Mouse_Brain/Visium_HD_Mouse_Brain_tissue_image.tif
+    cells: data/Visium_HD_Mouse_Brain/segmentation/cellpose/73b61940df01/cells.geojson
+    dataset_id: mouse_brain
+    genes: [Ttr, Mbp]
+    bin_sizes: [2, 8, 16]
+
+synthetic:
+  out: data/benchmark_synthetic
+  sizes: [100k, 500k, 2M, 6M]   # in-tissue 2 µm bins (Mouse Brain has 6.3M)
+  genes: 1000
+  seed: 0
+  marker_genes: [Gene0000, Gene0001]
+  bin_sizes: [2, 8, 16]
