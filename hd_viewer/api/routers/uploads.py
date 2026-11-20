@@ -1,4 +1,4 @@
-"""Chunked uploads over HTTP: POST announces a file, PUT sends raw-byte chunks.
+"""Chunked uploads over HTTP: POST announces a file, POST (or PUT) sends raw-byte chunks.
 
 Validation (names, extensions, size limit, disk space) and assembly are the
 shared core.uploads.UploadField, so both front ends accept the same files.
@@ -64,7 +64,8 @@ def start_upload(body: UploadStart, session=Depends(current_session)):
     return dict(upload_id=upload_id, chunk_bytes=field.chunk_bytes)
 
 
-@router.put("/uploads/{key}/{upload_id}/{index}")
+# POST as well as PUT: some web application firewalls block PUT requests
+@router.api_route("/uploads/{key}/{upload_id}/{index}", methods=["POST", "PUT"])
 async def upload_chunk(key: str, upload_id: str, index: int, request: Request,
                        session=Depends(current_session)):
     _unlocked(session)

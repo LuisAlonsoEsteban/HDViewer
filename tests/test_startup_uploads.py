@@ -23,7 +23,7 @@ REQUIRED = (("expression", "counts.h5"), ("positions", "positions.parquet"), ("i
 class UploadApiTestCase(unittest.TestCase):
     """An app whose only example is "Tiny" (as tests.test_api.ApiTestCase, which is not
     imported: tests.test_api imports tests.test_deconvolution, which imports this module).
-    Drives the chunked-upload protocol like frontend/src (POST, then PUT chunks)."""
+    Drives the chunked-upload protocol like frontend/src (POST, then POST chunks)."""
 
     def setUp(self):
         from tests.test_core_pipeline import write_dataset
@@ -69,7 +69,7 @@ class UploadApiTestCase(unittest.TestCase):
         for index, offset in enumerate(range(0, len(contents), chunk_bytes)):
             if not finish and offset + chunk_bytes >= len(contents):
                 break
-            response = self.client.put(f"/api/uploads/{field}/{upload_id}/{index}",
+            response = self.client.post(f"/api/uploads/{field}/{upload_id}/{index}",
                                        content=contents[offset:offset + chunk_bytes])
         return response
 

@@ -68,7 +68,8 @@ export async function uploadFile(field: string, file: File, onProgress: (sent: n
     if (signal?.aborted) throw new DOMException("Upload cancelled", "AbortError");
     const chunk = file.slice(offset, offset + chunk_bytes);
     await check(await fetch(`api/uploads/${field}/${upload_id}/${index}`, {
-      method: "PUT", credentials: "same-origin", body: chunk, signal,
+      method: "POST", credentials: "same-origin", body: chunk, signal,
+      headers: { "Content-Type": "application/octet-stream" },
     }));
     onProgress(Math.min(offset + chunk_bytes, file.size));
   }
