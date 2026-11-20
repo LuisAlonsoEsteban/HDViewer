@@ -15,6 +15,7 @@ WorkingDirectory=/opt/HDViewer
 Environment=VHD_DATA_DIR=/opt/HDViewer/data
 Environment=VHD_SESSION_TTL=1800
 Environment=VHD_MAX_SESSIONS=50
+Environment=VHD_UPLOAD_DIR=/path/with/space/hdviewer-uploads
 # One process: sessions, loaded datasets and the tile registry live in memory
 ExecStart=/opt/HDViewer/.venv/bin/uvicorn hd_viewer.api.main:app \
     --host 127.0.0.1 --port 8000 --workers 1 --proxy-headers --forwarded-allow-ips 127.0.0.1

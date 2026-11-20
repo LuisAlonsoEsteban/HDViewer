@@ -102,30 +102,22 @@ class SegmentationService:
             callback(result)
         threading.Thread(target=detect, daemon=True).start()
 
-    def prepare_image(self, image, image_key, work_dir, bgr=False):
-        """Write the image once per dataset; every plugin run links to it."""
-        path = Path(work_dir) / "_inputs" / image_key / IMAGE_FILE
-        # Datasets (e.g. examples) are shared by sessions: one writer per image
-        with JOBS.join(("segmentation-input", str(path))) as job, job.lock:
-            if not path.exists():
-                import tifffile
-                path.parent.mkdir(parents=True, exist_ok=True)
-                fd, tmp = tempfile.mkstemp(prefix=".image-", suffix=".tif", dir=path.parent)
-                os.close(fd)
-                try:
-                    tifffile.imwrite(tmp, to_rgb(image, bgr=bgr), bigtiff=True, photometric="rgb")
-                    os.replace(tmp, path)
-                finally:
-                    if os.path.exists(tmp):
-                        os.remove(tmp)
-        return path
+    @staticmethod
+    def write_image(image, path, bgr=False):
+        """Write the plugin input image (RGB BigTIFF) to `path`."""
+        import tifffile
+        tifffile.imwrite(path, to_rgb(image, bgr=bgr), bigtiff=True, photometric="rgb")
 
-    def run(self, name, image_path, image_key, work_dir, params=None, um_per_px=None,
-            on_progress=None, owner=None):
+    def run(self, name, image, image_key, work_dir, params=None, um_per_px=None,
+            on_progress=None, owner=None, bgr=False):
         """
         Segment with plugin `name`. Results are cached per image, plugin version
         and parameters, so re-loading a dataset reuses them. Concurrent identical
         requests share one run, which is cancelled once no `owner` (session) awaits it.
+
+        `image` is the array to segment, or a callable returning it (only called
+        on a cache miss). It is written to the run's temporary folder and deleted
+        with it: segmentation inputs are never kept on disk.
 
         Returns a GeoDataFrame of cells in input-image pixel coordinates and the
         output directory (which also holds run.log).
@@ -155,10 +147,10 @@ class SegmentationService:
                 job.check()
                 on_progress(0.0, "Queued: waiting for a free slot")
                 with job.hold(self._slots):
-                    self._run(plugin, key, spec, image_path, out_dir, on_progress)
+                    self._run(plugin, key, spec, image, bgr, out_dir, on_progress)
         return read_polygons(result), out_dir
 
-    def _run(self, plugin, key, spec, image_path, out_dir, on_progress):
+    def _run(self, plugin, key, spec, image, bgr, out_dir, on_progress):
         result = out_dir / RESULT_FILE
         out_dir.parent.mkdir(parents=True, exist_ok=True)
         # Unique: another viewer process may run the same key
@@ -169,13 +161,11 @@ class SegmentationService:
 
         with open(input_dir / PARAMS_FILE, "w") as f:
             json.dump(spec, f, indent=2)
-        try:
-            os.link(image_path, input_dir / IMAGE_FILE)
-        except OSError:
-            shutil.copy(image_path, input_dir / IMAGE_FILE)
 
-        on_progress(0.0, f"Starting ({self.runner.name})")
         try:
+            on_progress(0.0, "Writing input image")
+            self.write_image(image() if callable(image) else image, input_dir / IMAGE_FILE, bgr=bgr)
+            on_progress(0.0, f"Starting ({self.runner.name})")
             self.runner.run(plugin, input_dir, output_dir, on_progress, run_dir / LOG_FILE)
             if not (output_dir / RESULT_FILE).exists():
                 raise RunnerError(f"finished without writing {RESULT_FILE}.")

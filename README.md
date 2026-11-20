@@ -213,6 +213,7 @@ The following environment variables override them without editing code:
 | Variable | Default | Purpose |
 |---|---|---|
 | `VHD_DATA_DIR` | `<repo>/data` | Folder holding the example datasets |
+| `VHD_UPLOAD_DIR` | `<repo>/tmp` | Folder for uploaded files and per-session work files (needs room for the largest upload) |
 | `VHD_ROOT_PATH` | empty | URL prefix when served under a sub-path (e.g. `/viewer`) |
 | `VHD_SESSION_TTL` | `1800` | Seconds of inactivity before a session and its files are removed |
 | `VHD_MAX_SESSIONS` | `50` | Concurrent sessions; further visitors are asked to retry later |

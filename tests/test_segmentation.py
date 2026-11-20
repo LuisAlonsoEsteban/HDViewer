@@ -80,7 +80,6 @@ class LocalRunnerTests(unittest.TestCase):
         self.work = Path(tempfile.mkdtemp())
         self.service = SegmentationService({"runner": "local", "max_parallel": 1})
         self.image, self.disks = synthetic_he()
-        self.image_path = self.service.prepare_image(self.image, "synthetic", self.work)
 
     def tearDown(self):
         shutil.rmtree(self.work, ignore_errors=True)
@@ -88,7 +87,7 @@ class LocalRunnerTests(unittest.TestCase):
     def test_watershed_finds_every_nucleus_once_and_caches(self):
         progress = []
         cells, out_dir = self.service.run(
-            "watershed", self.image_path, "synthetic", self.work,
+            "watershed", self.image, "synthetic", self.work,
             params={"block_size": 512}, um_per_px=0.5,
             on_progress=lambda fraction, message: progress.append(fraction),
         )
@@ -100,9 +99,15 @@ class LocalRunnerTests(unittest.TestCase):
         self.assertEqual(progress[-1], 1.0)
         self.assertTrue((out_dir / "run.log").exists())
 
+        # The input image is deleted with the run folder: never kept on disk
+        self.assertEqual(list(self.work.rglob("image.tif")), [])
+
+        def never_loaded():
+            raise AssertionError("cached runs must not load the image")
+
         cached = []
         again, _ = self.service.run(
-            "watershed", self.image_path, "synthetic", self.work,
+            "watershed", never_loaded, "synthetic", self.work,
             params={"block_size": 512}, um_per_px=0.5,
             on_progress=lambda fraction, message: cached.append(message),
         )
@@ -117,7 +122,7 @@ class LocalRunnerTests(unittest.TestCase):
         plugin.path = broken
         try:
             with self.assertRaises(RunnerError) as ctx:
-                self.service.run("watershed", self.image_path, "synthetic", self.work)
+                self.service.run("watershed", self.image, "synthetic", self.work)
         finally:
             self.service.plugins = discover()
         self.assertIn("model weights not found", str(ctx.exception))
@@ -134,7 +139,7 @@ class LocalRunnerTests(unittest.TestCase):
                 if message.startswith(("Queued", "Starting")) or fraction == 1.0:
                     events.append((time.monotonic(), threshold, message))
             # Different parameters so that neither run is served from the cache
-            self.service.run("watershed", self.image_path, "synthetic", self.work,
+            self.service.run("watershed", self.image, "synthetic", self.work,
                              params={"threshold_factor": threshold}, um_per_px=0.5,
                              on_progress=on_progress)
 
@@ -163,7 +168,7 @@ class LocalRunnerTests(unittest.TestCase):
         plugin.path = killed
         try:
             with self.assertRaises(RunnerError) as ctx:
-                self.service.run("watershed", self.image_path, "synthetic", self.work)
+                self.service.run("watershed", self.image, "synthetic", self.work)
         finally:
             self.service.plugins = discover()
         self.assertIn("killed, most likely out of memory", str(ctx.exception))
@@ -181,7 +186,7 @@ class LocalRunnerTests(unittest.TestCase):
             "sys.exit(1)\n")
         plugin.path = probe
         with self.assertRaises(RunnerError) as ctx:
-            service.run("watershed", self.image_path, "synthetic", self.work)
+            service.run("watershed", self.image, "synthetic", self.work)
         self.assertIn("3 3", str(ctx.exception))
 
 

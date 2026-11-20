@@ -3,6 +3,8 @@ import io
 import json
 import os
 from pathlib import Path
+
+import numpy as np
 import subprocess
 import sys
 import tempfile
@@ -326,8 +328,7 @@ class SegmentationSharingTests(unittest.TestCase):
                     {'type': 'Feature', 'geometry': {'type': 'Polygon', 'coordinates': [ring]}, 'properties': {}}]}))
 
         service._runner = Fake()
-        image = self.work / 'image.tif'
-        image.write_bytes(b'x')
+        image = np.zeros((4, 4, 3), np.uint8)
         results = []
 
         def request(owner):
@@ -356,8 +357,7 @@ class SegmentationSharingTests(unittest.TestCase):
                 raise RunnerError('exited with code 1')
 
         service._runner = Failing()
-        image = self.work / 'image.tif'
-        image.write_bytes(b'x')
+        image = np.zeros((4, 4, 3), np.uint8)
         with self.assertRaises(RunnerError) as raised:
             service.run('watershed', image, 'img', self.work)
         self.assertNotIn(str(self.work), str(raised.exception))

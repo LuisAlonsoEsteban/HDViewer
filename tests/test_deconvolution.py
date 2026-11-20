@@ -255,14 +255,12 @@ class LoadPipelineReferenceTests(unittest.TestCase):
                 image_path=str(image), expression_path=str(base / "binned_outputs" / "square_008um" / "counts.h5"),
                 positions_path=str(base / "binned_outputs" / "square_008um" / "positions.parquet"), bins_size=8))
             self.assertEqual(config.base_dir, base)
-            recorded = []
-            service = SimpleNamespace(prepare_image=lambda img, key, work_dir, bgr: recorded.append(work_dir)
-                                      or work_dir / "image.tif")
             dataset = SimpleNamespace(img_path=str(image), img=np.zeros((2, 2, 3)), img_format="png",
                                       bins_size=8, pixels_per_bin=4, image_scale=1.0)
-            prepared = prepare_segmentation_image(service, dataset, config.base_dir)
-            self.assertEqual(recorded, [base / "segmentation"])
+            prepared = prepare_segmentation_image(dataset, config.base_dir)
             self.assertEqual(prepared.work_dir, base / "segmentation")
+            self.assertTrue(prepared.bgr)
+            self.assertIs(prepared.load_image(), dataset.img)
             self.assertEqual(prepared.um_per_px, 2.0)
 
     def test_optional_or_invalid_reference(self):

@@ -9,7 +9,8 @@ BASE_DIR = Path(__file__).resolve().parents[1]
 DATA_DIR = Path(os.environ.get("VHD_DATA_DIR", BASE_DIR.parent / "data")).resolve()
 
 # Data loading and startup progress
-UPLOAD_DIR = (BASE_DIR / ".." / "tmp").resolve()
+# Per-session uploads and analysis work files (e.g. deconvolution runs).
+UPLOAD_DIR = Path(os.environ.get("VHD_UPLOAD_DIR", BASE_DIR.parent / "tmp")).resolve()
 UPLOAD_BIN_SIZES = (2, 8, 16)
 UPLOAD_DEFAULT_BIN_SIZE = 16
 # Largest single file accepted by the startup uploads (bytes; default 20 GiB).

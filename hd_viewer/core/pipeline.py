@@ -8,6 +8,7 @@ import hashlib
 import threading
 from dataclasses import dataclass, field
 from pathlib import Path
+from typing import Callable
 
 from .. import settings
 from ..settings.config import bins_to_spots_kwargs, grid_fit_kwargs, image_kwargs, segmentation_kwargs
@@ -97,25 +98,29 @@ def pseudospots(b2s, progress=_noop):
 
 @dataclass
 class SegmentationInput:
-    image_path: Path
+    load_image: Callable[[], object]
     image_key: str
     work_dir: Path
     um_per_px: float | None
+    bgr: bool
 
 
-def prepare_segmentation_image(service, dataset, base_dir):
-    """Write the image once per dataset for every segmentation plugin run."""
+def prepare_segmentation_image(dataset, base_dir):
+    """Where and how to segment the dataset image (read only if a run is not cached)."""
     key = image_key(dataset.img_path)
     work_dir = Path(base_dir) / "segmentation"
-    if dataset.img is None:
-        dataset.read_img()
+
+    def load_image():
+        if dataset.img is None:
+            dataset.read_img()
+        return dataset.img
+
     # OpenCV (png/tif) reads BGR; plugins always receive RGB
-    image_path = service.prepare_image(dataset.img, key, work_dir,
-                                       bgr=dataset.img_format in ("png", "tif", "tiff"))
+    fmt = VisiumHD.get_format(str(dataset.img_path)).lower()
     # Plugins see the given image: µm per pixel of that image (not of the full-res one)
     um_per_px = (float(dataset.bins_size) / (dataset.pixels_per_bin * dataset.image_scale)
                  if dataset.pixels_per_bin else None)
-    return SegmentationInput(image_path, key, work_dir, um_per_px)
+    return SegmentationInput(load_image, key, work_dir, um_per_px, bgr=fmt in ("png", "tif", "tiff"))
 
 
 def segment(service, plugin, segmentation_input, params, transform, b2s, owner=None, progress=_noop):
@@ -125,9 +130,10 @@ def segment(service, plugin, segmentation_input, params, transform, b2s, owner=N
     def on_progress(fraction, message):
         progress(5 + int(80 * fraction), message or "Segmenting")
 
-    cells, out_dir = service.run(plugin.name, segmentation_input.image_path, segmentation_input.image_key,
+    cells, out_dir = service.run(plugin.name, segmentation_input.load_image, segmentation_input.image_key,
                                  segmentation_input.work_dir, params=params,
-                                 um_per_px=segmentation_input.um_per_px, on_progress=on_progress, owner=owner)
+                                 um_per_px=segmentation_input.um_per_px, on_progress=on_progress, owner=owner,
+                                 bgr=segmentation_input.bgr)
     print(f"[segmentation] {plugin.title}: {len(cells)} cells ({out_dir})")
     if cells.empty:
         raise RuntimeError(f"{plugin.title} found no cells")
@@ -267,7 +273,7 @@ class LoadPipeline:
 
         if config.segmentation:
             service = self._segmentation or segmentation_service()
-            segmentation_input = prepare_segmentation_image(service, dataset, config.base_dir)
+            segmentation_input = prepare_segmentation_image(dataset, config.base_dir)
             for name, params in config.segmentation:
                 task = self._task(f"cells:{name}")
                 plugin = service.plugins[name]
