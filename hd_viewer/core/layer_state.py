@@ -8,8 +8,10 @@ per-level glyph constants. It writes every change through a *sink*:
 - the HTTP API uses `RecordingSink`, whose recorded operations are sent to the
   browser and applied there to the BokehJS data source.
 
-Layers hold only sequenced geometries (core.workspace drops the others); rows
-with a missing value (e.g. a metadata column) are styled with `not_sequenced_val`.
+Bins and spots layers hold only sequenced geometries (core.workspace drops the
+others). Cells layers also keep segmented cells without expression (no obs name):
+`show_not_sequenced` decides whether they are drawn. Rows with a missing value
+(e.g. a metadata column) are styled with `not_sequenced_val`.
 """
 import numpy as np
 import pandas as pd
@@ -124,6 +126,7 @@ class LayerRows(ParameterSet):
     """Loaded rows of one layer view; see the module docstring."""
 
     GLYPH_CONSTANTS = ('width', 'height', 'angle')
+    show_not_sequenced = True     # draw rows without expression (cells views start with False)
 
     def __init__(self, sample, sink=None):
         self.sample = sample
@@ -175,6 +178,17 @@ class LayerRows(ParameterSet):
     @property
     def n_geometries(self):
         return len(self.indexes)
+
+    def _shown_rows(self, obs_names):
+        """Visibility of rows given their obs names: rows without expression (no
+        obs name, only kept in cells layers) are hidden unless `show_not_sequenced`."""
+        if self.show_not_sequenced:
+            return np.ones(len(obs_names), dtype=bool)
+        return ~pd.isna(np.asarray(obs_names, dtype=object))
+
+    def set_show_not_sequenced(self, show):
+        self.show_not_sequenced = bool(show)
+        self.view_filter = self._shown_rows(self._obs_names)
 
     def _rows_changed(self):
         self.row_version += 1
@@ -352,7 +366,7 @@ class LayerRows(ParameterSet):
         else:
             for name, value in updates.items():
                 self._set_column(name, value)
-        self.view_filter = np.ones(len(self.indexes), dtype=bool)
+        self.view_filter = self._shown_rows(self._obs_names)
         self._generation += 1
         return True
 
@@ -483,7 +497,7 @@ class LayerRows(ParameterSet):
         self._obs_names = np.concatenate((self._obs_names, names))
 
         self.indexes.extend(new_data.index.tolist())
-        self.view_filter = np.concatenate((self.view_filter, np.ones(new_data.shape[0], dtype=bool)))
+        self.view_filter = np.concatenate((self.view_filter, self._shown_rows(names)))
         self.is_sequenced += new_is_sequenced
 
 

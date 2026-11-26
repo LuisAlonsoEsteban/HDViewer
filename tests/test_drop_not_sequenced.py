@@ -1,5 +1,6 @@
-"""Layers hold only geometries with counts: bins, pseudospots and cells without
-expression are dropped when the sample is built (core.workspace.build_sample)."""
+"""Bins and pseudospots layers hold only geometries with counts: the others are
+dropped when the sample is built (core.workspace.build_sample). Cells layers keep
+segmented cells without expression (see tests/test_cells_not_sequenced.py)."""
 import unittest
 from types import SimpleNamespace
 
@@ -19,8 +20,8 @@ def b2s_stub():
 
 
 class DropNotSequencedTests(unittest.TestCase):
-    def test_every_kind_keeps_only_geometries_with_counts(self):
-        for kind, prefix in (("bins", "b"), ("spots", "s"), ("cells", "c")):
+    def test_bins_and_spots_keep_only_geometries_with_counts(self):
+        for kind, prefix in (("bins", "b"), ("spots", "s")):
             with self.subTest(kind=kind):
                 gdf, names = grid_frames(4, prefix=prefix, not_sequenced=3)     # 16 with counts + 3 without
                 sequenced = names[::2]                                         # and half of the grid empty
@@ -28,6 +29,14 @@ class DropNotSequencedTests(unittest.TestCase):
                 self.assertEqual(sorted(sample.gdf["index"]), sorted(sequenced))
                 self.assertEqual(sample.n_geometries, sample.adata.n_obs)
                 self.assertEqual(len(gdf), 19)                                  # the input is not modified
+
+    def test_cells_keep_every_segmented_cell(self):
+        gdf, names = grid_frames(4, prefix="c", not_sequenced=3)
+        sequenced = names[::2]
+        sample = build_sample("cells", gdf, expression(sequenced), b2s_stub())
+        self.assertEqual(sorted(sample.gdf["index"]), sorted(gdf["index"]))
+        self.assertEqual(sample.adata.n_obs, len(sequenced))
+        self.assertEqual(sample.n_not_sequenced, len(gdf) - len(sequenced))
 
     def test_layers_load_only_sequenced_rows_also_when_aggregated(self):
         gdf, names = grid_frames(8, prefix="b", not_sequenced=2)

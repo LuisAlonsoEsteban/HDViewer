@@ -126,6 +126,7 @@ class StyleRequest(BaseModel):
     colour: str | None = None             # hex colour for continuous values
     alpha: float | None = None            # maximum opacity
     aggregation: int | None = None        # bins: fixed factor; 0 follows the zoom
+    show_not_sequenced: bool | None = None  # cells: draw segmented cells without expression
 
 
 @router.patch("/layers/{layer_id}/style")
@@ -146,6 +147,8 @@ def style(layer_id: str, body: StyleRequest, session=Depends(current_session)):
                 ops += view.set_alpha(min(max(body.alpha, 0.0), 1.0))
             if body.aggregation is not None:
                 ops += view.set_aggregation(body.aggregation or None)
+            if body.show_not_sequenced is not None:
+                ops += view.set_show_not_sequenced(body.show_not_sequenced)
         except KeyError as exc:
             raise HTTPException(422, f"Unknown gene or metadata column: {exc.args[0]}")
         except ValueError as exc:

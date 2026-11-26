@@ -8,9 +8,9 @@ from ..startup.sample import Bins, Cells, Spots
 def sequenced_geometries(gdf, adata, on="index"):
     """The rows of `gdf` with expression counts (their `on` key is in `adata`).
 
-    Geometries without counts (bins outside the tissue, empty pseudospots, cells
-    with no bins) are never shown or analysed, so layers drop them when they are
-    built instead of indexing, fetching and sending them on every view.
+    Bins and pseudospots without counts (outside the tissue, empty) are never
+    shown or analysed, so their layers drop them when they are built instead of
+    indexing, fetching and sending them on every view. Cells layers keep them.
     """
     if adata is None:
         return gdf
@@ -20,8 +20,11 @@ def sequenced_geometries(gdf, adata, on="index"):
 
 
 def build_sample(sample_type, polygons, adata, b2s):
-    """The Spots, Bins or Cells sample of a loaded dataset (sequenced geometries only)."""
-    polygons = sequenced_geometries(polygons, adata, "index")
+    """The Spots, Bins or Cells sample of a loaded dataset. Bins and spots keep only
+    sequenced geometries; cells keep every segmented cell, also those without
+    expression (no bin pooled into them), which the map can show in grey."""
+    if sample_type != "cells":
+        polygons = sequenced_geometries(polygons, adata, "index")
     spatial_transform = getattr(b2s, "spatial_transform", None)
     if sample_type == "spots":
         radius = (spatial_transform.pitch * b2s.converter.VisiumV2.SPOT_DIAMETER / (2 * b2s.bins_size)

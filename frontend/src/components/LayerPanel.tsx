@@ -1,5 +1,5 @@
 import { useEffect, useState } from "react";
-import { Autocomplete, Button, ColorInput, Group, Select, Slider, Stack, Text } from "@mantine/core";
+import { Autocomplete, Button, Checkbox, ColorInput, Group, Select, Slider, Stack, Text } from "@mantine/core";
 import { getJson } from "../api/client";
 import { bridge } from "../bokeh/bridge";
 import { requestViewport, sendSelection, setStyle } from "../map/layers";
@@ -48,6 +48,12 @@ export function LayerPanel({ layer }: { layer: Layer }) {
         <Slider min={0} max={1} step={0.05} defaultValue={layer.alpha} disabled={!layer.visible}
                 onChangeEnd={(alpha) => change({ alpha }, { alpha })} />
       </div>
+      {layer.kind === "cells" && (
+        <Checkbox label="Show not sequenced" checked={layer.show_not_sequenced ?? false} disabled={!layer.visible}
+                  description="Segmented cells without expression (no bin fell inside them), in grey"
+                  onChange={(e) => change({ show_not_sequenced: e.currentTarget.checked },
+                                         { show_not_sequenced: e.currentTarget.checked })} />
+      )}
       {layer.kind === "bins" && (
         <Text size="xs" c="dimmed">Bin resolution is set in the box at the top right of the map.</Text>
       )}

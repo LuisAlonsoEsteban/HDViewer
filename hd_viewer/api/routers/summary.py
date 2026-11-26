@@ -24,7 +24,7 @@ def dataset_summary(session=Depends(current_session)):
     for view in session.views.values():
         with view.lock, view.sample.fetch_lock:
             summary.ensure_qc(view.sample.adata)          # mean UMIs need total_counts
-            layers.append(dict(id=view.id, title=view.title, kind=view.kind, **summary.general_stats(view.sample)))
+            layers.append(dict(id=view.id, title=view.title, kind=view.kind, **summary.general_stats(view.sample, view.kind)))
     return dict(layers=layers)
 
 

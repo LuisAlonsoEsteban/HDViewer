@@ -2,15 +2,22 @@
 HTTP API's Summary panel)."""
 
 
-def general_stats(sample):
-    """Observations (all sequenced: layers hold no geometry without counts) and UMIs of a sample."""
+def general_stats(sample, kind=None):
+    """Observations with counts and UMIs of a sample. Cells layers also report the
+    segmented cells, of which those without expression are kept on the map only."""
     adata = sample.adata
     mean_umis = 0.0
     if adata is not None and "total_counts" in adata.obs.columns:
         mean_umis = round(float(adata.obs["total_counts"].mean()), 1)
     area = sample.get_unit_area_um2()
-    return dict(observations=int(adata.n_obs) if adata is not None else 0,
-                mean_umis=mean_umis, umis_per_um2=round(float(mean_umis / area if area > 0 else 0), 1))
+    observations = int(adata.n_obs) if adata is not None else 0
+    stats = dict(observations=observations,
+                 mean_umis=mean_umis, umis_per_um2=round(float(mean_umis / area if area > 0 else 0), 1))
+    if kind == "cells":
+        segmented = int(len(sample.gdf))
+        stats.update(segmented=segmented, not_sequenced=segmented - observations,
+                     pct_sequenced=round(100 * observations / segmented, 1) if segmented else 0.0)
+    return stats
 
 
 def ensure_qc(adata):

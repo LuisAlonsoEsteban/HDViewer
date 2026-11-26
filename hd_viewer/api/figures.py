@@ -154,7 +154,10 @@ def base_figure(max_dim):
     """The empty map: image-sized ranges, pan/zoom tools and the ruler."""
     plot = figure(sizing_mode="stretch_both", min_height=settings.PLOT_MIN_HEIGHT,
                   x_range=(0, max_dim), y_range=(0, max_dim),
-                  background_fill_color=settings.PLOT_BACKGROUND_COLOR, tools="pan,wheel_zoom,save,reset")
+                  background_fill_color=settings.PLOT_BACKGROUND_COLOR, tools="pan,wheel_zoom,save,reset",
+                  # No BokehJS decimation while panning/zooming: above 2000 glyphs it would draw
+                  # every 10th one in translucent grey. The server already culls and simplifies.
+                  lod_threshold=None)
     plot.grid.visible = False
     plot.axis.visible = False
     plot.toolbar.logo = None

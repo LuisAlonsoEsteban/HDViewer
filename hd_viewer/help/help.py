@@ -46,8 +46,9 @@ HELP = {
 
     # ------------------------------------------------------------- layer tabs
     "general": ("Showing a layer", """
-        Show or hide the whole layer with the eye in the layer list. Only observations with counts are
-        loaded: bins, spots and cells without counts are left out.<br>
+        Show or hide the whole layer with the eye in the layer list. Bins and spots without counts are
+        left out. Cells layers also keep segmented cells without expression (no bin fell inside them):
+        tick <b>Show not sequenced</b> to draw them in gray. Analyses only use cells with expression.<br>
         <b>Opacity</b>: maximum opacity. When coloring by a gene, opacity follows its expression up to
         this value; with categories (clusters, groups) every observation uses it.<br>
         <b>Clear selection</b> deselects the layer's observations; <b>Download data</b> saves the layer as an

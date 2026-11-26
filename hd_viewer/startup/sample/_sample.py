@@ -154,7 +154,17 @@ class Sample:
             return cropped_gdf
     
     def get_unit_area_um2(self):
-        return self.gdf.geometry.area.mean()
+        """Mean area of the observations with expression (cells layers also hold
+        segmented cells without it, which have no UMIs)."""
+        gdf = self.gdf
+        if self.adata is not None and len(gdf) != self.adata.n_obs:
+            gdf = gdf[gdf[self.on].astype(str).isin(self.adata.obs_names.astype(str))]
+        return gdf.geometry.area.mean() if len(gdf) else 0.0
+
+    @property
+    def n_not_sequenced(self):
+        """Geometries without expression (only cells layers keep them)."""
+        return int(len(self.gdf) - (self.adata.n_obs if self.adata is not None else 0))
     
     def get_coordinates(self, gdf) -> pd.DataFrame:
         if self._centroids is None or self._centroids[0] is not self.gdf:

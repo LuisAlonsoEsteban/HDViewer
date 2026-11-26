@@ -11,6 +11,9 @@ interface Stats {
   observations: number;
   mean_umis: number;
   umis_per_um2: number;
+  segmented?: number;      // cells only: every segmented cell, with or without expression
+  not_sequenced?: number;
+  pct_sequenced?: number;
 }
 interface Marker { cluster: string; gene: string; score: number; pval: number | null; logfc: number }
 
@@ -48,7 +51,14 @@ export function SummaryPanel() {
             {(stats ?? []).map((s) => (
               <Table.Tr key={s.id}>
                 <Table.Td fw={600}>{s.title}</Table.Td>
-                <Table.Td>{s.observations.toLocaleString()}</Table.Td>
+                <Table.Td title={s.segmented !== undefined
+                            ? `${s.segmented.toLocaleString()} segmented; ${s.not_sequenced?.toLocaleString()} without expression`
+                            : undefined}>
+                  {s.observations.toLocaleString()}
+                  {s.segmented !== undefined && (
+                    <Text span fz="xs" c="dimmed"> of {s.segmented.toLocaleString()} ({s.pct_sequenced}%)</Text>
+                  )}
+                </Table.Td>
                 <Table.Td>{s.mean_umis}</Table.Td>
                 <Table.Td>{s.umis_per_um2}</Table.Td>
               </Table.Tr>

@@ -34,6 +34,8 @@ class LayerView:
         self.sample = sample
         self.lock = threading.RLock()
         self.rows = LayerRows(sample)
+        # Cells layers keep segmented cells without expression, hidden until asked for
+        self.rows.show_not_sequenced = kind != "cells"
         self.visible = True
         self.colour = colour
         self.alpha_max = 1.0
@@ -79,6 +81,7 @@ class LayerView:
         return dict(id=self.id, kind=self.kind, title=self.title, visible=self.visible,
                     colour=self.colour, alpha=self.alpha_max, colour_by=self.colour_by,
                     scale=self.sample.expression_scale,
+                    show_not_sequenced=self.rows.show_not_sequenced if self.kind == "cells" else None,
                     hover_colour=KIND_DEFAULTS[self.kind]["hover"],
                     aggregation_factors=list(getattr(self.sample, "AGGREGATION_FACTORS", ())),
                     fixed_aggregation=self.rows.fixed_aggregation_factor)
@@ -178,7 +181,8 @@ class LayerView:
                     factors=[int(f) for f in getattr(sample, "AGGREGATION_FACTORS", ())])
 
     def visibility(self):
-        """Rows to draw: those of the shown clusters or groups (None: every row)."""
+        """Rows to draw: the not-sequenced rule (cells) plus the shown clusters or
+        groups; cells without expression follow only the not-sequenced rule (None: every row)."""
         rows = self.rows
         mask = np.asarray(rows.view_filter, dtype=bool)
         kind, column = self.colour_by.get("kind"), self.colour_by.get("name")
@@ -189,6 +193,9 @@ class LayerView:
                 shown = self.clustering.visible_mask(labels)
             else:
                 shown = labels.isin(self.groups._active_groups).to_numpy()
+            names = rows.loaded_obs_names
+            if self.kind == "cells" and len(names) == len(mask):
+                shown = shown | pd.isna(np.asarray(names, dtype=object))
             mask = mask & shown
         return None if mask.all() else mask.astype(np.uint8)
 
@@ -263,6 +270,13 @@ class LayerView:
     def set_aggregation(self, factor):
         self.rows.set_aggregation_factor(factor)
         self._static_bbox = None
+        return self.rows.sink.take()
+
+    def set_show_not_sequenced(self, show):
+        """Draw or hide the segmented cells without expression (cells layers only)."""
+        if self.kind != "cells":
+            raise ValueError("Only cells layers have observations without expression.")
+        self.rows.set_show_not_sequenced(show)
         return self.rows.sink.take()
 
     def set_colour(self, colour):
@@ -358,8 +372,11 @@ class LayerView:
     def names(self, row_version, positions):
         if row_version != self.rows.row_version:
             return []
-        names = self.rows.loaded_obs_names
-        return [[int(i), str(names[i])] for i in positions if isinstance(i, int) and 0 <= i < len(names)]
+        names, indexes = self.rows.loaded_obs_names, self.rows.indexes
+
+        def name(i):     # cells without expression have no obs name: show the cell id
+            return f"{indexes[i]} (no expression)" if pd.isna(names[i]) else str(names[i])
+        return [[int(i), name(i)] for i in positions if isinstance(i, int) and 0 <= i < len(names)]
 
     def select(self, row_version, positions):
         from ..core.selection import native_selection

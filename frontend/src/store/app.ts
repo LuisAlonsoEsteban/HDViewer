@@ -22,6 +22,7 @@ export interface Layer {
   scale: string;
   aggregation_factors: number[];
   fixed_aggregation: number | null;
+  show_not_sequenced?: boolean | null;   // cells: draw segmented cells without expression
 }
 
 export interface Workspace {

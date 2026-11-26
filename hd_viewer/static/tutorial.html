@@ -284,13 +284,17 @@
       <p>Each representation of the sample is a layer: <b>Spots</b> (pseudospots), <b>Bins</b> and one
         <b>Cells</b> layer per segmentation method. Every layer has the same tabs: Display, Clustering,
         Groups, ROIs, DE, Deconv., Metadata and Params. An <b>observation</b> is one spot, bin or cell
-        with counts: bins, pseudospots and cells without any counts (e.g. bins outside the tissue) are left
-        out when the data loads, which keeps the map fast. An observation whose shown value is missing (e.g.
+        with counts: bins and pseudospots without any counts (e.g. bins outside the tissue) are left
+        out when the data loads, which keeps the map fast. Segmented cells without expression (no 8 µm bin
+        fell entirely inside them, typical of small nuclei) are kept in the Cells layer but hidden; analyses
+        never use them. An observation whose shown value is missing (e.g.
         an empty metadata entry) is drawn in gray.</p>
 
       <h3 id="app-general">Display tab: showing a layer</h3>
       <ul>
         <li>The <b>eye</b> next to each layer in the layer list shows or hides the whole layer.</li>
+        <li><b>Show not sequenced</b> (Cells layers): draw the segmented cells without expression in gray.
+            Off by default. Hovering one shows its cell id; they cannot be selected.</li>
         <li><b>Opacity</b>: maximum opacity. When coloring by a gene, opacity follows its expression up to
             this value; with categories (clusters, groups) every observation uses it.</li>
         <li><b>Clear selection</b>: deselect the layer's observations on the map and in the embedding.</li>
@@ -591,7 +595,7 @@
         <tr><th>Term</th><th>Meaning</th></tr>
         <tr><td>Bin</td><td>Square capture area of Visium HD (2, 8 or 16 µm), the unit of the data.</td></tr>
         <tr><td>Pseudospot</td><td>55 µm Visium-like spot built from bins.</td></tr>
-        <tr><td>Observation</td><td>One spot, bin or cell with counts. Geometries without counts are not loaded.</td></tr>
+        <tr><td>Observation</td><td>One spot, bin or cell with counts. Bins and spots without counts are not loaded; cells without expression are loaded but hidden by default.</td></tr>
         <tr><td>Aggregation level</td><td>Bins summed into larger cells (2 × 2 … 12 × 12) for display, clustering
             or DE.</td></tr>
         <tr><td>UMI</td><td>A counted RNA molecule; "counts".</td></tr>
