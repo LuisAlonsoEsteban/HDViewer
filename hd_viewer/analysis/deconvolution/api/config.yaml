@@ -17,7 +17,7 @@ docker:
 apptainer:
   binary: apptainer
   # memory: 64g # apptainer --memory; needs cgroups v2 (with delegation for unprivileged users)
-  images_dir: images
+  images_dir: images         # <name>.sif per plugin; relative to this folder or absolute. VHD_DECONV_IMAGES_DIR overrides it
   images: {} # plugin name -> local .sif or image URI
 local:
   python: {} # plugin name -> Python interpreter with plugin requirements installed

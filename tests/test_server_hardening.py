@@ -155,6 +155,23 @@ class FrameFixtureTests(unittest.TestCase):
         self.assertEqual(FRAME_FIXTURE.read_bytes(), frame)
 
 
+class ImagesDirTests(unittest.TestCase):
+    def test_environment_variable_overrides_the_configured_image_folder(self):
+        from hd_viewer.plugins.runners import ApptainerRunner, make_runner
+        with tempfile.TemporaryDirectory() as folder:
+            (Path(folder) / "cellpose.sif").touch()
+            plugin = SimpleNamespace(name="cellpose", image="ghcr.io/x/cellpose:1")
+            config = dict(runner="apptainer", apptainer=dict(images_dir="images"))
+            kwargs = dict(sdk_dir=Path(folder), segmentation_root=Path(folder) / "api")
+            with patch.dict("os.environ", {"VHD_DECONV_IMAGES_DIR": folder}):
+                seg = make_runner(config, **kwargs, runner_types={"apptainer": ApptainerRunner})
+                deconv = make_runner(config, **kwargs, env_var="VHD_DECONV_RUNNER", kind="deconvolution",
+                                     runner_types={"apptainer": ApptainerRunner})
+            self.assertEqual(seg.image_uri(plugin), "docker://ghcr.io/x/cellpose:1")   # VHD_SEG_IMAGES_DIR unset
+            self.assertEqual(deconv.image_uri(plugin), str(Path(folder) / "cellpose.sif"))
+            self.assertEqual(config["apptainer"]["images_dir"], "images")               # config not modified
+
+
 class FastPathTests(unittest.TestCase):
     def test_pooling_by_matrix_product_matches_the_loop(self):
         rng = np.random.default_rng(0)

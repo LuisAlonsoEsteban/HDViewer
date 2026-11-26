@@ -33,7 +33,7 @@ apptainer:
   binary: apptainer          # `singularity` is also tried
   # memory: 32g              # apptainer --memory; needs cgroups v2 (with delegation
                              # for unprivileged users), so off unless set
-  images_dir: images         # relative to this folder; <name>.sif per plugin
+  images_dir: images         # <name>.sif per plugin; relative to this folder or absolute. VHD_SEG_IMAGES_DIR overrides it
   images: {}                 # name -> .sif path or URI overriding docker://<manifest image>
 
 local:

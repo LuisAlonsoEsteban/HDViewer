@@ -19,6 +19,12 @@ Environment=VHD_MAX_SESSIONS=50
 # to 20 GiB each. Must not be shared with another instance: folders of sessions this
 # process does not know are removed at startup and on every sweep.
 Environment=VHD_UPLOAD_DIR=/srv/hdviewer/uploads
+# Apptainer only: folders of ready-made <plugin>.sif images (optional; without a .sif
+# Apptainer pulls docker://<image> into APPTAINER_CACHEDIR, which must be writable:
+# ProtectHome below makes the default ~/.apptainer/cache read-only)
+#Environment=VHD_SEG_IMAGES_DIR=/srv/hdviewer/sif/segmentation
+#Environment=VHD_DECONV_IMAGES_DIR=/srv/hdviewer/sif/deconvolution
+#Environment=APPTAINER_CACHEDIR=/srv/hdviewer/apptainer-cache
 # One process: sessions, loaded datasets and the tile registry live in memory
 ExecStart=/opt/HDViewer/.venv/bin/uvicorn hd_viewer.api.main:app \
     --host 127.0.0.1 --port 8000 --workers 1 --proxy-headers --forwarded-allow-ips 127.0.0.1

@@ -379,8 +379,18 @@ def _secret_script(secret_args, program=None):
 RUNNERS = {cls.name: cls for cls in (DockerRunner, ApptainerRunner, LocalRunner)}
 
 
+def images_dir_env_var(runner_env_var):
+    """VHD_SEG_RUNNER -> VHD_SEG_IMAGES_DIR, VHD_DECONV_RUNNER -> VHD_DECONV_IMAGES_DIR."""
+    return runner_env_var.removesuffix("_RUNNER") + "_IMAGES_DIR"
+
+
 def make_runner(config, *, sdk_dir, segmentation_root, env_var="VHD_SEG_RUNNER", kind="segmentation", runner_types=None):
     runners = runner_types or RUNNERS
+    # The folder of local Apptainer .sif images can be set per server without editing
+    # the tracked config.yaml (absolute, or relative to the plugins' api/ folder)
+    images_dir = os.environ.get(images_dir_env_var(env_var))
+    if images_dir:
+        config = {**config, "apptainer": {**(config.get("apptainer") or {}), "images_dir": images_dir}}
     choice = os.environ.get(env_var) or config.get("runner", 'auto')
     if choice != "auto":
         if choice not in runners:

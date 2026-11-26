@@ -219,6 +219,7 @@ The following environment variables override them without editing code:
 | `VHD_TILE_FORMAT`, `VHD_TILE_QUALITY` | `webp`, `80` | Tile encoding (`webp` or lossless `png`); changing it re-tiles |
 | `VHD_UPLOAD_MAX_BYTES` | 20 GiB | Largest file accepted per upload field |
 | `VHD_SEG_RUNNER`, `VHD_DECONV_RUNNER` | `auto` | Force `docker`, `apptainer` or `local` plugins |
+| `VHD_SEG_IMAGES_DIR`, `VHD_DECONV_IMAGES_DIR` | `images` in each plugin `api/` folder | Folder of local Apptainer images (`<plugin>.sif`); overrides `apptainer.images_dir` in `config.yaml` |
 | `VHD_SEG_THREADS`, `VHD_DECONV_THREADS` | `8` | CPU threads per segmentation/deconvolution run |
 | `VHD_DECONV_GPU` | off | Pass GPUs to deconvolution containers |
 
