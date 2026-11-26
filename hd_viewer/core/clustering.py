@@ -140,7 +140,8 @@ class ClusteringState:
 
             if algorithm == "leiden":
                 adata = self._ensure_neighbors(n_pcs, n_neighbors)
-                params = (algorithm, resolution, n_pcs, n_neighbors, algorithm_options.get("random_state", 0))
+                params = (algorithm, resolution, n_pcs, n_neighbors, algorithm_options.get("random_state", 0),
+                          settings.LEIDEN_FLAVOR, settings.LEIDEN_ITERATIONS)
             else:
                 adata = self._ensure_pca(n_pcs)
                 if algorithm == "kmeans":
@@ -158,8 +159,12 @@ class ClusteringState:
                 report(f"Running {algorithm} clustering...")
                 if algorithm == "leiden":
                     import scanpy as sc
+                    # igraph's implementation with a fixed number of iterations: scanpy's
+                    # planned default, many times faster than leidenalg run to convergence
+                    leiden_options = (dict(flavor="igraph", n_iterations=settings.LEIDEN_ITERATIONS, directed=False)
+                                      if settings.LEIDEN_FLAVOR == "igraph" else {})
                     sc.tl.leiden(adata, resolution=resolution, key_added=key_added,
-                                 random_state=algorithm_options.get("random_state", 0))
+                                 random_state=algorithm_options.get("random_state", 0), **leiden_options)
                 else:
                     values = np.asarray(adata.obsm["X_pca"])[:, :n_pcs]
                     if algorithm == "kmeans":
@@ -380,12 +385,20 @@ class ClusteringState:
             summary += f", {self._count_spots('Noise')} noise observations"
         return summary
 
-    def _count_spots(self, label: str) -> int:
+    def _cluster_sizes(self) -> dict:
+        """Observations per label of the active clustering (one pass over the column)."""
         obs = self._sample.adata.obs
         active_cluster_col = self._active_cluster_col
         if active_cluster_col is None or active_cluster_col not in obs.columns:
-            return 0
-        return int((obs[active_cluster_col].astype(str) == label).sum())
+            return {}
+        counts = obs[active_cluster_col].value_counts(dropna=True)
+        sizes = {}
+        for label, count in counts.items():
+            sizes[str(label)] = sizes.get(str(label), 0) + int(count)
+        return sizes
+
+    def _count_spots(self, label: str) -> int:
+        return self._cluster_sizes().get(label, 0)
 
     _STEP_DEPENDENTS = {
         "pca": ("neighbors", "tsne", "pca_embedding"),
@@ -459,7 +472,8 @@ class ClusteringState:
     def cluster_summary(self, n_genes=settings.MARKER_GENE_COUNT):
         """Clusters of the active result: label, colour, size, shown, marker genes."""
         markers = self.get_marker_genes(n_genes=n_genes)
-        return [dict(label=label, colour=self._color_map.get(label, "#cccccc"), size=self._count_spots(label),
+        sizes = self._cluster_sizes()
+        return [dict(label=label, colour=self._color_map.get(label, "#cccccc"), size=sizes.get(label, 0),
                      visible=label in self._active_clusters,
                      markers=[gene for gene, *_ in markers.get(label, [])])
                 for label in self._cluster_labels]

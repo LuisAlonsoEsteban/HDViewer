@@ -1,5 +1,6 @@
 import { useState } from "react";
-import { Button, Group, Paper, Text } from "@mantine/core";
+import { Anchor, Button, Group, Paper, Text } from "@mantine/core";
+import { useApp } from "../store/app";
 
 const KEY = "hdv:cookie-notice";
 
@@ -10,6 +11,7 @@ export function CookieNotice() {
   const [open, setOpen] = useState(() => {
     try { return sessionStorage.getItem(KEY) !== "seen"; } catch { return true; }
   });
+  const privacy = useApp((s) => s.config?.privacy_url) ?? "static/assets/privacy.html";
   if (!open) return null;
 
   const dismiss = () => {
@@ -24,7 +26,8 @@ export function CookieNotice() {
       <Group justify="space-between" wrap="nowrap" gap="md" align="center">
         <Text size="sm">
           This site uses only a session cookie, needed to keep your analysis workspace while you use it;
-          it is deleted when you close the browser. No permanent or third-party cookies are used.
+          it is deleted when you close the browser. No permanent or third-party cookies are set by HDViewer.{" "}
+          <Anchor href={privacy} target="_blank" rel="noopener" size="sm">Privacy and data retention</Anchor>
         </Text>
         <Button size="xs" variant="light" onClick={dismiss} style={{ flexShrink: 0 }}>Got it</Button>
       </Group>

@@ -15,7 +15,7 @@ from ... import settings
 from ...analysis.de import DEAnalysis, DEPresenter, build_de_plots
 from ...core.de_sets import de_colours, de_inputs, de_options
 from ...startup.utils.progress import reporting
-from . import current_session
+from . import existing_session
 from .layers import _view
 
 router = APIRouter()
@@ -39,7 +39,7 @@ def set_options(view):
 
 
 @router.get("/layers/{layer_id}/de/options")
-def options(layer_id: str, session=Depends(current_session)):
+def options(layer_id: str, session=Depends(existing_session)):
     view = _view(session, layer_id)
     with view.lock:
         factors = list(getattr(view.sample, "AGGREGATION_FACTORS", ()))
@@ -55,7 +55,7 @@ class DERequest(BaseModel):
 
 
 @router.post("/layers/{layer_id}/de", status_code=202)
-def run_de(layer_id: str, body: DERequest, session=Depends(current_session)):
+def run_de(layer_id: str, body: DERequest, session=Depends(existing_session)):
     view = _view(session, layer_id)
     chosen = [("groups", name) for name in body.groups] + [("clusters", name) for name in body.clusters]
     if not chosen:
@@ -118,7 +118,7 @@ def _number(value):
 @router.get("/layers/{layer_id}/de/table")
 def table(layer_id: str, q: str = "", sort: str = "", desc: bool = False,
           offset: int = Query(0, ge=0), limit: int = Query(settings.DE_TABLE_ROWS, ge=1, le=2000),
-          session=Depends(current_session)):
+          session=Depends(existing_session)):
     view = _view(session, layer_id)
     with view.lock:
         merged = view.de["merged"]
@@ -139,7 +139,7 @@ def table(layer_id: str, q: str = "", sort: str = "", desc: bool = False,
 
 
 @router.get("/layers/{layer_id}/de/plots")
-def plots(layer_id: str, session=Depends(current_session)):
+def plots(layer_id: str, session=Depends(existing_session)):
     view = _view(session, layer_id)
     with view.lock:
         plot_data = view.de["plot_data"]

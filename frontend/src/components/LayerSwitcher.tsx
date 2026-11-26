@@ -3,6 +3,7 @@ import { ActionIcon, Group, Stack, Text, Tooltip, UnstyledButton } from "@mantin
 import { requestViewport, setStyle } from "../map/layers";
 import { Layer, useApp } from "../store/app";
 import { EyeIcon, EyeOffIcon } from "./icons";
+import { notifyError } from "../notify";
 
 /** The workspace's layers: pick the one the tools work on, and show or hide each. */
 export function LayerSwitcher() {
@@ -28,6 +29,8 @@ function LayerRow({ layer, active, onSelect }: { layer: Layer; active: boolean; 
       await setStyle(layer.id, { visible });
       updateLayer(layer.id, { visible });
       if (visible) requestViewport(layer.id);
+    } catch (exc) {
+      notifyError(exc, `${layer.title} could not be ${visible ? "shown" : "hidden"}`);
     } finally {
       setBusy(false);
     }

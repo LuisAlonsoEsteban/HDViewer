@@ -35,6 +35,7 @@ export function Landing() {
   const branding = config?.branding ?? {};
   const tutorial = config?.tutorial_url ?? `${STATIC}/tutorial.html`;
   const useCase = config?.use_case_url ?? `${STATIC}/biological-use-case.html`;
+  const privacy = config?.privacy_url ?? `${STATIC}/privacy.html`;
   const [view, setView] = useState<Preview>("tissue");
   const tourAvailable = useTourAvailable("p1crc");
   const [citationStatus, setCitationStatus] = useState("");
@@ -91,7 +92,9 @@ export function Landing() {
             </div>
             <p className="hero-note">
               Bring your Visium HD files, or start with a configured example. Free and open to everyone, no login
-              required; uploaded data stays private to your session and is deleted when it ends.
+              required; uploaded data stays private to your session and is deleted when it ends
+              (<a href={privacy} {...external}>privacy and data retention</a>). Runs in recent desktop versions of
+              Chrome, Edge, Firefox and Safari.
             </p>
           </div>
           <figure className="tissue-figure">
@@ -271,9 +274,10 @@ export function Landing() {
       </main>
 
       <footer className="closing wrap">
-        <span>{branding.name ?? "HDViewer"} · Spatial biology, in context.</span>
+        <span>{branding.name ?? "HDViewer"}{config?.version ? ` ${config.version}` : ""} · Spatial biology, in context.</span>
         <nav aria-label="Footer">
           <a href={tutorial} {...external}>Documentation</a>
+          <a href={privacy} {...external}>Privacy</a>
           <a href={branding.plugins_guide} {...external}>Plugins</a>
           <a href={branding.repository} {...external}>GitHub ↗</a>
           <a href={`mailto:${branding.email}`}>Contact</a>

@@ -32,7 +32,7 @@ export function MetadataResults({ layer, run }: { layer: string; run: number }) 
       console.error(exc);
       if (current) setStatus("failed");
     });
-    return () => { current = false; };
+    return () => { current = false; bridge.release(element); };
   }, [base, run, version]);
 
   return (

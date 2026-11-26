@@ -2,7 +2,7 @@ import { readFileSync } from "node:fs";
 import { describe, expect, it } from "vitest";
 import { decodeFrame } from "./frames";
 
-// Fixture written by hd_viewer.api.frames.encode (see tests/test_api.py)
+// Fixture written by hd_viewer.api.frames.encode (checked by tests/test_server_hardening.py)
 const bytes = readFileSync(new URL("./__fixtures__/frame.bin", import.meta.url));
 
 describe("decodeFrame", () => {

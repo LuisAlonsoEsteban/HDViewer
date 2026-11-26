@@ -1,0 +1,65 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+<meta charset="utf-8">
+<meta name="viewport" content="width=device-width, initial-scale=1">
+<title>HDViewer · Privacy and data</title>
+<link rel="stylesheet" href="tutorial.css">
+</head>
+<body>
+
+<header>
+  <div style="display:flex;justify-content:space-between;gap:20px;margin-bottom:22px;font-size:12px"><a href="../../" style="text-decoration:none">← HDViewer</a><a href="https://github.com/LuisAlonsoEsteban/HDViewer" target="_blank" rel="noopener noreferrer">Source on GitHub ↗</a></div>
+  <div class="eyebrow">HDVIEWER</div>
+  <h1>Privacy, data retention and requirements</h1>
+  <p class="lead">HDViewer is free and open to all users. It needs no account, login or e-mail address, and it
+    uses no analytics or tracking.</p>
+</header>
+
+<main style="max-width:860px;margin:0 auto;padding:0 24px 48px">
+  <h2 id="data">What happens to your data</h2>
+  <ul>
+    <li>Each browser session gets its own private folder on the server. Uploaded files, intermediate results
+      (image tiles, segmentation, deconvolution) and exports are only reachable from that session.</li>
+    <li>The folder and everything in it is deleted when the session ends:
+      <ul>
+        <li><b>1 minute</b> after you close the last tab of the session (a page reload keeps it);</li>
+        <li>after <b>30 minutes</b> without any activity;</li>
+        <li>whenever the server restarts.</li>
+      </ul>
+    </li>
+    <li>Exported <code>.h5ad</code> files are written under a random name in that folder and deleted as soon as
+      they have been sent to your browser.</li>
+    <li>Your data is never shared with other users or third parties, and is not used for any purpose other than
+      the analyses you run.</li>
+    <li>Results computed for the <i>example</i> datasets (for example a deconvolution run) may be cached on the
+      server so that later visitors get them faster. Results of uploaded data are never cached beyond the
+      session.</li>
+  </ul>
+
+  <h2 id="cookies">Cookies</h2>
+  <p>HDViewer sets a single cookie, <code>hdv_sid</code>: a random session identifier that links your browser
+    to its private folder. It is deleted when you close the browser. No permanent or third-party cookies are
+    set by HDViewer. The university network in front of the server may add its own technical load-balancing
+    cookie.</p>
+
+  <h2 id="logs">Server logs</h2>
+  <p>Like any web server, the public instance keeps standard access logs (IP address, time and requested
+    address) for security and to count usage. They do not contain your data or file contents.</p>
+
+  <h2 id="hosting">Hosting and contact</h2>
+  <p>The public instance at <a href="https://hdviewer.unav.edu">hdviewer.unav.edu</a> is run by the
+    Computational Biology group of Tecnun, University of Navarra (Spain). For questions about your data, write
+    to <a href="mailto:laesteban@unav.es">laesteban@unav.es</a>.</p>
+  <p>If you prefer not to upload data, you can run the same application on your own computer: see the
+    <a href="https://github.com/LuisAlonsoEsteban/HDViewer#run-it-locally" target="_blank" rel="noopener noreferrer">installation
+    instructions</a>.</p>
+
+  <h2 id="browsers">Browser requirements</h2>
+  <p>HDViewer runs in recent desktop versions of Chrome, Edge, Firefox and Safari, with JavaScript and WebGL
+    enabled. The analysis workspace is designed for desktop screens (at least 1280 pixels wide); phones and
+    small tablets can open the overview and the documentation, but not use the workspace comfortably.</p>
+</main>
+
+</body>
+</html>

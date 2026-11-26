@@ -12,7 +12,7 @@ from pydantic import BaseModel, Field
 from ...core.pipeline import LoadConfig, LoadPipeline, segmentation_service
 from ...plugins.jobs import JOBS
 from ...startup.datasets import AVAILABLE_DATASETS
-from . import current_session
+from . import current_session, public_message
 from .uploads import FIELDS, _field
 
 router = APIRouter()
@@ -75,6 +75,18 @@ def _config(session, body):
                       **options)
 
 
+def _prebuild_indexes(loaded):
+    """Build each layer's spatial index while the user looks at the overview (it is
+    otherwise built by the first zoomed-in request: seconds for 2 µm bins)."""
+    def build():
+        for _, sample, _ in list(loaded.samples.values()):
+            try:
+                sample.gdf.sindex
+            except Exception:
+                pass
+    threading.Thread(target=build, daemon=True, name="sindex").start()
+
+
 def cancel_load(session):
     if session.load.get("state") == "running":
         session.load["cancelled"] = True
@@ -98,6 +110,10 @@ def start_load(body: LoadRequest, session=Depends(current_session)):
         session.loaded, session.views, session.comparison = None, {}, {}
 
     def progress(task, pct, status):
+        # Progress reports are the pipeline's checkpoints: stop there once the load is
+        # cancelled or the session has ended, instead of finishing every step first
+        if session.load.get("cancelled"):
+            raise RuntimeError("Loading was cancelled.")
         entry = session.load["tasks"].setdefault(task, dict(pct=0, status="Waiting"))
         if pct is not None:
             entry["pct"] = pct
@@ -111,7 +127,7 @@ def start_load(body: LoadRequest, session=Depends(current_session)):
             if session.load.get("cancelled"):
                 raise RuntimeError("Loading was cancelled.")
             for task, message in loaded.failures.items():
-                session.publish(dict(type="failed", task=task, message=message, fatal=False))
+                session.publish(dict(type="failed", task=task, message=public_message(message), fatal=False))
             with session.lock:
                 session.loaded = loaded
                 try:
@@ -121,10 +137,12 @@ def start_load(body: LoadRequest, session=Depends(current_session)):
                     raise
             session.load["state"] = "ready"
             session.publish(dict(type="ready"))
+            _prebuild_indexes(loaded)
         except Exception as exc:
             traceback.print_exc()
-            session.load.update(state="failed", error=str(exc))
-            session.publish(dict(type="failed", task=None, message=str(exc), fatal=True))
+            message = public_message(exc)
+            session.load.update(state="failed", error=message)
+            session.publish(dict(type="failed", task=None, message=message, fatal=True))
 
     threading.Thread(target=run, daemon=True, name=f"load-{session.sid[:6]}").start()
     return session.load

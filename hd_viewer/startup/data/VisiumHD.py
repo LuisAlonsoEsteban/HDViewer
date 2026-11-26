@@ -160,8 +160,19 @@ class VisiumHD:
             from cv2 import imread
         else:
             raise ValueError("Image format not supported")
-        
+
+        # Check the size from the header before decoding: a small compressed file can
+        # expand to more pixels than the server's memory holds
+        from ... import settings
+        height, width = self.image_shape[:2]
+        if height * width > settings.MAX_IMAGE_PIXELS:
+            raise ValueError(f"The tissue image is {width} x {height} pixels; this server accepts images of up to "
+                             f"{settings.MAX_IMAGE_PIXELS / 1e6:.0f} megapixels.")
+
         self.img = imread(self.img_path)
+        if self.img is None:
+            raise ValueError(f"Could not read the tissue image {Path(self.img_path).name}: the file is damaged "
+                             "or in an unsupported variant of the format.")
 
     def read_positions(self):
         self._df_tissue_positions = pd.read_parquet(self.positions_path)

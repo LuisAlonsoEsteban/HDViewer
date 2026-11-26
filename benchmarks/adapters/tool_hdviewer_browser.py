@@ -58,6 +58,8 @@ class Server:
 
 def _load(b, url, with_cells):
     page = b.page
+    # The cookie notice is fixed at the bottom of the page and would cover "Load data"
+    page.add_init_script("try { sessionStorage.setItem('hdv:cookie-notice', 'seen') } catch (e) {}")
     page.goto(url + "/")
     page.get_by_role("button", name="Explore your data").click()
     select = page.get_by_role("combobox", name="Example dataset")

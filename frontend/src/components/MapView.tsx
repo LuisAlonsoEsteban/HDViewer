@@ -22,11 +22,12 @@ export function MapView() {
     };
     const offRanges = bridge.on("ranges", reload);
     const offSelection = bridge.on("selection", ({ layer, indices }) => sendSelection(layer, indices));
-    setMapHost(host.current);
+    const element = host.current!;
+    setMapHost(element);
     (async () => {
       try {
         const item = await getJson("figures/map");
-        await bridge.embed(item, host.current!, "map");
+        await bridge.embed(item, element, "map");
         setImageAlpha(imageOpacity());
         setStatus("ready");
         await resyncLayers();         // also after returning from the overview page
@@ -40,6 +41,7 @@ export function MapView() {
       offSelection();
       clearTimeout(timer);
       setMapHost(null);
+      bridge.release(element);
     };
   }, []);
 

@@ -3,6 +3,7 @@
 Validation (names, extensions, size limit, disk space) and assembly are the
 shared core.uploads.UploadField, so both front ends accept the same files.
 """
+import asyncio
 import secrets
 
 from fastapi import APIRouter, Depends, HTTPException, Request
@@ -71,10 +72,17 @@ async def upload_chunk(key: str, upload_id: str, index: int, request: Request,
     _unlocked(session)
     field = _field(session, key)
     chunk = await request.body()
-    with session.lock:
-        if not field.is_current(upload_id):
-            raise HTTPException(409, "This upload is no longer active.")
-        error = field.write(index, chunk)
+
+    def write():
+        with session.lock:
+            if not field.is_current(upload_id):
+                return False, None
+            return True, field.write(index, chunk)
+
+    # Disk write in a worker thread: it must not stall the event loop (sockets, other requests)
+    current, error = await asyncio.to_thread(write)
+    if not current:
+        raise HTTPException(409, "This upload is no longer active.")
     if error is not None:
         raise HTTPException(422, error)
     return dict(received=field.received, size=field.size, complete=field.complete)

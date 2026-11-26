@@ -1,6 +1,8 @@
 import os
 import tempfile
 
+__version__ = "1.0.0"
+
 # scanpy compiles its kernels with numba and caches them. Next to a read-only
 # install numba finds no cache location and the import fails ("cannot cache
 # function ... no locator available"). Give it a writable folder before numba

@@ -69,7 +69,7 @@ export function DeconvolutionPanel({ layer }: { layer: Layer }) {
       } else {
         setRun((current) => (s.runs.some((r) => r.id === current) ? current : newest?.id ?? null));
       }
-    });
+    }).catch((exc) => setError(exc.message));
   }, [version, base]);
 
   const plugin = state?.methods.find((m) => m.name === method);

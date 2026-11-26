@@ -1,7 +1,7 @@
 from fastapi import APIRouter, HTTPException, Request
 from fastapi.responses import FileResponse, Response
 
-from ...core.tiles import TILE_CACHE_CONTROL, resolve_tile
+from ...core.tiles import resolve_tile, tile_cache_control
 
 router = APIRouter()
 CORS = {"Access-Control-Allow-Origin": "*"}
@@ -19,7 +19,7 @@ def tile(key: str, zoom: int, x: int, tail: str, request: Request):
         raise HTTPException(404, "Tile not found", headers={**CORS, "Cache-Control": "no-store"})
     path, mimetype, etag = found
     etag = f'"{etag}"'
-    headers = {**CORS, "Cache-Control": TILE_CACHE_CONTROL, "ETag": etag}
+    headers = {**CORS, "Cache-Control": tile_cache_control(path), "ETag": etag}
     if request.headers.get("if-none-match") == etag:
         return Response(status_code=304, headers=headers)
     return FileResponse(path, media_type=mimetype, headers=headers)

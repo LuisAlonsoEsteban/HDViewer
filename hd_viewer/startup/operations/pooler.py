@@ -1,5 +1,6 @@
 
 import geopandas as gpd
+import numpy as np
 import pandas as pd
 import scanpy as sc
 import scipy.sparse as sparse
@@ -72,23 +73,28 @@ class Pooler:
         groupby_object = self.filtered_adata.obs.groupby(['gdf_index'] + self.keep_cols, observed=True)
         counts = self.filtered_adata.X if 'counts' not in self.filtered_adata.layers.keys() else self.filtered_adata.layers['counts']
 
-        # Initialize a sparse matrix to store the summed gene counts for each spot
-        summed_counts = sparse.lil_matrix((groupby_object.ngroups, counts.shape[1]))
+        # Sum the bins of each polygon as one sparse product, membership @ counts
+        # (a Python loop over polygons took ~25 s for a full slide)
+        n_obs = counts.shape[0]
+        codes = np.full(n_obs, -1, dtype=np.int64)
         polygon_id = []
         metadata = {col: [] for col in self.keep_cols}
-        
+
         if len(self.keep_cols) > 0:
             for row, ((geom, *cols), idx_) in enumerate(groupby_object.indices.items()):
-                summed_counts[row] = counts[idx_].sum(0)
+                codes[idx_] = row
                 polygon_id.append(geom)
                 for i,col in enumerate(metadata.keys()):
                     metadata[col].append(cols[i])
         else:
             for row, (geom, idx_) in enumerate(groupby_object.indices.items()):
-                summed_counts[row] = counts[idx_].sum(0)
+                codes[idx_] = row
                 polygon_id.append(geom)
-        
-        summed_counts = summed_counts.tocsr()
+
+        member = np.flatnonzero(codes >= 0)
+        membership = sparse.csr_matrix((np.ones(len(member)), (codes[member], member)),
+                                       shape=(len(polygon_id), n_obs))
+        summed_counts = sparse.csr_matrix(membership @ sparse.csr_matrix(counts), dtype=np.float64)
         self.pooled_adata = sc.AnnData(X=summed_counts, obs=pd.DataFrame(metadata, index=polygon_id), var=self.filtered_adata.var)
         self.pooled_adata.var_names_make_unique()
 

@@ -69,6 +69,9 @@ class Bridge {
       this.rowVersions.set(layer, version);
       this.names.set(layer, new Map());
       this.pending.delete(layer);
+      // Names of the previous row numbering are never asked again
+      const prefix = `${layer}:`;
+      for (const key of this.asked) if (key.startsWith(prefix)) this.asked.delete(key);
     }
   }
 
@@ -99,8 +102,14 @@ class Bridge {
     for (const [layer, rows] of batches) {
       const version = this.rowVersions.get(layer);
       if (version === undefined) continue;
-      const reply = await sendJson<{ row_version: number; rows: [number, string][] }>(
-        "POST", this.namesPath(layer), { row_version: version, rows: [...rows] });
+      let reply: { row_version: number; rows: [number, string][] };
+      try {
+        reply = await sendJson("POST", this.namesPath(layer), { row_version: version, rows: [...rows] });
+      } catch {
+        // Ask again on the next hover instead of showing "…" for good
+        rows.forEach((row) => this.asked.delete(`${layer}:${version}:${row}`));
+        continue;
+      }
       if (reply.row_version !== this.rowVersions.get(layer)) continue;
       const cache = this.names.get(layer)!;
       reply.rows.forEach(([row, name]) => cache.set(row, name));
@@ -132,13 +141,8 @@ class Bridge {
   private roots = new Map<string, { view: any; element: HTMLElement }>();
 
   async embed(item: any, element: HTMLElement, key: string): Promise<Document> {
-    const previous = this.roots.get(key);
     const hovering = this.hoverStates(key);          // the user's hover on/off survives a rebuild
-    try {
-      if (previous?.element === element) previous.view?.remove();   // re-embedded in place
-    } catch {
-      /* already gone */
-    }
+    this.dispose(key);
     element.innerHTML = "";
     const views = await window.Bokeh.embed.embed_item(item, element);
     const view = Array.isArray(views) ? views[0] : views;
@@ -149,6 +153,31 @@ class Bridge {
       if (hovering.has(tool.name)) tool.active = hovering.get(tool.name);
     }
     return doc;
+  }
+
+  /** Remove the figure embedded as `key`: its view and its BokehJS document, which
+   * otherwise stays referenced (with its data arrays) after its element is gone. */
+  private dispose(key: string): void {
+    const previous = this.roots.get(key);
+    try {
+      previous?.view?.remove();
+    } catch {
+      /* already gone */
+    }
+    const doc = this.docs.get(key);
+    const documents = window.Bokeh?.documents;
+    if (doc && Array.isArray(documents)) {
+      const index = documents.indexOf(doc);
+      if (index >= 0) documents.splice(index, 1);
+    }
+    this.roots.delete(key);
+    this.docs.delete(key);
+  }
+
+  /** Remove every figure embedded in `element` (when its component unmounts). */
+  release(element: HTMLElement): void {
+    for (const [key, root] of [...this.roots]) if (root.element === element) this.dispose(key);
+    element.innerHTML = "";
   }
 
   /** The figure's named hover tools (`<layer>:hover`, `embedding:hover`). */

@@ -1,7 +1,8 @@
 import { test } from "@playwright/test";
 import { load } from "../helpers";
 
-// Not a test: captures the workspace for design review (run on demand)
+// Not a test: captures the workspace for design review. Run on demand:
+//   HDV_TOOLS=1 npx playwright test e2e/tools/screens.spec.ts
 test("capture workspace screens", async ({ page }) => {
   test.setTimeout(600_000);
   await page.setViewportSize({ width: 1600, height: 950 });

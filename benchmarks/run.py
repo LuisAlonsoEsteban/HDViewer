@@ -132,7 +132,10 @@ def main():
                         help="skip runs already recorded in results/<name>.jsonl (needs --name)")
     args = parser.parse_args()
 
-    cfg = yaml.safe_load(open(args.config))
+    # ${HDV_BENCH_ENVS} (where setup.sh created the environments) and other
+    # variables in config.yaml are expanded from the environment
+    os.environ.setdefault("HDV_BENCH_ENVS", str(BENCH.parent.parent / "envs"))
+    cfg = yaml.safe_load(os.path.expandvars(open(args.config).read()))
     repeats = args.repeats or cfg["repeats"]
     timeout = args.timeout or cfg["timeout_s"]
     entries = dict(cfg.get("datasets") or {}, **synthetic_entries(cfg))

@@ -1,6 +1,8 @@
 import { expect, Page } from "@playwright/test";
 
 export async function load(page: Page, dataset: string, { pseudospots = false } = {}) {
+  // The cookie notice is fixed at the bottom of the page and could cover "Load data"
+  await page.addInitScript(() => { try { sessionStorage.setItem("hdv:cookie-notice", "seen"); } catch { /* */ } });
   await page.goto("/");
   await page.getByRole("button", { name: /Explore your data/ }).click();
   await page.getByRole("combobox", { name: "Example dataset" }).click();

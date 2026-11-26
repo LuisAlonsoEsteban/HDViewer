@@ -25,7 +25,7 @@ from ...core import comparison as core
 from ...settings.config import comparison_kwargs
 from ...startup.utils.progress import reporting
 from ..figures import THEME, emit
-from . import current_session
+from . import existing_session
 from .layers import _loaded
 
 router = APIRouter()
@@ -48,7 +48,7 @@ def _comparable(session):
 
 
 @router.get("/comparison")
-def options(session=Depends(current_session)):
+def options(session=Depends(existing_session)):
     views = _comparable(session)
     state = _state(session)
     order = core.by_area({lid: view.sample for lid, view in views.items()})
@@ -92,7 +92,7 @@ def _refresh_metric_layers(session, views):
 
 
 @router.post("/comparison", status_code=202)
-def compare(body: CompareRequest, session=Depends(current_session)):
+def compare(body: CompareRequest, session=Depends(existing_session)):
     views = _comparable(session)
     first, second = views.get(body.sample1), views.get(body.sample2)
     if first is None or second is None or first is second:
@@ -170,7 +170,7 @@ def _numeric_metrics(state):
 
 
 @router.get("/comparison/result")
-def result(session=Depends(current_session)):
+def result(session=Depends(existing_session)):
     state = _result(session)
     result, swapped = state["result"], state["swapped"]
     numeric = _numeric_metrics(state)
@@ -209,7 +209,7 @@ def _scatter_rows(state, x, y):
 
 
 @router.get("/comparison/plots")
-def plots(metric: str, x: str, y: str, session=Depends(current_session)):
+def plots(metric: str, x: str, y: str, session=Depends(existing_session)):
     """Histogram of a local metric and a scatter of two of them."""
     state = _result(session)
     unit = UNITS[session.views[state["low"]].kind]
@@ -239,7 +239,7 @@ class SelectionRequest(BaseModel):
 
 
 @router.post("/comparison/selection")
-def select(body: SelectionRequest, session=Depends(current_session)):
+def select(body: SelectionRequest, session=Depends(existing_session)):
     """Scatter points selected: those low-res observations become the layer's selection."""
     state = _result(session)
     _, _, names = _scatter_rows(state, body.x, body.y)

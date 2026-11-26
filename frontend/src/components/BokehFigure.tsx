@@ -11,7 +11,7 @@ export function BokehFigure({ item, docKey, onReady }: { item: any; docKey: stri
     bridge.embed(item, element, docKey).then(() => current && onReady?.()).catch((exc) => console.error(exc));
     return () => {
       current = false;
-      element.innerHTML = "";
+      bridge.release(element);
     };
   }, [item, docKey]);
   return <div ref={host} style={{ minWidth: 0 }} />;

@@ -24,7 +24,7 @@ from ...core.encoding import CategoricalColor
 from ...settings.config import embedding_kwargs
 from ...startup.utils.progress import reporting
 from ..figures import THEME, emit
-from . import current_session
+from . import existing_session
 from .layers import _view
 
 router = APIRouter()
@@ -69,7 +69,7 @@ def _colour_codes(view, column):
 
 
 @router.get("/layers/{layer_id}/embedding")
-def state(layer_id: str, session=Depends(current_session)):
+def state(layer_id: str, session=Depends(existing_session)):
     view = _view(session, layer_id)
     with view.lock:
         return _state(view)
@@ -80,7 +80,7 @@ class EmbeddingRequest(BaseModel):
 
 
 @router.post("/layers/{layer_id}/embedding", status_code=202)
-def run(layer_id: str, body: EmbeddingRequest, session=Depends(current_session)):
+def run(layer_id: str, body: EmbeddingRequest, session=Depends(existing_session)):
     view = _view(session, layer_id)
     if body.method not in embedding.METHODS:
         raise HTTPException(422, f"Unsupported embedding method: {body.method}")
@@ -112,7 +112,7 @@ def run(layer_id: str, body: EmbeddingRequest, session=Depends(current_session))
 
 
 @router.get("/layers/{layer_id}/embedding/figure")
-def embedding_figure(layer_id: str, colour_by: str = "", session=Depends(current_session)):
+def embedding_figure(layer_id: str, colour_by: str = "", session=Depends(existing_session)):
     view = _view(session, layer_id)
     with view.lock:
         state = _embedded(view)
@@ -139,7 +139,7 @@ def embedding_figure(layer_id: str, colour_by: str = "", session=Depends(current
 
 
 @router.get("/layers/{layer_id}/embedding/colours")
-def colours(layer_id: str, colour_by: str = Query(""), session=Depends(current_session)):
+def colours(layer_id: str, colour_by: str = Query(""), session=Depends(existing_session)):
     """Recolour without resending coordinates: palette and one code per point."""
     view = _view(session, layer_id)
     with view.lock:
@@ -153,7 +153,7 @@ class NamesRequest(BaseModel):
 
 
 @router.post("/layers/{layer_id}/embedding/names")
-def names(layer_id: str, body: NamesRequest, session=Depends(current_session)):
+def names(layer_id: str, body: NamesRequest, session=Depends(existing_session)):
     """Hover text (native name and colour value) of embedded points."""
     view = _view(session, layer_id)
     with view.lock:
@@ -171,7 +171,7 @@ class SelectionRequest(BaseModel):
 
 
 @router.post("/layers/{layer_id}/embedding/selection")
-def select(layer_id: str, body: SelectionRequest, session=Depends(current_session)):
+def select(layer_id: str, body: SelectionRequest, session=Depends(existing_session)):
     """Points selected on the embedding become the layer's selection (shown on the map)."""
     view = _view(session, layer_id)
     with view.lock:
@@ -181,7 +181,7 @@ def select(layer_id: str, body: SelectionRequest, session=Depends(current_sessio
 
 
 @router.get("/layers/{layer_id}/embedding/selection")
-def selection(layer_id: str, session=Depends(current_session)):
+def selection(layer_id: str, session=Depends(existing_session)):
     """Positions of the layer's selection among the embedded points."""
     view = _view(session, layer_id)
     with view.lock:

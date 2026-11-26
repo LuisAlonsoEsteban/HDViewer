@@ -3,6 +3,7 @@ import { Autocomplete, Button, Group, SegmentedControl, Select, Stack, Text } fr
 import { getJson, sendJson } from "../api/client";
 import { bridge } from "../bokeh/bridge";
 import { JobProgress } from "./JobProgress";
+import { notifyError } from "../notify";
 import { useApp } from "../store/app";
 import { BokehFigure } from "./BokehFigure";
 
@@ -41,7 +42,7 @@ export function EmbeddingPanel() {
         if (done && s.default_colour_by) setColourBy(s.default_colour_by);
       }
       if (!colourBy && s.default_colour_by) setColourBy(s.default_colour_by);
-    });
+    }).catch((exc) => setError(exc.message));
   }, [base, version]);
 
   useEffect(() => {
@@ -79,14 +80,22 @@ export function EmbeddingPanel() {
   useEffect(() => {
     const offEmbedding = bridge.on("embedding-selection", async ({ layer: from, indices }) => {
       if (from !== layer) return;
-      const result = await sendJson<{ row_version: number; rows: number[] }>("POST", `${base}/selection`,
-                                                                              { indices: Array.from(indices as number[]) });
-      if (result.row_version === bridge.rowVersion(layer)) bridge.selectQuietly(bridge.model(layer, "source"), result.rows);
+      try {
+        const result = await sendJson<{ row_version: number; rows: number[] }>("POST", `${base}/selection`,
+                                                                                { indices: Array.from(indices as number[]) });
+        if (result.row_version === bridge.rowVersion(layer)) bridge.selectQuietly(bridge.model(layer, "source"), result.rows);
+      } catch (exc) {
+        notifyError(exc, "The selection could not be shown on the map");
+      }
     });
     const offMap = bridge.on("selection-changed", async ({ layer: changed }) => {
       if (changed !== layer || !embeddingSource()) return;
-      const { indices } = await getJson<{ indices: number[] }>(`${base}/selection`);
-      bridge.selectQuietly(embeddingSource(), indices);
+      try {
+        const { indices } = await getJson<{ indices: number[] }>(`${base}/selection`);
+        bridge.selectQuietly(embeddingSource(), indices);
+      } catch (exc) {
+        console.error(exc);
+      }
     });
     return () => { offEmbedding(); offMap(); };
   }, [layer, base]);

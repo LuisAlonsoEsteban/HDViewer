@@ -40,14 +40,15 @@
   <main>
     <section id="load-overview">
       <h2>Overview</h2>
-      <p>The start page has four parts, from top to bottom:</p>
+      <p>The loading page has four parts, from top to bottom:</p>
       <ol>
-        <li><b>Choose your data source</b>: upload your own files or pick an example dataset.</li>
+        <li><b>Data source</b>: the <span class="ui">Load example</span> tab picks an example dataset, the
+          <span class="ui">Upload files</span> tab takes your own files.</li>
         <li><b>Preprocessing</b>: which representations of the sample to build (pseudospots, cells).</li>
-        <li><span class="ui">Load data</span>, with a status line below it.</li>
-        <li><b>Loading progress</b>: one progress bar per task.</li>
+        <li><span class="ui">Load data</span>, with any warnings or errors shown just above it.</li>
+        <li><b>Progress</b>: one progress bar per task.</li>
       </ol>
-      <p>When every task has finished, the status line reads <b>Done</b> and the viewer opens. Everything you do
+      <p>When every task has finished, the analysis workspace opens. Everything you do
         afterwards lives in your browser session: reloading the page brings you back here, and nothing is
         saved between sessions (except cached segmentation results, see below).</p>
     </section>
@@ -78,11 +79,11 @@
     <section id="load-source">
       <h2>Choosing a data source</h2>
       <h3>Upload files</h3>
-      <p>Fill in the four fields above with <span class="ui">Choose file…</span>. Each file starts
+      <p>Fill in the fields (three required, two optional) with <span class="ui">Choose file…</span>. Each file starts
         uploading as soon as you choose it, with its progress shown below the fields; multi-gigabyte
         files are supported (up to 20 GB each on the public server). Wait until every file reads
         <span class="ui">Uploaded</span>, then click <span class="ui">Load data</span>. Choosing another
-        file replaces the current one, and <span class="ui">Cancel upload</span> / <span class="ui">Remove</span>
+        file replaces the current one, and <span class="ui">Cancel</span> / <span class="ui">Remove</span>
         clears a field. Closing the browser tab cancels the session's uploads and running analyses
         and deletes its files from the server.</p>
       <h3>Load example</h3>
@@ -580,7 +581,7 @@
     <section id="app-workflow">
       <h2>A typical analysis</h2>
       <ol>
-        <li><b>Color</b>: type a gene you know to check the tissue and the data line up.</li>
+        <li><b>Display</b>: type a gene you know to check the tissue and the data line up.</li>
         <li><b>Clustering</b>: choose and run a clustering algorithm; look at the clusters on the map and their marker genes.</li>
         <li><b>Groups</b>: define groups of observations from conditions, e.g. <code>EPCAM &gt; 2</code> for epithelial (tumor) bins in the Human CRC example.</li>
         <li><b>DE</b>: compare a group with a cluster, or clusters with each other, and browse the table.</li>

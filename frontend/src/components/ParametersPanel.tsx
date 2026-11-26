@@ -54,7 +54,7 @@ export function ParametersPanel({ layer }: { layer: Layer }) {
     reload();
   }, [layer.id]);
 
-  if (!entries) return <Text size="sm" c="dimmed">Loading…</Text>;
+  if (!entries) return error ? <Text size="xs" c="red.4">{error}</Text> : <Text size="sm" c="dimmed">Loading…</Text>;
   return (
     <Stack gap="sm">
       <Text size="xs" c="dimmed">

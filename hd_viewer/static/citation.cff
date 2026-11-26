@@ -18,6 +18,8 @@ authors:
   - given-names: Idoia
     family-names: Ochoa
     affiliation: Tecnun, University of Navarra
+version: 1.0.0
+date-released: 2026-11-26
 license: MIT
 repository-code: https://github.com/LuisAlonsoEsteban/HDViewer
 url: https://hdviewer.unav.edu

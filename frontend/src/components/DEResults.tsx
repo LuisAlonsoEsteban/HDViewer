@@ -2,6 +2,7 @@ import { Fragment, useEffect, useRef, useState } from "react";
 import { CloseButton, Group, Loader, ScrollArea, Table, Text, TextInput, Title, UnstyledButton } from "@mantine/core";
 import { ApiError, getJson } from "../api/client";
 import { bridge } from "../bokeh/bridge";
+import { notifyError } from "../notify";
 import { useApp } from "../store/app";
 
 interface Page {
@@ -37,6 +38,7 @@ export function DEResults({ layer, run }: { layer: string; run: number }) {
   const [sort, setSort] = useState<{ column: string; desc: boolean } | null>(null);
   const [cleared, setCleared] = useState(false);
   const [loadingMore, setLoadingMore] = useState(false);
+  const [error, setError] = useState<string | null>(null);
   const plots = useRef<HTMLDivElement>(null);
   const base = `layers/${encodeURIComponent(layer)}/de`;
 
@@ -59,9 +61,12 @@ export function DEResults({ layer, run }: { layer: string; run: number }) {
         const result = ready ? await fetchRows(0) : null;
         if (!current) return;
         setCleared(!result);
+        setError(null);
         if (result) setPage(result);
       } catch (exc) {
-        if (current && exc instanceof ApiError && exc.status === 404) setCleared(true);
+        if (!current) return;
+        if (exc instanceof ApiError && exc.status === 404) setCleared(true);
+        else setError(exc instanceof Error ? exc.message : String(exc));
       }
     }, query ? 200 : 0);
     return () => { current = false; clearTimeout(timer); };
@@ -75,8 +80,8 @@ export function DEResults({ layer, run }: { layer: string; run: number }) {
       if (!current) return;
       if (item.message) element.textContent = item.message;
       else return bridge.embed(item, element, "de");
-    }).catch((exc) => console.error(exc));
-    return () => { current = false; element.innerHTML = ""; };
+    }).catch((exc) => { if (current) element.textContent = `The plots could not be drawn: ${exc.message}`; });
+    return () => { current = false; bridge.release(element); };
   }, [base, run]);
 
   const more = async () => {
@@ -85,6 +90,8 @@ export function DEResults({ layer, run }: { layer: string; run: number }) {
     try {
       const next = await fetchRows(page.rows.length);
       setPage({ ...next, rows: [...page.rows, ...next.rows] });
+    } catch (exc) {
+      notifyError(exc, "More DE results failed");
     } finally {
       setLoadingMore(false);
     }
@@ -115,7 +122,7 @@ export function DEResults({ layer, run }: { layer: string; run: number }) {
           <Text size="sm" c="dark.2">DE results were cleared because the compared groups or clusters changed. Run DE again.</Text>
         )}
         <div style={{ display: cleared ? "none" : "grid", gridTemplateColumns: "minmax(320px, 1fr) minmax(320px, 1fr)", gap: 16 }}>
-          {!page ? <Loader size="sm" /> : (
+          {!page ? (error ? <Text size="sm" c="red.4">{error}</Text> : <Loader size="sm" />) : (
             <div>
               <TextInput size="xs" placeholder="Search gene..." value={query} mb="xs"
                          onChange={(e) => setQuery(e.currentTarget.value)} />

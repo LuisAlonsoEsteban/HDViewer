@@ -5,6 +5,7 @@ import numpy as np
 import pandas as pd
 import scanpy as sc
 import anndata as ad
+import scipy.sparse as sp
 
 from .. import settings
 from ..startup.utils.progress import report
@@ -76,6 +77,10 @@ class DEAnalysis:
             sc.pp.normalize_total(_a, target_sum=getattr(self.sample, "normalization_target_sum",
                                                          settings.NORMALIZATION_TARGET_SUM))
             sc.pp.log1p(_a)
+            # Column-major: the tests read gene chunks (columns), which in CSR
+            # means a scan of the whole matrix per chunk
+            if sp.issparse(_a.X):
+                _a.X = sp.csc_matrix(_a.X)
             cache[factor] = _a
 
         # filter_genes/log1p keep the observations: masks still line up
@@ -85,13 +90,23 @@ class DEAnalysis:
         n_overlap = 0
 
         if mode == 0:
+            testable = []
             for cname in active:
                 if cname not in level_masks:
                     continue
-                in_cluster = pd.Series(level_masks[cname], index=adata_copy.obs.index)
+                in_cluster = np.asarray(level_masks[cname], dtype=bool)
                 if (~in_cluster).sum() == 0 or in_cluster.sum() < settings.DE_MIN_OBSERVATIONS:
                     report(f"Skipping {cname}: fewer than {settings.DE_MIN_OBSERVATIONS} {obs_word}")
                     continue
+                testable.append(cname)
+            # Disjoint sets (always for clusters) are tested in one scanpy call against
+            # "rest": the same test as one call per set, but each gene chunk is ranked once
+            batched = self._de_vs_rest_batched(adata_copy, testable, level_masks) if len(testable) > 1 else None
+            if batched is not None:
+                results.update(batched)
+                testable = []
+            for cname in testable:
+                in_cluster = pd.Series(level_masks[cname], index=adata_copy.obs.index)
                 report(f"Testing {cname} vs rest")
                 adata_copy.obs['_de_group'] = in_cluster.map(
                     {True: cname, False: 'Rest'}
@@ -158,6 +173,27 @@ class DEAnalysis:
         return DEResult(results=results, expression=expression, masks=comparison_masks,
                         names=tuple(active), mode=mode, source=source, factor=factor,
                         n_overlap=n_overlap)
+
+    @staticmethod
+    def _de_vs_rest_batched(adata, names, masks):
+        """{name: rank_genes_groups_df} of each set vs every other observation, in
+        one call; None when the sets overlap (or the call fails), so the caller
+        tests them one by one."""
+        stacked = np.vstack([np.asarray(masks[name], dtype=bool) for name in names])
+        if (stacked.sum(axis=0) > 1).any():
+            return None
+        labels = np.full(adata.n_obs, "\0outside", dtype=object)
+        for name, mask in zip(names, stacked):
+            labels[mask] = name
+        report(f"Testing {len(names)} sets vs rest")
+        adata.obs["_de_group"] = pd.Categorical(labels)
+        try:
+            sc.tl.rank_genes_groups(adata, groupby="_de_group", groups=list(names), reference="rest",
+                                    method=settings.DE_METHOD)
+            return {name: sc.get.rank_genes_groups_df(adata, group=name) for name in names}
+        except Exception as exc:
+            report(f"Batched test failed ({exc}); testing sets one by one")
+            return None
 
     def masks_at_level(self, masks, factor, level_obs_names):
         """Native-bin memberships -> memberships of the aggregated cells of `factor`.
@@ -379,8 +415,18 @@ class DEPresenter:
             if v is None or pd.isna(v):
                 return None
             return float(v) if kind == 'lfc' else float(f"{float(v):.3g}")
-        data = [[row['Gene']] + [num(row.get(f'{c}_{k}'), k) for c in names for k in ('lfc', 'pval')]
-                for _, row in merged.iterrows()]
+        # Column-wise (iterrows over ~20k genes is slow); missing columns give None
+        columns = [merged['Gene'].tolist()]
+        for c in names:
+            for k in ('lfc', 'pval'):
+                name = f'{c}_{k}'
+                if name not in merged.columns:
+                    columns.append([None] * len(merged))
+                    continue
+                values = merged[name].to_numpy(dtype=float, na_value=np.nan)
+                rounded = values if k == 'lfc' else np.array([float(f"{v:.3g}") if np.isfinite(v) else v for v in values])
+                columns.append([None if np.isnan(v) else float(v) for v in rounded])
+        data = [list(row) for row in zip(*columns)]
         data_json = json.dumps({"rows": data, "limit": self.DE_TABLE_ROWS, "pvalue_cutoff": settings.DE_PVALUE_CUTOFF},
                                separators=(',', ':'), allow_nan=False).replace("</", "<\\/")
 

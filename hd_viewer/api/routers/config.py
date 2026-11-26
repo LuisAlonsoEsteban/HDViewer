@@ -3,7 +3,8 @@ from fastapi import APIRouter
 
 from ... import settings
 from ...core.branding import BRANDING
-from ...help import BIOLOGICAL_USE_CASE_URL, TUTORIAL_URL, help_topics
+from ... import __version__
+from ...help import BIOLOGICAL_USE_CASE_URL, PRIVACY_URL, TUTORIAL_URL, help_topics
 from ...startup.sample._sample import Sample
 
 router = APIRouter()
@@ -16,6 +17,8 @@ def config():
         bokeh_version=bokeh.__version__,
         tutorial_url=TUTORIAL_URL,
         use_case_url=BIOLOGICAL_USE_CASE_URL,
+        privacy_url=PRIVACY_URL,
+        version=__version__,
         upload=dict(max_bytes=settings.UPLOAD_MAX_BYTES, chunk_bytes=settings.UPLOAD_CHUNK_BYTES,
                     bin_sizes=list(settings.UPLOAD_BIN_SIZES), default_bin_size=settings.UPLOAD_DEFAULT_BIN_SIZE),
         expression_scales=[dict(value=key, label=label) for key, label in Sample.EXPRESSION_SCALES.items()],

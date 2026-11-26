@@ -1,14 +1,14 @@
 #!/usr/bin/env bash
 # Create the benchmark environments (Linux x86_64). Re-running is safe: finished steps are skipped.
 #
-#   ENVS=/scratch/me/envs bash benchmarks/setup.sh
+#   ENVS=/path/to/envs bash benchmarks/setup.sh    # then: export HDV_BENCH_ENVS=/path/to/envs
 #
 # Needs: python3.11 (PY), conda/mamba with conda-forge (MAMBA), and node/npm (NODE_ENV conda env).
 # Paths written here must match benchmarks/config.yaml (python:, env:, xvfb:).
 set -euo pipefail
 
 REPO="$(cd "$(dirname "$0")/.." && pwd)"
-ENVS="${ENVS:-/scratch/lalonsoeste/PhD/envs}"
+ENVS="${ENVS:-$(dirname "$REPO")/envs}"
 PY="${PY:-python3.11}"
 MAMBA="${MAMBA:-mamba}"
 NODE_ENV="${NODE_ENV:-hdv-node}"         # conda env providing node and npm

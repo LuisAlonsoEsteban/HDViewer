@@ -1,6 +1,7 @@
 import { useEffect, useState } from "react";
 import { Loader, ScrollArea, SegmentedControl, Stack, Table, Tabs, Text } from "@mantine/core";
 import { getJson } from "../api/client";
+import { reportError } from "../notify";
 import { useApp } from "../store/app";
 import { BokehFigure } from "./BokehFigure";
 
@@ -25,16 +26,22 @@ export function SummaryPanel() {
   const [layer, setLayer] = useState(layers[0]?.id ?? "");
   const [view, setView] = useState("qc");
   const [qc, setQc] = useState<any>(null);
+  const [qcError, setQcError] = useState<string | null>(null);
   const [markers, setMarkers] = useState<{ clustered: boolean; markers: Marker[] }>();
   const version = versions[layer] ?? 0;
   const base = `layers/${encodeURIComponent(layer)}`;
 
-  useEffect(() => { getJson<{ layers: Stats[] }>("summary").then((s) => setStats(s.layers)); }, []);
+  useEffect(() => {
+    getJson<{ layers: Stats[] }>("summary").then((s) => setStats(s.layers)).catch(reportError("Dataset summary failed"));
+  }, []);
   useEffect(() => {
     setQc(null);
-    if (layer) getJson(`${base}/qc`).then(setQc).catch((exc) => console.error(exc));
+    setQcError(null);
+    if (layer) getJson(`${base}/qc`).then(setQc).catch((exc) => setQcError(exc.message));
   }, [base]);
-  useEffect(() => { if (layer) getJson<typeof markers>(`${base}/markers`).then(setMarkers); }, [base, version]);
+  useEffect(() => {
+    if (layer) getJson<typeof markers>(`${base}/markers`).then(setMarkers).catch(reportError("Marker genes failed"));
+  }, [base, version]);
 
   const unit = layers.find((l) => l.id === layer)?.kind.replace(/s$/, "") ?? "observation";
   return (
@@ -76,7 +83,8 @@ export function SummaryPanel() {
           <Tabs.Tab value="markers">Markers</Tabs.Tab>
         </Tabs.List>
         <Tabs.Panel value="qc" pt="xs">
-          {!qc && <Loader size="sm" />}
+          {!qc && !qcError && <Loader size="sm" />}
+          {qcError && <Text size="xs" c="red.4">{qcError}</Text>}
           <BokehFigure item={qc} docKey="qc" />
           {qc && qc.shown < qc.total && (
             <Text size="xs" c="dark.2">Scatters show a random {qc.shown.toLocaleString()} of {qc.total.toLocaleString()} {unit}s.</Text>
@@ -101,7 +109,7 @@ export function SummaryPanel() {
                       <Table.Td c="dark.1">{m.cluster}</Table.Td>
                       <Table.Td>{m.gene}</Table.Td>
                       <Table.Td c="blue.4">{m.score}</Table.Td>
-                      <Table.Td c="dark.1">{m.pval && m.pval > 0 ? m.pval.toExponential(2) : "0.00e+00"}</Table.Td>
+                      <Table.Td c="dark.1">{m.pval === null ? "—" : m.pval > 0 ? m.pval.toExponential(2) : "< 1e-300"}</Table.Td>
                       <Table.Td style={{ color: m.logfc >= 0 ? "#4ef1a1" : "#f14e4e" }}>{m.logfc}</Table.Td>
                     </Table.Tr>
                   ))}

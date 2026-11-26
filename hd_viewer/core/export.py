@@ -22,6 +22,16 @@ def _writable_obs(obs):
     return obs
 
 
+_SERVER_KEYS = {"log_path", "cache_namespace"}
+
+
+def _without_server_paths(value):
+    """Metadata without entries that only name files on the server."""
+    if isinstance(value, dict):
+        return {key: _without_server_paths(item) for key, item in value.items() if key not in _SERVER_KEYS}
+    return value
+
+
 def export_layer(sample, directory):
     """Write `sample.adata` to a new, randomly named file in `directory`; returns its path.
 
@@ -35,7 +45,7 @@ def export_layer(sample, directory):
         adata = sample.adata
         exported = ad.AnnData(X=adata.X, obs=_writable_obs(adata.obs), var=adata.var.copy(),
                               obsm=dict(adata.obsm), layers=dict(adata.layers))
-        exported.uns = dict(adata.uns)
+        exported.uns = _without_server_paths(dict(adata.uns))
         try:
             try:
                 exported.write_h5ad(path)

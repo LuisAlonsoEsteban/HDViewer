@@ -19,6 +19,8 @@ from .....plugins.jobs import JOBS
 from .plugins import SEGMENTATION_ROOT, PLUGINS_DIR, SDK_DIR, discover
 from .runners import RunnerError, make_runner
 
+_DETECT_LOCK = threading.Lock()
+
 CONFIG_PATH = SEGMENTATION_ROOT / "config.yaml"
 IMAGE_FILE = "image.tif"
 PARAMS_FILE = "params.json"
@@ -93,12 +95,20 @@ class SegmentationService:
         return self._runner.name if self._runner is not None else None
 
     def detect_runner(self, callback):
-        """Detect the runner in a background thread; callback(runner or exception)."""
+        """Detect the runner in a background thread; callback(runner or exception).
+        Only one detection runs at a time (pages poll for the result)."""
+        with _DETECT_LOCK:
+            if getattr(self, "_detecting", False):
+                return
+            self._detecting = True
+
         def detect():
             try:
                 result = self.runner
             except Exception as exc:
                 result = exc
+            finally:
+                self._detecting = False
             callback(result)
         threading.Thread(target=detect, daemon=True).start()
 

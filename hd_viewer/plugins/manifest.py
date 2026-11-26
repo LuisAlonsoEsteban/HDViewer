@@ -40,6 +40,8 @@ class Param:
                 raise ValueError(f"{self.label} is required")
             else:
                 return None
+        if self.type in ("float", "int") and (isinstance(value, bool) or not isinstance(value, (int, float, str))):
+            raise ValueError(f"{self.label} must be a number")
         if self.type == "float":
             value = float(value)
         elif self.type == "int":

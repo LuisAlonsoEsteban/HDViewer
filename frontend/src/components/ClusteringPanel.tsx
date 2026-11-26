@@ -4,6 +4,7 @@ import { getJson, sendJson } from "../api/client";
 import { patchFrame, requestViewport } from "../map/layers";
 import { Layer, useApp } from "../store/app";
 import { JobProgress } from "./JobProgress";
+import { notifyError, reportError } from "../notify";
 
 interface Options {
   algorithms: string[];
@@ -32,9 +33,10 @@ export function ClusteringPanel({ layer }: { layer: Layer }) {
     getJson<Options>("clustering/options").then((o) => {
       setOptions(o);
       setParams({ ...o.defaults, resolution: o.resolution.value });
-    });
+    }).catch((exc) => setError(exc.message));
   }, []);
-  useEffect(() => { getJson<Clusters>(path).then(setResult); }, [version, path]);
+  const reload = () => getJson<Clusters>(path).then(setResult).catch(reportError("Clusters could not be loaded"));
+  useEffect(() => { reload(); }, [version, path]);
 
   const run = async () => {
     setError(null);
@@ -52,8 +54,12 @@ export function ClusteringPanel({ layer }: { layer: Layer }) {
       const shown = new Set(changes.visible as string[]);   // show the change at once
       setResult((r) => r && { ...r, clusters: r.clusters.map((c) => ({ ...c, visible: shown.has(c.label) })) });
     }
-    await patchFrame(path, changes);
-    setResult(await getJson<Clusters>(path));
+    try {
+      await patchFrame(path, changes);
+    } catch (exc) {
+      notifyError(exc, "The clusters could not be updated");
+    }
+    await reload();                // the server's state, also undoing a failed change
   };
   const visible = result?.clusters.filter((c) => c.visible).map((c) => c.label) ?? [];
   const toggle = (label: string, on: boolean) =>

@@ -4,6 +4,7 @@ The socket also ties the session's lifetime to the open page: when the last
 socket closes, the session ends after a grace period (see api.sessions).
 """
 import asyncio
+import contextlib
 import json
 import time
 
@@ -27,6 +28,7 @@ async def events(websocket: WebSocket):
     session.loop = asyncio.get_running_loop()
     session.subscribers.add(queue)
     session.disconnected_at = None
+    session.socket_seen = True
     session.touch()
     await websocket.send_text(json.dumps(dict(type="status", load=session.load)))
 
@@ -41,19 +43,25 @@ async def events(websocket: WebSocket):
     async def receive():
         from .load import cancel_load
         while True:
-            message = json.loads(await websocket.receive_text() or "{}")
+            try:
+                message = json.loads(await websocket.receive_text() or "{}")
+            except ValueError:
+                continue
             session.touch()
-            if message.get("type") == "cancel":
+            if isinstance(message, dict) and message.get("type") == "cancel":
                 cancel_load(session)
 
     tasks = [asyncio.create_task(send()), asyncio.create_task(receive())]
     try:
-        await asyncio.wait(tasks, return_when=asyncio.FIRST_EXCEPTION)
-    except WebSocketDisconnect:
-        pass
+        await asyncio.wait(tasks, return_when=asyncio.FIRST_COMPLETED)
     finally:
         for task in tasks:
             task.cancel()
+        for task in tasks:
+            # Retrieve each task's outcome (a closed socket is the normal end) so
+            # asyncio does not log "exception was never retrieved"
+            with contextlib.suppress(asyncio.CancelledError, WebSocketDisconnect, RuntimeError):
+                await task
         session.subscribers.discard(queue)
         if not session.subscribers:
             session.disconnected_at = time.monotonic()

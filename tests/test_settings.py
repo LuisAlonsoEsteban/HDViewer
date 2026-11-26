@@ -58,7 +58,7 @@ class SettingsTests(unittest.TestCase):
 
     def test_custom_cluster_column_is_used_by_scanpy_and_markers(self):
         data = ad.AnnData(np.ones((4,2)),obs=pd.DataFrame(index=['a','b','c','d']),var=pd.DataFrame(index=['g','h']))
-        def leiden(target, *, resolution, key_added, random_state):
+        def leiden(target, *, resolution, key_added, random_state, **options):
             target.obs[key_added] = ['0','0','1','1']
         sample = Sample(pd.DataFrame({'index':list(data.obs_names)}), data, **sample_kwargs())
         clustering = ClusteringState(sample)

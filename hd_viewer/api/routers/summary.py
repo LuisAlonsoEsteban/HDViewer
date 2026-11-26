@@ -10,7 +10,7 @@ from fastapi import APIRouter, Depends
 from ... import settings
 from ...core import summary
 from ..figures import THEME
-from . import current_session
+from . import existing_session
 from .layers import _loaded, _view
 
 router = APIRouter()
@@ -18,7 +18,7 @@ UNITS = {"bins": "bin", "spots": "spot", "cells": "cell"}
 
 
 @router.get("/summary")
-def dataset_summary(session=Depends(current_session)):
+def dataset_summary(session=Depends(existing_session)):
     _loaded(session)
     layers = []
     for view in session.views.values():
@@ -44,7 +44,7 @@ def _scatter(x, y, title, x_label, y_label, colour):
 
 
 @router.get("/layers/{layer_id}/qc")
-def qc(layer_id: str, session=Depends(current_session)):
+def qc(layer_id: str, session=Depends(existing_session)):
     """% MT and genes per observation, and both against UMIs."""
     view = _view(session, layer_id)
     with view.lock, view.sample.fetch_lock:
@@ -71,7 +71,7 @@ def qc(layer_id: str, session=Depends(current_session)):
 
 
 @router.get("/layers/{layer_id}/markers")
-def markers(layer_id: str, session=Depends(current_session)):
+def markers(layer_id: str, session=Depends(existing_session)):
     """Top marker genes per cluster of the layer's last clustering."""
     view = _view(session, layer_id)
     with view.lock:

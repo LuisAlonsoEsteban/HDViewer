@@ -3,6 +3,7 @@ import { ApiError, connectEvents, getJson, LoadStatus, onCapacity } from "./api/
 import { CapacityNotice } from "./components/CapacityNotice";
 import { CookieNotice } from "./components/CookieNotice";
 import { refreshLayer } from "./map/layers";
+import { ErrorNotices, notifyError, reportError } from "./notify";
 import { Config, useApp, Workspace as WorkspaceData } from "./store/app";
 import { Landing } from "./screens/Landing";
 import { Loading } from "./screens/Loading";
@@ -31,19 +32,25 @@ export function App() {
 
   useEffect(() => {
     const openWorkspace = async () => {
-      setWorkspace(await getJson<WorkspaceData>("workspace"));
-      setScreen("workspace");
+      try {
+        setWorkspace(await getJson<WorkspaceData>("workspace"));
+        setScreen("workspace");
+      } catch (exc) {
+        notifyError(exc, "The workspace could not be opened");
+      }
     };
     getJson<Config>("config").then((config) => {
       setConfig(config);
       if (window.Bokeh?.version && window.Bokeh.version !== config.bokeh_version) {
         console.warn(`BokehJS ${window.Bokeh.version} differs from the server's Bokeh ${config.bokeh_version}`);
       }
-    });
+    }).catch(reportError("The server could not be reached. Reload the page in a moment."));
     let stop = () => {};
     // GET /api/load creates the session cookie the events socket needs
     getJson<LoadStatus>("load").catch((exc) => {
-      if (!(exc instanceof ApiError && exc.reason === "capacity")) console.error(exc);
+      if (!(exc instanceof ApiError && exc.reason === "capacity")) {
+        notifyError(exc, "The server could not be reached. Reload the page in a moment.");
+      }
       return null;
     }).then((load) => {
       if (!load) return;          // no session yet: the capacity notice retries
@@ -62,7 +69,7 @@ export function App() {
           if (event.state !== "running") analysesChanged(event.layer);
           if (event.name === "de" && event.state === "done") useApp.getState().showResults(event.layer, "de");
         } else if (event.type === "layer_stale") {
-          refreshLayer(event.layer);
+          refreshLayer(event.layer).catch((exc) => console.error(exc));
           useApp.getState().analysesChanged(event.layer);
         }
       });
@@ -70,7 +77,12 @@ export function App() {
     // Fallback while loading, in case a proxy blocks the events socket
     const poll = setInterval(async () => {
       if (useApp.getState().load.state !== "running") return;
-      const load = await getJson<LoadStatus>("load");
+      let load: LoadStatus;
+      try {
+        load = await getJson<LoadStatus>("load");
+      } catch {
+        return;                  // a network blip: try again on the next tick
+      }
       if (load.state === "running") return;
       setLoad(load);
       if (load.state === "ready" && useApp.getState().screen !== "workspace") openWorkspace();
@@ -81,6 +93,7 @@ export function App() {
   const notice = <>
     {capacity !== null && <CapacityNotice retryAfter={capacity} onRetry={retrySession} />}
     <CookieNotice />
+    <ErrorNotices />
     <TourOverlay />
   </>;
   if (screen === "workspace") return <>{notice}<Workspace /></>;

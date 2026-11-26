@@ -45,13 +45,19 @@ const ARRAYS: Record<string, (b: ArrayBuffer, o: number, n: number) => ArrayLike
 export function decodeFrame(buffer: ArrayBuffer): Frame {
   const length = new DataView(buffer).getUint32(0, true);
   const raw = JSON.parse(new TextDecoder().decode(new Uint8Array(buffer, 4, length)));
-  const start = 4 + length;
-  const body = buffer.slice(start); // own the bytes so views start 8-byte aligned
+  // The server pads the header so the body starts 8-byte aligned: typed arrays
+  // can then view the response buffer directly, without copying the body
+  let body = buffer;
+  let base = 4 + length;
+  if (base % 8 !== 0) {
+    body = buffer.slice(base);
+    base = 0;
+  }
   const resolve = (column: Encoded): Column => {
     if ("values" in column) return column.values;
     const make = ARRAYS[column.dtype];
     if (!make) throw new Error(`Unsupported dtype ${column.dtype}`);
-    return make(body, column.offset, column.length);
+    return make(body, base + column.offset, column.length);
   };
   const ops: Op[] = (raw.ops ?? []).map((op: any) =>
     op.op === "set"

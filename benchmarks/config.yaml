@@ -16,18 +16,19 @@ analysis:                     # identical for HDViewer and scanpy (SpatialData)
   n_neighbors: 15
   resolution: 0.9
 
-# Interpreters (one environment per tool family; see envs/ and setup.sh)
+# Interpreters (one environment per tool family; see envs/ and setup.sh).
+# ${HDV_BENCH_ENVS}: the ENVS folder given to setup.sh (default: ../envs next to the repository)
 python:
   hdviewer: .venv/bin/python
-  bench_sd: /scratch/lalonsoeste/PhD/envs/bench-sd/bin/python
-  bench_napari: /scratch/lalonsoeste/PhD/envs/bench-napari/bin/python
+  bench_sd: ${HDV_BENCH_ENVS}/bench-sd/bin/python
+  bench_napari: ${HDV_BENCH_ENVS}/bench-napari/bin/python
 
 env:
-  PLAYWRIGHT_BROWSERS_PATH: /scratch/lalonsoeste/PhD/envs/playwright-browsers
+  PLAYWRIGHT_BROWSERS_PATH: ${HDV_BENCH_ENVS}/playwright-browsers
 
 # napari needs an X server with OpenGL: Xvfb (conda-forge xorg-xvfb-server) + system Mesa
 xvfb:
-  prefix: /scratch/lalonsoeste/PhD/envs/bench-xvfb
+  prefix: ${HDV_BENCH_ENVS}/bench-xvfb
   dri_path: /usr/lib64/dri
 
 tools:

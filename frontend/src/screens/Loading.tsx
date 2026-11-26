@@ -50,21 +50,24 @@ export function Loading() {
   const [uploads, setUploads] = useState<Record<string, UploadState>>({});
   const [sending, setSending] = useState<Record<string, number>>({});
   const [error, setError] = useState<string | null>(null);
+  const [listed, setListed] = useState(false);       // the example list has arrived
   const aborts = useRef<Record<string, AbortController>>({});
   const running = load.state === "running";
   const tour = useTour((s) => (s.tour ? TOURS[s.tour] : undefined));
   const tourAvailable = useTourAvailable("p1crc");
 
   useEffect(() => {
+    const failed = (what: string) => (exc: Error) => setError(`${what} could not be loaded: ${exc.message}`);
     getJson<Dataset[]>("datasets").then((list) => {
       setDatasets(list);
+      setListed(true);
       // A guided tour needs its example (and no pseudospots): preselect them
       const wanted = tour && list.some((d) => d.id === tour.dataset) ? tour.dataset : null;
       setDataset(wanted ?? list[0]?.id ?? null);
       if (wanted) setPseudospots(false);
-    });
-    getJson<Plugins>("plugins").then(setPlugins);
-    getJson<Record<string, UploadState>>("uploads").then(setUploads);
+    }).catch(failed("The example datasets"));
+    getJson<Plugins>("plugins").then(setPlugins).catch(failed("The segmentation methods"));
+    getJson<Record<string, UploadState>>("uploads").then(setUploads).catch(failed("The upload status"));
   }, []);
   useEffect(() => { if (config) setBinSize(String(config.upload.default_bin_size)); }, [config]);
 
@@ -80,13 +83,21 @@ export function Loading() {
       if (exc.name !== "AbortError") setError(exc.message);
     } finally {
       setSending((s) => { const { [key]: _, ...rest } = s; return rest; });
-      setUploads(await getJson("uploads"));
+      try {
+        setUploads(await getJson("uploads"));
+      } catch (exc: any) {
+        setError(exc.message);
+      }
     }
   };
 
   const remove = async (key: string) => {
     aborts.current[key]?.abort();
-    setUploads(await sendJson("DELETE", `uploads/${key}`));
+    try {
+      setUploads(await sendJson("DELETE", `uploads/${key}`));
+    } catch (exc: any) {
+      setError(exc.message);
+    }
   };
 
   const start = async () => {
@@ -145,6 +156,12 @@ export function Loading() {
               <Select label="Example dataset" data={datasets.map((d) => ({ value: d.id, label: d.title }))}
                       wrapperProps={{ "data-tour": "dataset" }}
                       value={dataset} onChange={setDataset} disabled={running} />
+              {listed && !datasets.length && (
+                <Text size="xs" c="dark.2" mt={6}>
+                  No example datasets are installed on this server. Upload your own files instead (see the README
+                  for how to add examples to a local installation).
+                </Text>
+              )}
               {example && (
                 <Text size="xs" c="dark.2" mt={6}>
                   {example.has_reference
@@ -184,7 +201,7 @@ export function Loading() {
                 })}
                 <Select label="Bin size of the uploaded files" value={binSize} onChange={setBinSize}
                         data={(config?.upload.bin_sizes ?? [2, 8, 16]).map((s) => ({ value: String(s), label: `${s} µm` }))} />
-                <Text size="xs" c="dark.2">Up to {bytes(config?.upload.max_bytes ?? 0)} per file. Files are deleted when your session ends.</Text>
+                <Text size="xs" c="dark.2">Up to {bytes(config?.upload.max_bytes ?? 0)} per file. Files are deleted when your session ends: 1 minute after you close the page, or after 30 minutes without activity.</Text>
                 <Stack gap={2} data-testid="upload-checklist">
                   {FIELDS.map((field) => {
                     const state = uploads[field.key];
@@ -239,7 +256,7 @@ export function Loading() {
 
         {error && <Alert color="red">{error}</Alert>}
         {load.state === "failed" && <Alert color="red">{load.error}</Alert>}
-        {failures.map((message) => <Alert key={message} color="yellow">{message}</Alert>)}
+        {failures.map((message, i) => <Alert key={i} color="yellow">{message}</Alert>)}
 
         <Button size="md" onClick={start} disabled={!canLoad} loading={running} data-tour="load">Load data</Button>
         {load.tasks && (

@@ -42,7 +42,7 @@ The public server is free and open to all users. Uploaded data is private to you
 
 ### Requirements
 
-- Linux, macOS or Windows (WSL recommended on Windows).
+- Linux or macOS; on Windows, use WSL (native Windows is not supported).
 - Python **3.11** or newer.
 - Memory, as a rough guide: 16 GB RAM for 8/16 µm bins; 32–64 GB for 2 µm bins of a full slide or cell segmentation.
 - A recent desktop browser: Chrome, Firefox, Edge or Safari.
@@ -57,7 +57,6 @@ cd HDViewer
 
 conda create -n HDViewer python=3.11
 conda activate HDViewer
-conda install -c conda-forge nodejs=22 uvicorn
 pip install -r requirements.txt
 ```
 
@@ -66,7 +65,6 @@ pip install -r requirements.txt
 From the repository root:
 
 ```bash
-cd frontend && npm ci && npm run build && cd ..
 uvicorn hd_viewer.api.main:app --port 8000
 ```
 
@@ -80,7 +78,8 @@ upload your own files.
   need no extra flags. Each file may be up to 20 GiB (`VHD_UPLOAD_MAX_BYTES`), and
   the `tmp/` folder in the repository needs enough free disk space to hold it.
 - The built web interface ships in `hd_viewer/api/dist/`, so no Node.js is needed
-  to run it. To change the interface, see [For developers](#for-developers).
+  to run it. To change the interface (and rebuild it with Node.js 20+), see
+  [For developers](#for-developers).
 
 ### Running on a remote machine (HPC, workstation)
 
@@ -216,7 +215,7 @@ The following environment variables override them without editing code:
 | `VHD_UPLOAD_DIR` | `<repo>/tmp` | Folder for uploaded files and per-session work files (needs room for the largest upload) |
 | `VHD_ROOT_PATH` | empty | URL prefix when served under a sub-path (e.g. `/viewer`) |
 | `VHD_SESSION_TTL` | `1800` | Seconds of inactivity before a session and its files are removed |
-| `VHD_MAX_SESSIONS` | `50` | Concurrent sessions; further visitors are asked to retry later |
+| `VHD_MAX_SESSIONS` | `2` | Concurrent sessions; further visitors are asked to retry later (the public instance uses 50, see `deploy/hdviewer.service`) |
 | `VHD_TILE_FORMAT`, `VHD_TILE_QUALITY` | `webp`, `80` | Tile encoding (`webp` or lossless `png`); changing it re-tiles |
 | `VHD_UPLOAD_MAX_BYTES` | 20 GiB | Largest file accepted per upload field |
 | `VHD_SEG_RUNNER`, `VHD_DECONV_RUNNER` | `auto` | Force `docker`, `apptainer` or `local` plugins |
@@ -262,7 +261,10 @@ behind HTTPS.
 
 Each browser session gets its own private folder on the server. Uploaded files,
 intermediate results and exports are only reachable from that session, and the
-folder is deleted when the session ends (closing the tab, or after inactivity).
+folder is deleted when the session ends: 1 minute after the last tab of the session
+closes, after 30 minutes without activity (`VHD_SESSION_TTL`), or when the server
+restarts. The public instance's full statement, including cookies, logs and browser
+requirements, is on its [privacy page](https://hdviewer.unav.edu/static/assets/privacy.html).
 Exported `.h5ad` files are written to a randomly named file in that folder and
 deleted as soon as they have been sent. No account, e-mail address, analytics or tracking cookies are used.
 

@@ -157,7 +157,10 @@ def base_figure(max_dim):
                   background_fill_color=settings.PLOT_BACKGROUND_COLOR, tools="pan,wheel_zoom,save,reset",
                   # No BokehJS decimation while panning/zooming: above 2000 glyphs it would draw
                   # every 10th one in translucent grey. The server already culls and simplifies.
-                  lod_threshold=None)
+                  lod_threshold=None,
+                  # WebGL draws the tens of thousands of bins/spots per view far faster than
+                  # canvas; glyphs without a WebGL path (cell patches) fall back to canvas
+                  output_backend=settings.MAP_OUTPUT_BACKEND)
     plot.grid.visible = False
     plot.axis.visible = False
     plot.toolbar.logo = None

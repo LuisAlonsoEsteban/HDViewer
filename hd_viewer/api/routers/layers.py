@@ -4,6 +4,7 @@ Viewport, style and state responses are frames (api.frames) holding the
 operations to apply to the layer's BokehJS data source, with `base`/`version`
 data versions: a browser whose version differs from `base` asks for /state.
 """
+import traceback
 from fastapi import APIRouter, Depends, HTTPException, Query, Request
 from fastapi.responses import FileResponse, Response
 from starlette.background import BackgroundTask
@@ -14,7 +15,7 @@ from ...core.export import export_layer
 from ...core.workspace import micrometres_per_unit
 from .. import figures, frames
 from ..views import build_views
-from . import current_session
+from . import existing_session, public_message
 
 router = APIRouter()
 FRAME = "application/octet-stream"
@@ -59,7 +60,7 @@ def _inverse(transform, bins):
 
 
 @router.get("/workspace")
-def workspace(request: Request, session=Depends(current_session)):
+def workspace(request: Request, session=Depends(existing_session)):
     loaded = _loaded(session)
     processor = loaded.image_processor
     bins = next((view.sample for view in session.views.values() if view.kind == "bins"), None)
@@ -78,7 +79,7 @@ def workspace(request: Request, session=Depends(current_session)):
 
 @router.get("/figures/map")
 def map_figure(request: Request, x0: float | None = None, x1: float | None = None, y0: float | None = None,
-               y1: float | None = None, session=Depends(current_session)):
+               y1: float | None = None, session=Depends(existing_session)):
     """The map figure; with x0..y1 it opens at that view (rebuilds keep the view)."""
     box = (x0, x1, y0, y1)
     view_box = box if None not in box and x1 > x0 and y1 > y0 else None
@@ -86,7 +87,7 @@ def map_figure(request: Request, x0: float | None = None, x1: float | None = Non
 
 
 @router.get("/figures/thumbnail")
-def thumbnail_figure(request: Request, session=Depends(current_session)):
+def thumbnail_figure(request: Request, session=Depends(existing_session)):
     return figures.thumbnail_figure(_loaded(session), _prefix(request))
 
 
@@ -101,7 +102,7 @@ class ViewportRequest(BaseModel):
 
 
 @router.post("/layers/{layer_id}/viewport")
-def viewport(layer_id: str, body: ViewportRequest, session=Depends(current_session)):
+def viewport(layer_id: str, body: ViewportRequest, session=Depends(existing_session)):
     view = _view(session, layer_id)
     with view.lock:
         if body.seq <= view.seq:
@@ -113,7 +114,7 @@ def viewport(layer_id: str, body: ViewportRequest, session=Depends(current_sessi
 
 
 @router.get("/layers/{layer_id}/state")
-def state(layer_id: str, session=Depends(current_session)):
+def state(layer_id: str, session=Depends(existing_session)):
     view = _view(session, layer_id)
     with view.lock:
         return Response(frames.encode(*view.full_state()), media_type=FRAME)
@@ -130,7 +131,7 @@ class StyleRequest(BaseModel):
 
 
 @router.patch("/layers/{layer_id}/style")
-def style(layer_id: str, body: StyleRequest, session=Depends(current_session)):
+def style(layer_id: str, body: StyleRequest, session=Depends(existing_session)):
     view = _view(session, layer_id)
     ops = []
     with view.lock:
@@ -157,7 +158,7 @@ def style(layer_id: str, body: StyleRequest, session=Depends(current_session)):
 
 
 @router.get("/layers/{layer_id}/columns")
-def columns(layer_id: str, q: str = "", limit: int = Query(50, le=500), session=Depends(current_session)):
+def columns(layer_id: str, q: str = "", limit: int = Query(50, le=500), session=Depends(existing_session)):
     return _view(session, layer_id).column_names(q, limit)
 
 
@@ -167,14 +168,14 @@ class RowsRequest(BaseModel):
 
 
 @router.post("/layers/{layer_id}/names")
-def names(layer_id: str, body: RowsRequest, session=Depends(current_session)):
+def names(layer_id: str, body: RowsRequest, session=Depends(existing_session)):
     view = _view(session, layer_id)
     with view.lock:
         return dict(row_version=view.rows.row_version, rows=view.names(body.row_version, body.rows[:1000]))
 
 
 @router.post("/layers/{layer_id}/selection")
-def select(layer_id: str, body: RowsRequest, session=Depends(current_session)):
+def select(layer_id: str, body: RowsRequest, session=Depends(existing_session)):
     view = _view(session, layer_id)
     with view.lock:
         try:
@@ -184,7 +185,7 @@ def select(layer_id: str, body: RowsRequest, session=Depends(current_session)):
 
 
 @router.get("/layers/{layer_id}/selection")
-def selection(layer_id: str, session=Depends(current_session)):
+def selection(layer_id: str, session=Depends(existing_session)):
     view = _view(session, layer_id)
     with view.lock:
         return dict(row_version=view.rows.row_version, rows=view.selected_positions(),
@@ -204,7 +205,7 @@ class ParameterRequest(BaseModel):
 
 
 @router.get("/layers/{layer_id}/parameters")
-def parameters(layer_id: str, session=Depends(current_session)):
+def parameters(layer_id: str, session=Depends(existing_session)):
     view = _view(session, layer_id)
     with view.lock:
         return view.describe_parameters()
@@ -212,7 +213,7 @@ def parameters(layer_id: str, session=Depends(current_session)):
 
 @router.get("/layers/{layer_id}/parameters/{attr}/columns")
 def parameter_columns(layer_id: str, attr: str, q: str = "", limit: int = Query(50, le=500),
-                      session=Depends(current_session)):
+                      session=Depends(existing_session)):
     from ...core.parameters import EXTRA_ATTRS, column_choices
     view = _view(session, layer_id)
     if attr not in EXTRA_ATTRS:
@@ -223,7 +224,7 @@ def parameter_columns(layer_id: str, attr: str, q: str = "", limit: int = Query(
 
 
 @router.put("/layers/{layer_id}/parameters/{attr}")
-def set_parameter(layer_id: str, attr: str, body: ParameterRequest, session=Depends(current_session)):
+def set_parameter(layer_id: str, attr: str, body: ParameterRequest, session=Depends(existing_session)):
     """Changes the glyph: the browser then reloads the map figure (GET /figures/map)."""
     view = _view(session, layer_id)
     with view.lock:
@@ -236,7 +237,7 @@ def set_parameter(layer_id: str, attr: str, body: ParameterRequest, session=Depe
 
 
 @router.delete("/layers/{layer_id}/parameters/{attr}", status_code=204)
-def remove_parameter(layer_id: str, attr: str, session=Depends(current_session)):
+def remove_parameter(layer_id: str, attr: str, session=Depends(existing_session)):
     view = _view(session, layer_id)
     with view.lock:
         try:
@@ -249,13 +250,14 @@ def remove_parameter(layer_id: str, attr: str, session=Depends(current_session))
 # -- downloads -------------------------------------------------------------------------------
 
 @router.get("/layers/{layer_id}/export")
-def export(layer_id: str, session=Depends(current_session)):
+def export(layer_id: str, session=Depends(existing_session)):
     """The layer's AnnData (.h5ad) with its clusters, groups and deconvolution
     results, written to a private temporary file removed once sent."""
     view = _view(session, layer_id)
     try:
         path = export_layer(view.sample, session.directory / "exports")
     except Exception as exc:
-        raise HTTPException(500, f"The data could not be exported: {exc}")
+        traceback.print_exc()
+        raise HTTPException(500, f"The data could not be exported: {public_message(exc)}")
     return FileResponse(path, media_type="application/x-hdf5", filename=f"{layer_id}.h5ad",
                         background=BackgroundTask(path.unlink, missing_ok=True))

@@ -15,7 +15,7 @@ from pydantic import BaseModel, Field
 
 from ...core import deconvolution as core
 from ...plugins.jobs import JOBS
-from . import current_session
+from . import existing_session
 from .layers import _loaded, _view
 from .plugins import describe
 
@@ -60,7 +60,7 @@ def _runs(view):
 
 
 @router.get("/layers/{layer_id}/deconvolution")
-def state(layer_id: str, session=Depends(current_session)):
+def state(layer_id: str, session=Depends(existing_session)):
     view = _view(session, layer_id)
     service, error = _service()
     reference, columns, label = _reference(session)
@@ -102,7 +102,7 @@ def _validate(session, body):
 
 
 @router.post("/layers/{layer_id}/deconvolution/check")
-def check(layer_id: str, body: RunRequest, session=Depends(current_session)):
+def check(layer_id: str, body: RunRequest, session=Depends(existing_session)):
     """Whether the method can run with these settings (the form's live hint)."""
     _view(session, layer_id)
     _validate(session, body)
@@ -110,7 +110,7 @@ def check(layer_id: str, body: RunRequest, session=Depends(current_session)):
 
 
 @router.post("/layers/{layer_id}/deconvolution", status_code=202)
-def run(layer_id: str, body: RunRequest, session=Depends(current_session)):
+def run(layer_id: str, body: RunRequest, session=Depends(existing_session)):
     view = _view(session, layer_id)
     service, reference, params = _validate(session, body)
     loaded = session.loaded
@@ -174,7 +174,7 @@ def run(layer_id: str, body: RunRequest, session=Depends(current_session)):
 
 
 @router.post("/layers/{layer_id}/deconvolution/cancel")
-def cancel(layer_id: str, session=Depends(current_session)):
+def cancel(layer_id: str, session=Depends(existing_session)):
     """Stop this layer's running deconvolution. The panel is free at once; the
     process is killed in the background (kept running only while another
     session awaits the identical run, whose result is then cached)."""

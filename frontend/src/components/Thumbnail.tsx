@@ -30,12 +30,15 @@ export function Thumbnail() {
                                   bottom: plot.y_range.start, top: plot.y_range.end });
     };
     const off = bridge.on("ranges", follow);
+    const element = host.current!;
+    let current = true;
     getJson("figures/thumbnail").then(async (item) => {
-      const doc = await bridge.embed(item, host.current!, "thumbnail");
+      if (!current) return;
+      const doc = await bridge.embed(item, element, "thumbnail");
       box = doc.get_model_by_name("viewport_box");
       follow();
-    });
-    return off;
+    }).catch((exc) => console.error(exc));
+    return () => { current = false; off(); bridge.release(element); };
   }, []);
 
   const copy = async () => {

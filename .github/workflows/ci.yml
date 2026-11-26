@@ -1,0 +1,53 @@
+# Tests on every push and pull request: the Python suite (core, analyses, HTTP API)
+# and the front end (type check, unit tests, and a build that must match the
+# committed hd_viewer/api/dist, which is what the server ships).
+name: CI
+
+on:
+  push:
+    branches: [main]
+  pull_request:
+  workflow_dispatch:
+
+permissions:
+  contents: read
+
+jobs:
+  python:
+    runs-on: ubuntu-latest
+    timeout-minutes: 45
+    steps:
+      - uses: actions/checkout@v4
+      - uses: actions/setup-python@v5
+        with:
+          python-version: "3.11"
+          cache: pip
+      - run: pip install -r requirements.txt
+      - name: Unit and API tests
+        env:
+          VHD_WARM_UP: "0"
+        run: python -m unittest discover -s tests
+
+  frontend:
+    runs-on: ubuntu-latest
+    timeout-minutes: 20
+    defaults:
+      run:
+        working-directory: frontend
+    steps:
+      - uses: actions/checkout@v4
+      - uses: actions/setup-node@v4
+        with:
+          node-version: "22"
+          cache: npm
+          cache-dependency-path: frontend/package-lock.json
+      - run: npm ci
+      - run: npx tsc --noEmit
+      - run: npx vitest run
+      - run: npm run build
+      - name: The committed build is up to date
+        run: |
+          git status --porcelain -- ../hd_viewer/api/dist
+          test -z "$(git status --porcelain -- ../hd_viewer/api/dist)" || {
+            echo "::error::hd_viewer/api/dist differs from a fresh build: run 'npm run build' in frontend/ and commit it."
+            exit 1; }

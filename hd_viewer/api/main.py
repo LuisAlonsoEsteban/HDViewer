@@ -14,7 +14,8 @@ from fastapi import FastAPI, Request
 from fastapi.responses import FileResponse, JSONResponse, PlainTextResponse
 from fastapi.staticfiles import StaticFiles
 
-from .sessions import SessionRegistry, TooManySessions
+from ..core.session import purge_orphan_folders
+from .sessions import SessionRegistry, TooManySessions, set_session_cookie
 
 PACKAGE = Path(__file__).resolve().parents[1]
 DIST = Path(os.environ.get("VHD_FRONTEND_DIST", Path(__file__).resolve().parent / "dist"))
@@ -23,7 +24,7 @@ SWEEP_SECONDS = 30
 CAPACITY_RETRY_SECONDS = 60      # when every session is in use, the browser retries after this
 
 
-def create_app(registry=None, sweep_seconds=SWEEP_SECONDS):
+def create_app(registry=None, sweep_seconds=SWEEP_SECONDS, warm_up=None):
     from .routers import (analysis, comparison, config, datasets, de, deconvolution, embedding, events, layers, load,
                           metadata, plugins, regions, summary, tiles, uploads)
 
@@ -31,10 +32,17 @@ def create_app(registry=None, sweep_seconds=SWEEP_SECONDS):
 
     @contextlib.asynccontextmanager
     async def lifespan(app):
+        # Sessions live in memory: every session folder on disk at startup is an orphan
+        await asyncio.to_thread(purge_orphan_folders, registry.active_folders())
+        if warm_up if warm_up is not None else os.environ.get("VHD_WARM_UP", "1") != "0":
+            from ..core.warmup import warm_up as start_warm_up
+            start_warm_up()
+
         async def sweep():
             while True:
                 await asyncio.sleep(sweep_seconds)
                 registry.sweep()
+                await asyncio.to_thread(purge_orphan_folders, registry.active_folders())
         task = asyncio.create_task(sweep())
         try:
             yield
@@ -44,6 +52,12 @@ def create_app(registry=None, sweep_seconds=SWEEP_SECONDS):
     app = FastAPI(title="HDViewer API", lifespan=lifespan,
                   root_path=os.environ.get("VHD_ROOT_PATH", ""))
     app.state.sessions = registry
+
+    @app.middleware("http")
+    async def session_cookie(request: Request, call_next):
+        """Set the cookie of a session created by this request on every response
+        (also raw and error responses, which skip FastAPI's dependency headers)."""
+        return set_session_cookie(request, await call_next(request))
 
     @app.exception_handler(TooManySessions)
     async def at_capacity(request, exc):
@@ -74,7 +88,10 @@ def create_app(registry=None, sweep_seconds=SWEEP_SECONDS):
                                      status_code=503)
         target = (DIST / path).resolve()
         if path and target.is_file() and DIST.resolve() in target.parents:
-            return FileResponse(target)
+            # Vite's assets/ files carry a content hash in their name
+            immutable = path.startswith("assets/")
+            return FileResponse(target, headers={"Cache-Control": "public, max-age=31536000, immutable"}
+                                if immutable else None)
         return FileResponse(DIST / "index.html")
 
     return app

@@ -16,7 +16,7 @@ from ...core.groups import GROUPS_COL, OPERATORS
 from ...settings.config import clustering_kwargs
 from ...startup.utils.progress import reporting
 from .. import frames
-from . import current_session
+from . import existing_session
 from .layers import _view
 
 router = APIRouter()
@@ -56,14 +56,14 @@ def clustering_options():
 
 
 @router.get("/layers/{layer_id}/clusters")
-def clusters(layer_id: str, session=Depends(current_session)):
+def clusters(layer_id: str, session=Depends(existing_session)):
     view = _view(session, layer_id)
     with view.lock:
         return _clusters(view)
 
 
 @router.post("/layers/{layer_id}/clustering", status_code=202)
-def run_clustering(layer_id: str, body: ClusteringRequest, session=Depends(current_session)):
+def run_clustering(layer_id: str, body: ClusteringRequest, session=Depends(existing_session)):
     view = _view(session, layer_id)
     if body.algorithm not in SUPPORTED_ALGORITHMS:
         raise HTTPException(422, f"Unknown clustering algorithm: {body.algorithm}")
@@ -108,7 +108,7 @@ class ClusterDisplay(BaseModel):
 
 
 @router.patch("/layers/{layer_id}/clusters")
-def display_clusters(layer_id: str, body: ClusterDisplay, session=Depends(current_session)):
+def display_clusters(layer_id: str, body: ClusterDisplay, session=Depends(existing_session)):
     view = _view(session, layer_id)
     clustering = view.clustering
     with view.lock:
@@ -163,14 +163,14 @@ def _show_groups(view):
 
 
 @router.get("/layers/{layer_id}/groups")
-def groups(layer_id: str, session=Depends(current_session)):
+def groups(layer_id: str, session=Depends(existing_session)):
     view = _view(session, layer_id)
     with view.lock:
         return _groups(view)
 
 
 @router.post("/layers/{layer_id}/groups/check")
-def check_condition(layer_id: str, body: Condition, session=Depends(current_session)):
+def check_condition(layer_id: str, body: Condition, session=Depends(existing_session)):
     view = _view(session, layer_id)
     try:
         return dict(hint=view.groups.check_condition(body.column, body.op, body.value))
@@ -179,7 +179,7 @@ def check_condition(layer_id: str, body: Condition, session=Depends(current_sess
 
 
 @router.post("/layers/{layer_id}/groups")
-def create_group(layer_id: str, body: GroupRequest, session=Depends(current_session)):
+def create_group(layer_id: str, body: GroupRequest, session=Depends(existing_session)):
     view = _view(session, layer_id)
     conditions = [(c.column, c.op, c.value, c.logic if c.logic in ("AND", "OR") else "AND") for c in body.conditions]
     try:
@@ -196,7 +196,7 @@ def create_group(layer_id: str, body: GroupRequest, session=Depends(current_sess
 
 
 @router.patch("/layers/{layer_id}/groups/{name}")
-def display_group(layer_id: str, name: str, body: GroupDisplay, session=Depends(current_session)):
+def display_group(layer_id: str, name: str, body: GroupDisplay, session=Depends(existing_session)):
     view = _view(session, layer_id)
     groups = view.groups
     with view.lock:
@@ -217,7 +217,7 @@ def display_group(layer_id: str, name: str, body: GroupDisplay, session=Depends(
 
 
 @router.delete("/layers/{layer_id}/groups/{name}")
-def delete_group(layer_id: str, name: str, session=Depends(current_session)):
+def delete_group(layer_id: str, name: str, session=Depends(existing_session)):
     view = _view(session, layer_id)
     groups = view.groups
     with view.lock:
@@ -241,7 +241,7 @@ class CombineRequest(BaseModel):
 
 
 @router.post("/layers/{layer_id}/groups/combine")
-def combine_groups(layer_id: str, body: CombineRequest, session=Depends(current_session)):
+def combine_groups(layer_id: str, body: CombineRequest, session=Depends(existing_session)):
     """A new group from a set operation on two groups (or the complement of one).
     Its membership is fixed when it is created."""
     view = _view(session, layer_id)
@@ -266,7 +266,7 @@ def combine_groups(layer_id: str, body: CombineRequest, session=Depends(current_
 
 
 @router.post("/layers/{layer_id}/groups/show")
-def show_groups(layer_id: str, session=Depends(current_session)):
+def show_groups(layer_id: str, session=Depends(existing_session)):
     view = _view(session, layer_id)
     with view.lock:
         if not view.groups._groups:

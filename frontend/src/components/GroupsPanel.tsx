@@ -5,6 +5,7 @@ import {
 import { getJson, sendJson } from "../api/client";
 import { patchFrame, refreshLayer } from "../map/layers";
 import { Layer, useApp } from "../store/app";
+import { notifyError, reportError } from "../notify";
 
 interface GroupInfo {
   name: string; colour: string; size: number; visible: boolean; conditions: string[][];
@@ -29,7 +30,8 @@ export function GroupsPanel({ layer }: { layer: Layer }) {
   const [busy, setBusy] = useState(false);
   const base = `layers/${encodeURIComponent(layer.id)}`;
 
-  useEffect(() => { getJson<Groups>(`${base}/groups`).then(setState); }, [version, base]);
+  const reload = () => getJson<Groups>(`${base}/groups`).then(setState).catch(reportError("Groups could not be loaded"));
+  useEffect(() => { reload(); }, [version, base]);
   useEffect(() => {
     const timer = setTimeout(() => getJson<string[]>(`${base}/columns?q=${encodeURIComponent(column)}`)
       .then(setOptions).catch(() => setOptions([])), 150);
@@ -63,13 +65,21 @@ export function GroupsPanel({ layer }: { layer: Layer }) {
 
   const display = async (group: string, changes: Record<string, unknown>) => {
     setState((s) => s && { ...s, groups: s.groups.map((g) => (g.name === group ? { ...g, ...changes } : g)) });
-    await patchFrame(`${base}/groups/${encodeURIComponent(group)}`, changes);
-    setState(await getJson<Groups>(`${base}/groups`));
+    try {
+      await patchFrame(`${base}/groups/${encodeURIComponent(group)}`, changes);
+    } catch (exc) {
+      notifyError(exc, "The group could not be updated");
+    }
+    await reload();                // the server's state, also undoing a failed change
   };
   const remove = async (group: string) => {
-    setState(await sendJson<Groups>("DELETE", `${base}/groups/${encodeURIComponent(group)}`));
-    await refreshLayer(layer.id);
-    analysesChanged(layer.id);
+    try {
+      setState(await sendJson<Groups>("DELETE", `${base}/groups/${encodeURIComponent(group)}`));
+      await refreshLayer(layer.id);
+      analysesChanged(layer.id);
+    } catch (exc) {
+      notifyError(exc, "The group could not be deleted");
+    }
   };
 
   return (
@@ -98,8 +108,13 @@ export function GroupsPanel({ layer }: { layer: Layer }) {
         <Stack gap={6} data-tour="groups-list">
           <Text fw={600} size="sm">Created groups</Text>
           {!state.shown && <Button size="xs" variant="light" onClick={async () => {
-            await sendJson("POST", `${base}/groups/show`); await refreshLayer(layer.id);
-            setState(await getJson<Groups>(`${base}/groups`));
+            try {
+              await sendJson("POST", `${base}/groups/show`);
+              await refreshLayer(layer.id);
+            } catch (exc) {
+              notifyError(exc, "The map could not be coloured by groups");
+            }
+            await reload();
           }}>Colour the map by groups</Button>}
           {state.groups.map((group) => (
             <Group key={group.name} gap="xs" wrap="nowrap">

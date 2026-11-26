@@ -14,7 +14,15 @@ from pathlib import Path
 
 from .... import settings
 
-_CACHE_LOCK = threading.Lock()
+# One lock per tile directory: two sessions tiling the same image wait for each
+# other (the second then reuses the cache), different images tile in parallel
+_CACHE_LOCKS = {}
+_CACHE_LOCKS_GUARD = threading.Lock()
+
+
+def _cache_lock(path):
+    with _CACHE_LOCKS_GUARD:
+        return _CACHE_LOCKS.setdefault(os.path.abspath(str(path)), threading.Lock())
 
 _TILE_SETS = {}                 # key -> (tiles directory, file extension)
 _TILE_LOCK = threading.Lock()
@@ -191,7 +199,7 @@ class ImageProcessor:
                     format=ext, quality=self.tile_quality if ext == 'webp' else None)
         self.tiles_path.parent.mkdir(parents=True, exist_ok=True)
 
-        with _CACHE_LOCK:
+        with _cache_lock(self.tiles_path):
             marker = self.tiles_path / "manifest.json"
             if not overwrite and marker.exists():
                 try:
@@ -286,7 +294,9 @@ class ImageProcessor:
                         self._save_tile(tile, tile_path)
 
                         done += 1
-                        if progress_callback is not None:
+                        # Report whole-percent changes only: one event per tile floods the browser
+                        if progress_callback is not None and (
+                                done == total_steps or done * 100 // total_steps != (done - 1) * 100 // total_steps):
                             progress_callback(done, total_steps)
         
         except Exception:

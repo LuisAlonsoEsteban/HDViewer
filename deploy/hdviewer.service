@@ -15,12 +15,26 @@ WorkingDirectory=/opt/HDViewer
 Environment=VHD_DATA_DIR=/opt/HDViewer/data
 Environment=VHD_SESSION_TTL=1800
 Environment=VHD_MAX_SESSIONS=50
-Environment=VHD_UPLOAD_DIR=/path/with/space/hdviewer-uploads
+# Session folders (uploads, tiles, results): a disk with room for several uploads of up
+# to 20 GiB each. Must not be shared with another instance: folders of sessions this
+# process does not know are removed at startup and on every sweep.
+Environment=VHD_UPLOAD_DIR=/srv/hdviewer/uploads
 # One process: sessions, loaded datasets and the tile registry live in memory
 ExecStart=/opt/HDViewer/.venv/bin/uvicorn hd_viewer.api.main:app \
     --host 127.0.0.1 --port 8000 --workers 1 --proxy-headers --forwarded-allow-ips 127.0.0.1
 Restart=on-failure
 RestartSec=5
+# Plugin containers (named vhd-<plugin>-<id>) outlive the docker CLI that started them
+ExecStopPost=/bin/sh -c 'ids=$(docker ps -q --filter name=^vhd-); [ -z "$ids" ] || docker rm -f $ids'
+
+# Resource limits and hardening. Without a memory cap the kernel OOM killer may pick
+# another process; with it, only HDViewer restarts (and its orphaned folders are removed).
+MemoryMax=90%
+PrivateTmp=yes
+ProtectSystem=full
+ProtectHome=read-only
+# Not with a setuid Apptainer installation (needs privilege escalation):
+NoNewPrivileges=yes
 
 [Install]
 WantedBy=multi-user.target

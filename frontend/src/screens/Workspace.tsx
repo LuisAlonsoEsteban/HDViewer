@@ -78,6 +78,9 @@ export function Workspace() {
   return (
     <AppShell header={{ height: HEADER }} navbar={{ width: RAIL + left, breakpoint: "sm" }} padding={0}
               aside={{ width: right, breakpoint: "md", collapsed: { desktop: !analyses, mobile: !analyses } }}>
+      <div className="small-screen-notice" role="note">
+        The analysis workspace is designed for desktop screens (at least 1280 px wide). Some panels are hidden here.
+      </div>
       <AppShell.Header className="ws-header">
         <Group h="100%" px="md" justify="space-between" wrap="nowrap">
           <Group gap="md" wrap="nowrap">

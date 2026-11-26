@@ -10,7 +10,7 @@ from pydantic import BaseModel
 
 from ... import settings
 from ...core.roi import ROI
-from . import current_session
+from . import existing_session
 from .analysis import _groups, _show_groups
 from .layers import _view
 
@@ -111,14 +111,14 @@ def _geometry(view, shape, preview=False):
 
 
 @router.get("/layers/{layer_id}/rois")
-def list_rois(layer_id: str, session=Depends(current_session)):
+def list_rois(layer_id: str, session=Depends(existing_session)):
     view = _view(session, layer_id)
     with view.lock:
         return _list(view)
 
 
 @router.post("/layers/{layer_id}/rois/preview")
-def preview(layer_id: str, shape: Shape, session=Depends(current_session)):
+def preview(layer_id: str, shape: Shape, session=Depends(existing_session)):
     view = _view(session, layer_id)
     geometry, seed = _geometry(view, shape, preview=True)
     xs, ys = _outline(view.rois, geometry)
@@ -126,7 +126,7 @@ def preview(layer_id: str, shape: Shape, session=Depends(current_session)):
 
 
 @router.post("/layers/{layer_id}/rois")
-def create_roi(layer_id: str, shape: Shape, session=Depends(current_session)):
+def create_roi(layer_id: str, shape: Shape, session=Depends(existing_session)):
     view = _view(session, layer_id)
     geometry, seed = _geometry(view, shape)
     rois = view.rois
@@ -157,7 +157,7 @@ def _roi(view, roi_id):
 
 
 @router.patch("/layers/{layer_id}/rois/{roi_id}")
-def display_roi(layer_id: str, roi_id: str, body: ROIDisplay, session=Depends(current_session)):
+def display_roi(layer_id: str, roi_id: str, body: ROIDisplay, session=Depends(existing_session)):
     view = _view(session, layer_id)
     with view.lock:
         roi = _roi(view, roi_id)
@@ -167,7 +167,7 @@ def display_roi(layer_id: str, roi_id: str, body: ROIDisplay, session=Depends(cu
 
 
 @router.delete("/layers/{layer_id}/rois/{roi_id}")
-def delete_roi(layer_id: str, roi_id: str, session=Depends(current_session)):
+def delete_roi(layer_id: str, roi_id: str, session=Depends(existing_session)):
     view = _view(session, layer_id)
     with view.lock:
         roi = _roi(view, roi_id)
@@ -186,7 +186,7 @@ def delete_roi(layer_id: str, roi_id: str, session=Depends(current_session)):
 
 
 @router.post("/layers/{layer_id}/rois/{roi_id}/group")
-def roi_group(layer_id: str, roi_id: str, session=Depends(current_session)):
+def roi_group(layer_id: str, roi_id: str, session=Depends(existing_session)):
     view = _view(session, layer_id)
     with view.lock:
         roi = _roi(view, roi_id)
@@ -199,7 +199,7 @@ def roi_group(layer_id: str, roi_id: str, session=Depends(current_session)):
 
 
 @router.post("/layers/{layer_id}/rois/{roi_id}/select")
-def select_roi(layer_id: str, roi_id: str, session=Depends(current_session)):
+def select_roi(layer_id: str, roi_id: str, session=Depends(existing_session)):
     view = _view(session, layer_id)
     with view.lock:
         roi = _roi(view, roi_id)
@@ -209,7 +209,7 @@ def select_roi(layer_id: str, roi_id: str, session=Depends(current_session)):
 
 
 @router.post("/layers/{layer_id}/rois/{roi_id}/unselect")
-def unselect_roi(layer_id: str, roi_id: str, session=Depends(current_session)):
+def unselect_roi(layer_id: str, roi_id: str, session=Depends(existing_session)):
     view = _view(session, layer_id)
     with view.lock:
         roi = _roi(view, roi_id)
@@ -219,7 +219,7 @@ def unselect_roi(layer_id: str, roi_id: str, session=Depends(current_session)):
 
 
 @router.post("/layers/{layer_id}/rois/{roi_id}/focus")
-def focus_roi(layer_id: str, roi_id: str, session=Depends(current_session)):
+def focus_roi(layer_id: str, roi_id: str, session=Depends(existing_session)):
     view = _view(session, layer_id)
     with view.lock:
         x0, y0, x1, y1 = _roi(view, roi_id).geometry.bounds
@@ -228,7 +228,7 @@ def focus_roi(layer_id: str, roi_id: str, session=Depends(current_session)):
 
 
 @router.get("/layers/{layer_id}/barcodes")
-def barcodes(layer_id: str, q: str = Query("", max_length=200), session=Depends(current_session)):
+def barcodes(layer_id: str, q: str = Query("", max_length=200), session=Depends(existing_session)):
     view = _view(session, layer_id)
     if not hasattr(view.sample, "AGGREGATION_FACTORS"):
         return []

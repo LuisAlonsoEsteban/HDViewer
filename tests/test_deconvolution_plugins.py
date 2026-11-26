@@ -360,7 +360,7 @@ class ContainerCommandTests(unittest.TestCase):
             docker = DockerRunner({}, **kwargs)
             for name in ('nnls', 'cell2location', 'music', 'spacexr'):
                 plugin = discover()[name]
-                expected = f'ghcr.io/luisalonsoesteban/visium-deconv-{name}:0.1.0'
+                expected = f'ghcr.io/luisalonsoesteban/visium-deconv-{name}:{plugin.version}'
                 self.assertEqual(plugin.image, expected)
                 self.assertEqual(apptainer.image_uri(plugin), 'docker://' + expected)
                 command, _ = docker.command(plugin, Path(folder), Path(folder), docker.plugin_env())

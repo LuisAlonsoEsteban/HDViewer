@@ -15,7 +15,7 @@ from ...analysis.metadata_comparison import (build_metadata_plot, compare_metada
                                                            numeric_columns, rest_mask)
 from ...core.de_sets import de_inputs, de_masks, de_options
 from ..figures import THEME
-from . import current_session
+from . import existing_session
 from .de import set_options
 from .layers import _view
 
@@ -45,7 +45,7 @@ def _presets(view):
 
 
 @router.get("/layers/{layer_id}/metadata/options")
-def options(layer_id: str, session=Depends(current_session)):
+def options(layer_id: str, session=Depends(existing_session)):
     view = _view(session, layer_id)
     with view.lock:
         presets, default = _presets(view)
@@ -63,7 +63,7 @@ class CompareRequest(BaseModel):
 
 
 @router.post("/layers/{layer_id}/metadata/compare")
-def compare(layer_id: str, body: CompareRequest, session=Depends(current_session)):
+def compare(layer_id: str, body: CompareRequest, session=Depends(existing_session)):
     view = _view(session, layer_id)
     chosen = [("groups", name) for name in body.groups] + [("clusters", name) for name in body.clusters]
     if len(chosen) < (1 if body.include_rest else 2) or not body.columns:
@@ -124,7 +124,7 @@ def compare(layer_id: str, body: CompareRequest, session=Depends(current_session
 
 
 @router.get("/layers/{layer_id}/metadata/plots")
-def plots(layer_id: str, session=Depends(current_session)):
+def plots(layer_id: str, session=Depends(existing_session)):
     view = _view(session, layer_id)
     with view.lock:
         item = view.metadata["item"]

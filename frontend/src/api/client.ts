@@ -96,19 +96,30 @@ export function connectEvents(onEvent: (event: ServerEvent) => void): () => void
   let socket: WebSocket | null = null;
   let closed = false;
   let retry = 0;
+  let timer: ReturnType<typeof setTimeout> | undefined;
   const open = () => {
+    if (closed) return;
     const url = new URL("api/events", window.location.href);
     url.protocol = url.protocol === "https:" ? "wss:" : "ws:";
     socket = new WebSocket(url);
-    socket.onmessage = (message) => onEvent(JSON.parse(message.data));
+    socket.onmessage = (message) => {
+      let event: ServerEvent;
+      try {
+        event = JSON.parse(message.data);
+      } catch {
+        return;
+      }
+      onEvent(event);
+    };
     socket.onopen = () => (retry = 0);
     socket.onclose = () => {
-      if (!closed) setTimeout(open, Math.min(10000, 500 * 2 ** retry++));
+      if (!closed) timer = setTimeout(open, Math.min(10000, 500 * 2 ** retry++));
     };
   };
   open();
   return () => {
     closed = true;
+    clearTimeout(timer);
     socket?.close();
   };
 }

@@ -188,6 +188,7 @@ HELP = {
 # so they work under any URL prefix)
 TUTORIAL_URL = "static/assets/tutorial.html"
 BIOLOGICAL_USE_CASE_URL = "static/assets/biological-use-case.html"
+PRIVACY_URL = "static/assets/privacy.html"
 
 # Section of the tutorial each help topic links to
 TUTORIAL_ANCHORS = {

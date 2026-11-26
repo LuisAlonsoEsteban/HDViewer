@@ -8,6 +8,8 @@ complete file is renamed to ``<directory>/<key>/<name>``.
 """
 import os
 import shutil
+import threading
+import weakref
 from pathlib import Path
 
 from .. import settings
@@ -28,6 +30,19 @@ def format_bytes(size):
         size /= 1024
 
 
+# Every upload field of the process: a new upload must fit in the free disk space
+# left after the bytes still to come of the uploads in progress (of any session)
+_FIELDS = weakref.WeakSet()
+_FIELDS_LOCK = threading.Lock()
+
+
+def _pending_bytes(exclude=None):
+    with _FIELDS_LOCK:
+        fields = list(_FIELDS)
+    return sum(field.size - field.received for field in fields
+               if field is not exclude and field.status == UploadField.UPLOADING)
+
+
 class UploadField:
     """One upload slot (e.g. the expression matrix). `directory` is a callable
     returning the session folder. Methods return an error message or None."""
@@ -42,6 +57,8 @@ class UploadField:
         self.max_bytes = settings.UPLOAD_MAX_BYTES if max_bytes is None else max_bytes
         self.chunk_bytes = settings.UPLOAD_CHUNK_BYTES if chunk_bytes is None else chunk_bytes
         self._reset()
+        with _FIELDS_LOCK:
+            _FIELDS.add(self)
 
     def _reset(self):
         self.status = self.EMPTY
@@ -102,7 +119,7 @@ class UploadField:
         directory = Path(self._directory())
         try:
             (directory / self.key).mkdir(parents=True, exist_ok=True)
-            if shutil.disk_usage(directory).free < size:
+            if shutil.disk_usage(directory).free - _pending_bytes(exclude=self) < size:
                 return self._fail(f"Not enough disk space on the server for {self.filename}.")
             self._temp = directory / f".{self.key}.part"
             self._temp.write_bytes(b"")

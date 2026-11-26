@@ -22,6 +22,11 @@ UPLOAD_CHUNK_BYTES = 4 * 1024 ** 2
 
 # Image tiles and grid fitting
 TILE_SIZE = 256
+# Map rendering in the browser: "webgl" (fast) or "canvas"
+MAP_OUTPUT_BACKEND = os.environ.get("VHD_MAP_BACKEND", "webgl")
+# Largest tissue image accepted (pixels). Full-resolution Visium HD H&E images are
+# ~0.5-1.5 gigapixels; the default leaves headroom without letting one file take all memory.
+MAX_IMAGE_PIXELS = int(float(os.environ.get("VHD_MAX_IMAGE_PIXELS", 3e9)))
 TILE_MEM_THRESHOLD = 0.5 # GB
 # Tile encoding: "webp" (lossy, ~15x smaller than PNG) or "png" (lossless).
 # Changing either value regenerates the tile caches (they are part of the manifest).
@@ -60,6 +65,11 @@ assert STATIC_RANGE <= OFFSET, "Offset must be larger than the static range for 
 # Clustering, embeddings and expression preprocessing
 CLUSTER_RESOLUTION = 0.9
 CLUSTER_ALGORITHM = "leiden"
+# "igraph" (fast; scanpy's future default) or "leidenalg" (scanpy <= 1.11 default, run to convergence)
+LEIDEN_FLAVOR = os.environ.get("VHD_LEIDEN_FLAVOR", "igraph")
+LEIDEN_ITERATIONS = 2
+# Threads for scanpy steps that support them (neighbors search, t-SNE); 0 = all cores
+ANALYSIS_THREADS = int(os.environ.get("VHD_ANALYSIS_THREADS", 0))
 CLUSTER_N_CLUSTERS = 8
 CLUSTER_DBSCAN_EPS = 0.5
 CLUSTER_MIN_SAMPLES = 5

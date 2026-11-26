@@ -6,6 +6,8 @@ export interface Config {
   bokeh_version: string;
   tutorial_url: string;
   use_case_url: string;
+  privacy_url?: string;
+  version?: string;
   upload: { max_bytes: number; chunk_bytes: number; bin_sizes: number[]; default_bin_size: number };
   expression_scales: { value: string; label: string }[];
   roi: { default_radius: number; preview_debounce_ms: number };

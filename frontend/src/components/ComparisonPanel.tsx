@@ -6,6 +6,7 @@ import { getJson, sendJson } from "../api/client";
 import { bridge } from "../bokeh/bridge";
 import { requestViewport, setStyle } from "../map/layers";
 import { JobProgress } from "./JobProgress";
+import { notifyError } from "../notify";
 import { useApp } from "../store/app";
 import { BokehFigure } from "./BokehFigure";
 
@@ -75,8 +76,8 @@ export function ComparisonPanel() {
         setX(r.default_x ?? r.metrics[0] ?? null);
         setY(r.default_y ?? r.metrics[1] ?? r.metrics[0] ?? null);
         setHelpRow(null);
-      });
-    });
+      }).catch((exc) => setMessage({ text: exc.message, error: true }));
+    }).catch((exc) => setMessage({ text: exc.message, error: true }));
   }, [version]);
 
   useEffect(() => {
@@ -89,9 +90,13 @@ export function ComparisonPanel() {
   // Scatter selection -> the low-res layer's selection on the map
   useEffect(() => bridge.on("comparison-selection", async ({ indices }) => {
     if (!x || !y) return;
-    const picked = await sendJson<{ layer: string; row_version: number; rows: number[] }>(
-      "POST", "comparison/selection", { x, y, indices: Array.from(indices as number[]) });
-    if (picked.row_version === bridge.rowVersion(picked.layer)) bridge.showSelection(picked.layer, picked.rows);
+    try {
+      const picked = await sendJson<{ layer: string; row_version: number; rows: number[] }>(
+        "POST", "comparison/selection", { x, y, indices: Array.from(indices as number[]) });
+      if (picked.row_version === bridge.rowVersion(picked.layer)) bridge.showSelection(picked.layer, picked.rows);
+    } catch (exc) {
+      notifyError(exc, "The selection could not be shown on the map");
+    }
   }), [x, y]);
 
   const layerOptions = (id: string | null) => options?.layers.find((l) => l.id === id);

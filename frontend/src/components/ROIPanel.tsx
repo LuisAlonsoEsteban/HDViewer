@@ -5,6 +5,7 @@ import { bridge } from "../bokeh/bridge";
 import { refreshLayer } from "../map/layers";
 import { arm, claim, disown, DrawMode, Drawn, focus, Outline, showDraft, showOutlines } from "../map/roi";
 import { Layer, useApp } from "../store/app";
+import { notifyError, reportError } from "../notify";
 
 interface ROIInfo extends Outline {
   id: string;
@@ -55,7 +56,9 @@ export function ROIPanel({ layer }: { layer: Layer }) {
   const seeded = layer.aggregation_factors.length > 0;          // barcode and group seeds: bins layers
   const mode = method !== "radius" || !seeded ? "draw" : seedSource;   // draw | map | barcode | group
 
-  useEffect(() => { getJson<ROIList>(`${base}/rois`).then(setList); }, [version, base]);
+  useEffect(() => {
+    getJson<ROIList>(`${base}/rois`).then(setList).catch(reportError("Regions could not be loaded"));
+  }, [version, base]);
   // Saved outlines on the map (hidden with the layer)
   useEffect(() => {
     if (list) showOutlines(layer.id, layer.visible ? list.rois.filter((r) => r.visible) : []);
@@ -197,7 +200,12 @@ export function ROIPanel({ layer }: { layer: Layer }) {
 
   const outline = async (roi: ROIInfo, visible: boolean) => {
     setList((l) => l && { ...l, rois: l.rois.map((r) => (r.id === roi.id ? { ...r, visible } : r)) });
-    setList(await sendJson<ROIList>("PATCH", `${base}/rois/${roi.id}`, { visible }));
+    try {
+      setList(await sendJson<ROIList>("PATCH", `${base}/rois/${roi.id}`, { visible }));
+    } catch (exc) {
+      notifyError(exc, "The ROI outline could not be changed");
+      getJson<ROIList>(`${base}/rois`).then(setList).catch(() => {});
+    }
   };
 
   const unit = list?.unit ?? "µm";
