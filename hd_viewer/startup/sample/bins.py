@@ -114,6 +114,15 @@ class Bins(Sample):
     def native_height(self):
         return self.spatial_transform.bin_height if self.spatial_transform else float((self.pixels_per_bin or 0) * self.tile_scale_yfactor)
 
+    def data_extent(self):
+        """(left, right, bottom, top) covered by the bins, half a bin wider on each side."""
+        cached = getattr(self, '_extent', None)
+        if cached is None or cached[0] is not self.gdf:
+            left, bottom, right, top = (self.gdf.total_bounds if len(self.gdf) else (np.nan,) * 4)
+            dx, dy = self.native_width / 2, self.native_height / 2
+            cached = self._extent = (self.gdf, (left - dx, right + dx, bottom - dy, top + dy))
+        return cached[1]
+
     def get_aggregation_factor(self, resolution_level):
         if resolution_level is None:
             return 1

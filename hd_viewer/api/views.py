@@ -222,7 +222,8 @@ class LayerView:
         bin_w, bin_h = getattr(sample, "native_width", None), getattr(sample, "native_height", None)
         if not bin_w or not bin_h:
             return None
-        width, height = viewport.window_size(x0, x1, y0, y1)
+        extent = sample.data_extent() if hasattr(sample, "data_extent") else None
+        width, height = viewport.window_size(*viewport.clip_to_extent(x0, x1, y0, y1, extent))
         factor, self._last_factor = viewport.aggregation_factor(
             max(width / bin_w, height / bin_h), getattr(sample, "AGGREGATION_FACTORS", (1,)), self._last_factor,
             target_bins_per_axis=settings.TARGET_BINS_PER_AXIS, hysteresis_ratio=settings.HYSTERESIS_RATIO,

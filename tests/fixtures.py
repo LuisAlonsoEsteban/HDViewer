@@ -70,3 +70,16 @@ def column(view, name):
     """A column of the view's data source as a NumPy array (or list for objects)."""
     values = view.rows.sink.data[name]
     return np.asarray(values) if isinstance(values, np.ndarray) else list(values)
+
+
+def zoom_by_window_span(case):
+    """Choose levels from the whole window at 180 bins per axis (the zoom-level
+    mechanics these tests check), not from the tissue inside it: a few test
+    bins would otherwise never be aggregated."""
+    from unittest.mock import patch as _patch
+    from hd_viewer import settings
+    from hd_viewer.core import viewport
+    for patcher in (_patch.object(settings, "TARGET_BINS_PER_AXIS", 180),
+                    _patch.object(viewport, "clip_to_extent", lambda x0, x1, y0, y1, extent: (x0, x1, y0, y1))):
+        patcher.start()
+        case.addCleanup(patcher.stop)

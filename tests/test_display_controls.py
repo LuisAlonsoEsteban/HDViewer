@@ -10,7 +10,7 @@ from shapely.geometry import box
 
 from hd_viewer.core.encoding import CategoricalColor, StaticParameter
 from hd_viewer.startup.sample import Bins
-from tests.fixtures import loaded, make_view, show
+from tests.fixtures import loaded, make_view, show, zoom_by_window_span
 
 
 def make_bins():
@@ -113,6 +113,9 @@ def zoom(view, span):
 
 
 class ClusterDisplayTests(unittest.TestCase):
+    def setUp(self):
+        zoom_by_window_span(self)
+
     def test_zoom_coarsens_cluster_display_but_not_below_analysis_level(self):
         view, column = clustered_layer()
         labels = view.sample.adata.obs[column].copy()

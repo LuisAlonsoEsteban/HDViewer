@@ -55,7 +55,8 @@ LOD_HYSTERESIS = 0.15
 STATIC_RANGE = 0.6
 OFFSET = 0.7
 HYSTERESIS_RATIO = 0.15
-TARGET_BINS_PER_AXIS = 180
+# Aggregated bins along the longer side of the visible tissue (more: finer, slower)
+TARGET_BINS_PER_AXIS = int(os.environ.get("VHD_TARGET_BINS_PER_AXIS", 360))
 GENE_CACHE_SIZE = 8
 # Far rows are dropped only once the loaded rows exceed this multiple of the
 # last viewport fetch (each prune resends every retained row)

@@ -172,6 +172,30 @@ class ImagesDirTests(unittest.TestCase):
             self.assertEqual(config["apptainer"]["images_dir"], "images")               # config not modified
 
 
+class InitialAggregationTests(unittest.TestCase):
+    def test_empty_margins_do_not_coarsen_the_bins(self):
+        """An 8 µm slide: 838 bins across inside an image three times wider."""
+        from hd_viewer.core import viewport
+        extent = (0.0, 838.0, 0.0, 838.0)                       # in native bins
+        window = (-1500.0, 2400.0, -500.0, 1400.0)               # whole image, screen-shaped
+        width, height = viewport.window_size(*viewport.clip_to_extent(*window, extent))
+        choose = lambda span: viewport.aggregation_factor(span, (1, 2, 4, 8, 12), 1, target_bins_per_axis=360,
+                                                          hysteresis_ratio=0.15)[0]
+        self.assertEqual(choose(max(width, height)), 4)
+        self.assertEqual(choose(max(viewport.window_size(*window))), 12)  # the margins counted
+        self.assertEqual(viewport.clip_to_extent(*window, (5000, 6000, 0, 1)), window)   # no overlap
+        self.assertEqual(viewport.clip_to_extent(*window, None), window)
+
+    def test_bins_extent_covers_whole_edge_bins(self):
+        import geopandas as gpd
+        from shapely.geometry import box
+        from hd_viewer.startup.sample import Bins
+        gdf = gpd.GeoDataFrame({"index": ["a", "b"]}, geometry=[box(0, 0, 2, 2), box(8, 4, 10, 6)])
+        adata = ad.AnnData(np.ones((2, 1)), obs=pd.DataFrame(index=["a", "b"]))
+        sample = Bins(gdf, adata, pixels_per_bin=2, bin_size=8)
+        self.assertEqual(sample.data_extent(), (-1.0, 11.0, -1.0, 7.0))
+
+
 class RCTDCoordinateTests(unittest.TestCase):
     def test_coordinates_are_the_centres_of_each_observation(self):
         import geopandas as gpd

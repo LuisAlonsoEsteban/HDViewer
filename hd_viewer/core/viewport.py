@@ -17,6 +17,15 @@ def window_size(x0, x1, y0, y1):
     return x1 - x0, y1 - y0
 
 
+def clip_to_extent(x0, x1, y0, y1, extent):
+    """The part of the window inside `extent` (left, right, bottom, top), so empty
+    margins around the data do not count; the whole window if they do not overlap."""
+    if extent is None or not all(math.isfinite(v) for v in extent):
+        return x0, x1, y0, y1
+    cx0, cx1, cy0, cy1 = max(x0, extent[0]), min(x1, extent[1]), max(y0, extent[2]), min(y1, extent[3])
+    return (cx0, cx1, cy0, cy1) if cx1 > cx0 and cy1 > cy0 else (x0, x1, y0, y1)
+
+
 def center(x0, x1, y0, y1):
     return (x0 + x1) / 2, (y0 + y1) / 2
 

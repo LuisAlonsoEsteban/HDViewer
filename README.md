@@ -222,6 +222,7 @@ The following environment variables override them without editing code:
 | `VHD_SEG_IMAGES_DIR`, `VHD_DECONV_IMAGES_DIR` | `images` in each plugin `api/` folder | Folder of local Apptainer images (`<plugin>.sif`); overrides `apptainer.images_dir` in `config.yaml` |
 | `VHD_SEG_THREADS`, `VHD_DECONV_THREADS` | `8` | CPU threads per segmentation/deconvolution run |
 | `VHD_DECONV_GPU` | off | Pass GPUs to deconvolution containers |
+| `VHD_TARGET_BINS_PER_AXIS` | `360` | Aggregated bins along the longer side of the visible tissue; the map aggregates bins (2×2 … 12×12) to stay under it. Lower it on a busy server for lighter views |
 
 Uploaded files and per-session results are written to `tmp/<session>/` in the
 repository and removed when the browser session closes.

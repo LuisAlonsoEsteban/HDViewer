@@ -12,11 +12,12 @@ import pandas as pd
 from shapely.geometry import Polygon
 
 from hd_viewer.startup.sample import Bins
-from tests.fixtures import loaded, make_view, show
+from tests.fixtures import loaded, make_view, show, zoom_by_window_span
 
 
 class BinResolutionTests(unittest.TestCase):
     def setUp(self):
+        zoom_by_window_span(self)
         # A native bin transformed by rotation followed by unequal axis scaling.
         angle = math.radians(30)
         rotation = np.array([[math.cos(angle), -math.sin(angle)],
