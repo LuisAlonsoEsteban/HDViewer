@@ -2,10 +2,11 @@ import { useEffect, useState } from "react";
 import {
   ActionIcon, Autocomplete, Button, Checkbox, ColorInput, Group, SegmentedControl, Select, Stack, Text, TextInput,
 } from "@mantine/core";
-import { getJson, sendJson } from "../api/client";
-import { patchFrame, refreshLayer } from "../map/layers";
+import { frame, getJson, sendJson } from "../api/client";
+import { applyLayerFrame, patchFrame, refreshLayer, requestViewport } from "../map/layers";
 import { Layer, useApp } from "../store/app";
 import { notifyError, reportError } from "../notify";
+import { create as createStore } from "zustand";
 
 interface GroupInfo {
   name: string; colour: string; size: number; visible: boolean; conditions: string[][];
@@ -13,6 +14,17 @@ interface GroupInfo {
 }
 interface Groups { groups: GroupInfo[]; operators: string[]; shown: boolean }
 interface Condition { column: string; op: string; value: string; logic: string }
+
+/** The group being built on each layer and whether its creation is running. Kept
+ * outside the panel: switching tool tabs unmounts it while the request goes on. */
+interface Draft { conditions: Condition[]; name: string; message: { text: string; error: boolean } | null; busy: boolean }
+const EMPTY: Draft = { conditions: [], name: "Group A", message: null, busy: false };
+const useDrafts = createStore<{ drafts: Record<string, Draft>; update(layer: string, changes: Partial<Draft>): void }>(
+  (set) => ({
+    drafts: {},
+    update: (layer, changes) => set((s) => ({ drafts: { ...s.drafts, [layer]: { ...(s.drafts[layer] ?? EMPTY), ...changes } } })),
+  }));
+type Update<T> = T | ((current: T) => T);
 
 /** Groups tool: build conditions, create groups, show/hide them. */
 export function GroupsPanel({ layer }: { layer: Layer }) {
@@ -24,10 +36,12 @@ export function GroupsPanel({ layer }: { layer: Layer }) {
   const [op, setOp] = useState<string | null>(">");
   const [value, setValue] = useState("");
   const [logic, setLogic] = useState<string | null>("AND");
-  const [conditions, setConditions] = useState<Condition[]>([]);
-  const [name, setName] = useState("Group A");
-  const [message, setMessage] = useState<{ text: string; error: boolean } | null>(null);
-  const [busy, setBusy] = useState(false);
+  const { conditions, name, message, busy } = useDrafts((s) => s.drafts[layer.id] ?? EMPTY);
+  const draft = (changes: Partial<Draft>) => useDrafts.getState().update(layer.id, changes);
+  const setConditions = (next: Update<Condition[]>) => draft({
+    conditions: typeof next === "function" ? next(useDrafts.getState().drafts[layer.id]?.conditions ?? []) : next });
+  const setName = (value: string) => draft({ name: value });
+  const setMessage = (value: Draft["message"]) => draft({ message: value });
   const base = `layers/${encodeURIComponent(layer.id)}`;
 
   const reload = () => getJson<Groups>(`${base}/groups`).then(setState).catch(reportError("Groups could not be loaded"));
@@ -49,17 +63,18 @@ export function GroupsPanel({ layer }: { layer: Layer }) {
   };
 
   const create = async () => {
-    setBusy(true);
+    const id = layer.id;              // the panel may unmount (another tab) before the reply
+    const update = (changes: Partial<Draft>) => useDrafts.getState().update(id, changes);
+    update({ busy: true, message: { text: `Creating group '${name}'…`, error: false } });
     try {
       setState(await sendJson<Groups>("POST", `${base}/groups`, { name, conditions }));
-      setConditions([]);
-      setMessage({ text: `Group '${name}' created.`, error: false });
-      await refreshLayer(layer.id);
-      analysesChanged(layer.id);
+      update({ conditions: [], message: { text: `Group '${name}' created.`, error: false } });
+      await refreshLayer(id);
+      analysesChanged(id);            // the remounted panel (and DE/ROI tabs) reload the groups
     } catch (exc: any) {
-      setMessage({ text: exc.message, error: true });
+      update({ message: { text: exc.message, error: true } });
     } finally {
-      setBusy(false);
+      update({ busy: false });
     }
   };
 
@@ -109,8 +124,10 @@ export function GroupsPanel({ layer }: { layer: Layer }) {
           <Text fw={600} size="sm">Created groups</Text>
           {!state.shown && <Button size="xs" variant="light" onClick={async () => {
             try {
-              await sendJson("POST", `${base}/groups/show`);
-              await refreshLayer(layer.id);
+              // The reply is the layer's recoloured map frame (binary), not JSON
+              await applyLayerFrame(await frame("POST", `${base}/groups/show`));
+              useApp.getState().updateLayer(layer.id, { colour_by: { kind: "groups", name: "custom_groups" } });
+              await requestViewport(layer.id);
             } catch (exc) {
               notifyError(exc, "The map could not be coloured by groups");
             }

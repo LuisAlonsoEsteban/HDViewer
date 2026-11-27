@@ -172,6 +172,24 @@ class ImagesDirTests(unittest.TestCase):
             self.assertEqual(config["apptainer"]["images_dir"], "images")               # config not modified
 
 
+class RCTDCoordinateTests(unittest.TestCase):
+    def test_coordinates_are_the_centres_of_each_observation(self):
+        import geopandas as gpd
+        from shapely.geometry import box
+        from hd_viewer.core.deconvolution import observation_coordinates, snapshot_target
+        import threading
+        gdf = gpd.GeoDataFrame(dict(index=["b", "a", "a"]),
+                               geometry=[box(0, 0, 2, 2), box(10, 10, 12, 12), box(20, 10, 22, 12)])
+        adata = ad.AnnData(X=sp.csr_matrix(np.ones((2, 3), dtype=np.float32)), obs=pd.DataFrame(index=["a", "b"]))
+        sample = SimpleNamespace(adata=adata, gdf=gdf, on="index", fetch_lock=threading.Lock(),
+                                 _compute_centroids=lambda g: (g.geometry.centroid.x.to_numpy(), g.geometry.centroid.y.to_numpy()))
+        np.testing.assert_allclose(observation_coordinates(sample), [[16, 11], [1, 1]])
+        np.testing.assert_allclose(snapshot_target(sample, "spacexr").obsm["spatial"], [[16, 11], [1, 1]])
+        self.assertNotIn("spatial", snapshot_target(sample, "nnls").obsm)
+        sample.gdf = gdf.iloc[:1]                                   # "a" has no geometry
+        self.assertIsNone(observation_coordinates(sample))
+
+
 class FastPathTests(unittest.TestCase):
     def test_pooling_by_matrix_product_matches_the_loop(self):
         rng = np.random.default_rng(0)

@@ -44,12 +44,17 @@ test("cluster the layer, hide a cluster and create a group", async ({ page }) =>
   await expect(page.getByText("Group 'Choroid plexus' created.")).toBeVisible({ timeout: 120_000 });
   await expect(page.getByRole("checkbox", { name: /Choroid plexus/ })).toBeChecked();
 
-  // A second group, then combined groups: the difference and a complement
+  // A second group, then combined groups: the difference and a complement.
+  // Leaving the tab while it is created must not lose it (the panel unmounts)
   await page.getByRole("textbox", { name: "Value" }).fill("5");
   await page.getByRole("button", { name: "Add condition" }).click();
   await page.getByRole("textbox", { name: "Group name" }).fill("High Ttr");
   await page.getByRole("button", { name: "Create group" }).click();
+  await page.getByRole("tab", { name: "Clustering" }).click();
+  await page.getByRole("tab", { name: "Groups" }).click();
+  await expect(page.getByText(/Creating group 'High Ttr'|Group 'High Ttr' created\./)).toBeVisible();
   await expect(page.getByText("Group 'High Ttr' created.")).toBeVisible({ timeout: 120_000 });
+  await expect(page.getByRole("checkbox", { name: /High Ttr/ })).toBeChecked();
 
   const combine = page.getByTestId("combine-groups");
   await expect(combine.getByRole("combobox", { name: "A", exact: true })).toHaveValue("Choroid plexus");
@@ -66,6 +71,18 @@ test("cluster the layer, hide a cluster and create a group", async ({ page }) =>
   await combine.getByRole("button", { name: "Create combined group" }).click();
   await expect(page.getByRole("checkbox", { name: /Outside the plexus/ })).toBeChecked({ timeout: 60_000 });
   await expect(page.locator(".mantine-Checkbox-description", { hasText: "not Choroid plexus" })).toBeVisible();   // how it was made
+
+  // Colour by a gene, then back by groups from the Groups tab (the reply is a map frame)
+  await page.getByRole("tab", { name: "Display" }).click();
+  const recoloured = page.waitForResponse((r) => r.url().includes("/style") && r.ok());
+  await page.getByRole("combobox", { name: "Gene / metadata" }).fill("Ttr");
+  await page.getByRole("option", { name: "Ttr", exact: true }).click();
+  await recoloured;
+  await page.getByRole("tab", { name: "Groups" }).click();
+  const colourByGroups = page.getByRole("button", { name: "Colour the map by groups" });
+  await colourByGroups.click();
+  await expect(colourByGroups).toHaveCount(0);
+  await expect(page.getByText("The map could not be coloured by groups")).toHaveCount(0);
 
   expect(errors.filter((e) => !/favicon/.test(e))).toEqual([]);
 });

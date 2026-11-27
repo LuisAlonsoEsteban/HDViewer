@@ -87,3 +87,5 @@ params:
   max: 2147483647
   label: Random seed
 reference_params: [reference_min_UMI, n_max_cells, CELL_MIN_INSTANCE, seed]
+# Each observation is fitted on its own, so the number of R workers does not change the result
+performance_params: [max_cores]

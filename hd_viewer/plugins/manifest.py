@@ -87,6 +87,9 @@ class Plugin:
     input_mount: str = "/data/input"
     output_mount: str = "/data/output"
     reference_params: list = field(default_factory=list)
+    # Parameters that change only the speed (e.g. worker counts), not the
+    # result; left out of cache keys so any setting reuses a cached run
+    performance_params: list = field(default_factory=list)
     # flag -> server environment variable whose value the runner appends as
     # `flag value` without putting it in any command line it launches
     secret_args: dict = field(default_factory=dict)
@@ -118,6 +121,8 @@ def load_plugin(path):
         raise ValueError("Duplicate parameter names")
     if set(manifest.get("reference_params", [])) - {p.name for p in params}:
         raise ValueError("reference_params must name declared parameters")
+    if set(manifest.get("performance_params", [])) - {p.name for p in params}:
+        raise ValueError("performance_params must name declared parameters")
     runners = manifest.get("runners", ["docker", "apptainer", "local"])
     if not runners or set(runners) - {"docker", "apptainer", "local"}:
         raise ValueError("Invalid supported runners")
@@ -131,6 +136,7 @@ def load_plugin(path):
         input_mount=manifest.get("input_mount", "/data/input"),
         output_mount=manifest.get("output_mount", "/data/output"),
         reference_params=manifest.get("reference_params", []),
+        performance_params=manifest.get("performance_params", []),
     )
 
 

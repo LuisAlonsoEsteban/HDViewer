@@ -197,14 +197,19 @@ class DeconvolutionService:
             target.obsm['spatial'] = coordinates.copy()
         reference = ad.AnnData(reference.X, obs=reference.obs[columns].astype(str).copy(),
                                var=pd.DataFrame(index=reference.var_names.copy()))
+        # Docker and Apptainer run the same pinned image, wherever it is stored, so
+        # their results (and cache keys) are shared across servers and runners
+        local = self.runner.name == 'local'
+        runtime = self.config.get('local', {}).get('python', {}).get(name, '') if local else plugin.image
+        runner_kind = 'local' if local else 'container'
         reference_spec = dict(matrix=matrix_fingerprint(reference), annotations=reference.obs.to_dict('list'),
                               label_column=label_column, method=name, version=plugin.version,
-                              image=plugin.image, runtime=(self.runner.image_uri(plugin) if self.runner.name == 'apptainer'
-                                  else self.config.get('local', {}).get('python', {}).get(name, '') if self.runner.name == 'local'
-                                  else plugin.image), gpu=self.runner.gpu, params={p: resolved[p] for p in plugin.reference_params})
+                              image=plugin.image, runtime=runtime, gpu=self.runner.gpu,
+                              params={p: resolved[p] for p in plugin.reference_params})
         reference_key = _key(reference_spec)
-        spec = dict(reference=reference_key, target=matrix_fingerprint(target), params=resolved,
-                    runner=self.runner.name, gpu=self.runner.gpu)
+        keyed = {p: v for p, v in resolved.items() if p not in plugin.performance_params}
+        spec = dict(reference=reference_key, target=matrix_fingerprint(target), params=keyed,
+                    runner=runner_kind, gpu=self.runner.gpu)
         if coordinates is not None:
             spec['spatial'] = hashlib.sha256(coordinates.astype('<f8').tobytes()).hexdigest()
         key = _key(spec)

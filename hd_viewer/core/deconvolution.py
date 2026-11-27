@@ -47,14 +47,30 @@ def cache_namespace(sample, kind, key, source_bin_size_um=None):
     return '/'.join(parts)
 
 
+def observation_coordinates(sample):
+    """(n_obs, 2) centroid of each observation's geometry, in the layer's map
+    coordinates (full-resolution image pixels); `obsm['spatial']` when present.
+    None when some observation has no geometry."""
+    if 'spatial' in sample.adata.obsm:
+        return np.asarray(sample.adata.obsm['spatial'], dtype=float)
+    gdf = sample.gdf
+    x, y = sample._compute_centroids(gdf)
+    # Several geometries per observation (e.g. split cells) share their mean centre
+    centres = pd.DataFrame({'x': x, 'y': y}).groupby(gdf[sample.on].astype(str).to_numpy()).mean()
+    coordinates = centres.reindex(sample.adata.obs_names.astype(str)).to_numpy(dtype=float)
+    return coordinates if np.isfinite(coordinates).all() else None
+
+
 def snapshot_target(sample, method):
     """Counts (and spatial coordinates for RCTD) copied under the sample lock, so
     later changes cannot alter what a background run consumes."""
     with sample.fetch_lock:
         target = ad.AnnData(sample.adata.X.copy(), obs=pd.DataFrame(index=sample.adata.obs_names.copy()),
                             var=pd.DataFrame(index=sample.adata.var_names.copy()))
-        if method == 'spacexr' and 'spatial' in sample.adata.obsm:
-            target.obsm['spatial'] = sample.adata.obsm['spatial'].copy()
+        if method == 'spacexr':
+            coordinates = observation_coordinates(sample)
+            if coordinates is not None:
+                target.obsm['spatial'] = coordinates
     return target
 
 
